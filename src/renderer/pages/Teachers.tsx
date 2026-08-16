@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Pencil, Archive } from 'lucide-react'
+import { Plus, Pencil, Archive, Camera } from 'lucide-react'
 import type { Teacher } from '@shared/types/index'
 
 export default function Teachers() {
@@ -25,7 +25,7 @@ export default function Teachers() {
   const openEdit = (t: Teacher) => { setEditing(t); setForm({ firstName: t.firstName, lastName: t.lastName, phone: t.phone ?? '', email: t.email ?? '', address: t.address ?? '' }); setError(''); setShowForm(true) }
 
   const handleSave = async () => {
-    if (!form.firstName.trim() || !form.lastName.trim()) { setError('يرجى إدخال الاسم واللقب'); return }
+    if (!form.firstName.trim() || !form.lastName.trim()) { setError('Veuillez remplir le nom et le prénom'); return }
     setSaving(true)
     try {
       const payload = { firstName: form.firstName, lastName: form.lastName, phone: form.phone || null, email: form.email || null, address: form.address || null }
@@ -43,11 +43,23 @@ export default function Teachers() {
     await load()
   }
 
+  const handleUploadPhoto = async (teacherId: number) => {
+    const res = await window.schoolApp.media.selectImage('teacher', String(teacherId))
+    if (res.success && res.data?.path) {
+      await window.schoolApp.teachers.update(teacherId, { photoPath: res.data.path } as any)
+      await load()
+    }
+  }
+
   const inputCls = 'w-full px-3 py-2 border border-border rounded-lg text-sm focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 transition-all bg-white'
 
   return (
-    <div className="animate-fade-in">
-      <div className="flex justify-end mb-5">
+    <div className="animate-fade-in space-y-5">
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-lg font-bold text-[#0F172A]">{t('nav.teachers')}</h2>
+          <p className="text-xs text-slate-400">Gestion du corps enseignant</p>
+        </div>
         <button onClick={openCreate} className="flex items-center gap-2 bg-[#2563EB] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#1D4ED8] transition-colors">
           <Plus size={15} /> {t('teachers.add')}
         </button>
@@ -65,8 +77,15 @@ export default function Teachers() {
             <div key={teacher.id} className="bg-white rounded-xl border border-border p-5 hover:shadow-md transition-shadow">
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-[#F0FDF4] flex items-center justify-center text-green-600 font-bold">
+                  <div
+                    onClick={() => handleUploadPhoto(teacher.id)}
+                    className="relative group cursor-pointer w-11 h-11 rounded-full bg-[#F0FDF4] flex items-center justify-center text-green-700 font-bold text-base border-2 border-emerald-200 shrink-0"
+                    title="Changer la photo"
+                  >
                     {teacher.firstName.charAt(0)}
+                    <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <Camera size={14} className="text-white" />
+                    </div>
                   </div>
                   <div>
                     <p className="font-semibold text-[#0F172A] text-sm">{teacher.lastName} {teacher.firstName}</p>
@@ -74,10 +93,10 @@ export default function Teachers() {
                   </div>
                 </div>
                 <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${teacher.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
-                  {t(`teachers.${teacher.status}`)}
+                  {teacher.status === 'active' ? 'Actif' : 'Inactif'}
                 </span>
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 pt-2 border-t border-slate-100">
                 <button onClick={() => openEdit(teacher)} className="flex items-center gap-1 text-xs text-slate-500 hover:text-[#2563EB] transition-colors">
                   <Pencil size={11} /> {t('common.edit')}
                 </button>

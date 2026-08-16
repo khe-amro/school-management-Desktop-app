@@ -4,30 +4,20 @@ import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import log from 'electron-log'
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-
-// Resolve preload path reliably across dev (pnpm dev) and packaged (.exe) environments
+// Resolve preload path relative to the compiled main process output.
 function resolvePreloadPath(): string {
-  const appPath = app.getAppPath()
-  const asarPath = path.join(process.resourcesPath || '', 'app.asar')
-
-  const possiblePaths = [
-    path.join(appPath, 'out/preload/preload.js'),
-    path.join(appPath, 'out/preload/preload.mjs'),
-    path.join(asarPath, 'out/preload/preload.js'),
-    path.join(asarPath, 'out/preload/preload.mjs'),
-    path.join(__dirname, '../preload/preload.js'),
-    path.join(__dirname, '../preload/preload.mjs'),
-    path.join(__dirname, '../../out/preload/preload.js'),
-  ]
-
-  for (const p of possiblePaths) {
-    if (p && fs.existsSync(p)) {
-      return p
-    }
+  const preloadPath = fileURLToPath(new URL('../preload/preload.js', import.meta.url))
+  if (fs.existsSync(preloadPath)) {
+    return preloadPath
   }
 
-  return path.join(appPath, 'out/preload/preload.js')
+  const appPath = app.getAppPath()
+  const fallbackPath = path.join(appPath, 'out/preload/preload.js')
+  if (fs.existsSync(fallbackPath)) {
+    return fallbackPath
+  }
+
+  throw new Error(`Preload was not found. Expected: ${preloadPath} or ${fallbackPath}`)
 }
 
 function resolveIconPath(): string {

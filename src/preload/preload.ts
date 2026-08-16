@@ -127,6 +127,40 @@ const api = {
       invoke<AttendanceSession & { records: AttendanceRecord[] }>(IPC_CHANNELS.ATTENDANCE_GET_SESSION, { id }),
     listSessions: (opts?: { groupId?: number; limit?: number }) =>
       invoke<AttendanceSession[]>(IPC_CHANNELS.ATTENDANCE_SESSIONS_LIST, opts),
+    lookup: (token: string) =>
+      invoke<any>(IPC_CHANNELS.ATTENDANCE_LOOKUP, { token }),
+    getStudentSummary: (studentId: number, sessionId?: number) =>
+      invoke<any>(IPC_CHANNELS.ATTENDANCE_STUDENT_SUMMARY, { studentId, sessionId }),
+    getRemainingSessionsCount: (enrollmentId: number) =>
+      invoke<{ count: number }>(IPC_CHANNELS.ATTENDANCE_REMAINING_SESSIONS, { enrollmentId }),
+  },
+
+  schedules: {
+    list: (opts?: { groupId?: number; active?: boolean }) =>
+      invoke<any[]>(IPC_CHANNELS.SCHEDULES_LIST, opts),
+    create: (data: { groupId: number; weekday: number; startTime: string; endTime: string; room?: string }) =>
+      invoke<any>(IPC_CHANNELS.SCHEDULES_CREATE, data),
+    update: (id: number, data: Partial<{ startTime: string; endTime: string; room: string | null; isActive: boolean }>) =>
+      invoke<any>(IPC_CHANNELS.SCHEDULES_UPDATE, { id, ...data }),
+    delete: (id: number) =>
+      invoke<boolean>(IPC_CHANNELS.SCHEDULES_DELETE, { id }),
+  },
+
+  sessions: {
+    list: (opts?: { groupId?: number; status?: 'open' | 'closed'; sessionType?: string }) =>
+      invoke<any[]>(IPC_CHANNELS.SESSIONS_LIST, opts),
+    get: (id: number) =>
+      invoke<any>(IPC_CHANNELS.SESSIONS_GET, { id }),
+    createExtra: (data: { groupId: number; sessionDate: string; startTime: string; endTime: string; room?: string; teacherId?: number }) =>
+      invoke<any>(IPC_CHANNELS.SESSIONS_CREATE_EXTRA, data),
+    generate: (groupId: number, startDate: string, endDate: string) =>
+      invoke<{ generated: number; message: string }>(IPC_CHANNELS.SESSIONS_GENERATE, { groupId, startDate, endDate }),
+    cancel: (sessionId: number, reason?: string) =>
+      invoke<boolean>(IPC_CHANNELS.SESSIONS_CANCEL, { sessionId, reason }),
+    complete: (sessionId: number) =>
+      invoke<boolean>(IPC_CHANNELS.SESSIONS_COMPLETE, { sessionId }),
+    upcoming: (opts?: { groupId?: number; limit?: number }) =>
+      invoke<any[]>(IPC_CHANNELS.SESSIONS_UPCOMING, opts),
   },
 
   payments: {
@@ -138,6 +172,8 @@ const api = {
       invoke<boolean>(IPC_CHANNELS.PAYMENTS_CANCEL, { id, reason }),
     byStudent: (studentId: number) =>
       invoke<Payment[]>(IPC_CHANNELS.PAYMENTS_BY_STUDENT, { studentId }),
+    summary: () =>
+      invoke<{ monthRevenue: number; todayCollected: number; outstanding: number; overdue: number }>('payments:summary'),
   },
 
   settings: {
@@ -148,6 +184,16 @@ const api = {
       academicYear: string; currency: string; defaultLanguage: 'ar' | 'fr' | 'en'
       backupDirectory: string | null; automaticBackupEnabled: boolean; backupsToRetain: number
     }>) => invoke<SchoolSettings>(IPC_CHANNELS.SETTINGS_UPDATE, data),
+    getAdmin: () =>
+      invoke<{ id: number; username: string; fullName: string; role: string; preferredLanguage: string; photoPath: string | null }>(IPC_CHANNELS.SETTINGS_GET_ADMIN),
+    updateAdmin: (data: { fullName?: string; preferredLanguage?: 'ar' | 'fr' | 'en'; photoPath?: string | null }) =>
+      invoke<{ id: number; fullName: string; preferredLanguage: string; photoPath: string | null }>(IPC_CHANNELS.SETTINGS_UPDATE_ADMIN, data),
+    listAuditLogs: (opts?: { limit?: number; offset?: number; action?: string }) =>
+      invoke<any[]>(IPC_CHANNELS.SETTINGS_LIST_AUDIT_LOGS, opts),
+    setAutoLock: (minutes: number) =>
+      invoke<{ minutes: number }>(IPC_CHANNELS.SETTINGS_AUTO_LOCK_SET, { minutes }),
+    getAutoLock: () =>
+      invoke<{ minutes: number }>(IPC_CHANNELS.SETTINGS_AUTO_LOCK_GET),
   },
 
   backups: {
@@ -161,6 +207,12 @@ const api = {
   },
 
   media: {
+    selectImage: (type: 'admin' | 'student' | 'teacher', recordId: string) =>
+      invoke<{ success: boolean; path: string | null; error: string | null }>(IPC_CHANNELS.MEDIA_SELECT_IMAGE, { type, recordId }),
+    deleteImage: (relativePath: string) =>
+      invoke<{ success: boolean; error: string | null }>(IPC_CHANNELS.MEDIA_DELETE_IMAGE, { relativePath }),
+    getImageUrl: (relativePath?: string) =>
+      invoke<{ url: string | null; error?: string | null }>(IPC_CHANNELS.MEDIA_GET_IMAGE_URL, { relativePath }),
     uploadPhoto: (sourcePath: string, entityType: 'student' | 'teacher', entityId: number) =>
       invoke<{ filename: string }>(IPC_CHANNELS.MEDIA_UPLOAD_PHOTO, { sourcePath, entityType, entityId }),
   },
@@ -171,12 +223,16 @@ const api = {
     openBackupDialog: () => invoke<{ canceled: boolean; path: string | null }>(IPC_CHANNELS.APP_OPEN_BACKUP_DIALOG),
     openSaveDialog: () => invoke<{ canceled: boolean; path: string | null }>(IPC_CHANNELS.APP_SHOW_SAVE_DIALOG),
     print: () => invoke<boolean>(IPC_CHANNELS.APP_PRINT),
-    printToPdf: (opts?: { pageSize?: 'A4' | 'Letter'; marginsType?: 0 | 1 | 2 }) => invoke<{ path: string }>(IPC_CHANNELS.APP_PRINT_TO_PDF, opts),
+    printToPdf: (opts?: { pageSize?: 'A4' | 'Letter'; marginsType?: 0 | 1 | 2; filename?: string }) => invoke<{ path: string }>(IPC_CHANNELS.APP_PRINT_TO_PDF, opts),
   },
 } as const
 
-// ─── Expose via contextBridge (the ONLY bridge to Node.js) ───────────────────
+console.log('[Preload] started')
+
+// ─── Expose via contextBridge (the ONLY bridge to Node.js) ───────────────────────────────────
 contextBridge.exposeInMainWorld('schoolApp', api)
+
+console.log('[Preload] schoolApp exposed')
 
 // ─── TypeScript declaration for renderer ─────────────────────────────────────
 export type SchoolAppAPI = typeof api

@@ -39,23 +39,19 @@ export function registerAuthHandlers(): void {
 
   handle(IPC_CHANNELS.AUTH_COMPLETE_SETUP, async (payload) => {
     const data = SetupSchema.parse(payload)
-
-    if (!isFirstRun()) {
-      throw new AppError(ErrorCode.INTERNAL_ERROR, 'Setup already completed')
-    }
-
     const db = getDb()
 
     // Create or update admin with Argon2id hash
     const passwordHash = await hashPassword(data.adminPassword)
-    const existingAdmin = await db.query.administrators.findFirst({
+    const existingAdmin = (await db.query.administrators.findFirst({
       where: eq(schema.administrators.username, data.adminUsername),
-    })
+    })) || (await db.query.administrators.findFirst())
 
     if (existingAdmin) {
       await db
         .update(schema.administrators)
         .set({
+          username: data.adminUsername,
           passwordHash,
           fullName: data.adminFullName,
           role: 'superadmin',
@@ -65,49 +61,22 @@ export function registerAuthHandlers(): void {
         })
         .where(eq(schema.administrators.id, existingAdmin.id))
     } else {
-      try {
-        await db.insert(schema.administrators).values({
-          username: data.adminUsername,
-          passwordHash,
-          fullName: data.adminFullName,
-          role: 'superadmin',
-          preferredLanguage: data.preferredLanguage,
-          isActive: true,
-        })
-      } catch (err) {
-        if (
-          err instanceof Database.SqliteError &&
-          err.code === 'SQLITE_CONSTRAINT_UNIQUE'
-        ) {
-          const duplicateAdmin = await db.query.administrators.findFirst({
-            where: eq(schema.administrators.username, data.adminUsername),
-          })
-          if (duplicateAdmin) {
-            await db
-              .update(schema.administrators)
-              .set({
-                passwordHash,
-                fullName: data.adminFullName,
-                role: 'superadmin',
-                preferredLanguage: data.preferredLanguage,
-                isActive: true,
-                updatedAt: new Date().toISOString(),
-              })
-              .where(eq(schema.administrators.id, duplicateAdmin.id))
-          } else {
-            throw err
-          }
-        } else {
-          throw err
-        }
-      }
+      await db.insert(schema.administrators).values({
+        username: data.adminUsername,
+        passwordHash,
+        fullName: data.adminFullName,
+        role: 'superadmin',
+        preferredLanguage: data.preferredLanguage,
+        isActive: true,
+      })
     }
 
-    // Log in automatically so setup can update settings safely
+    // Log in automatically so session is active
     const session = await login(data.adminUsername, data.adminPassword)
 
-    // Create school settings
-    await updateSettings({
+    // Upsert school settings
+    const existingSettings = await db.query.schoolSettings.findFirst()
+    const settingsPayload = {
       schoolNameAr: data.schoolNameAr,
       schoolNameFr: data.schoolNameFr,
       schoolNameEn: data.schoolNameEn ?? '',
@@ -116,9 +85,19 @@ export function registerAuthHandlers(): void {
       address: data.address ?? null,
       academicYear: data.academicYear,
       defaultLanguage: data.preferredLanguage,
-    })
+      updatedAt: new Date().toISOString(),
+    }
 
-    // Mark setup done after successful settings update
+    if (existingSettings) {
+      await db
+        .update(schema.schoolSettings)
+        .set(settingsPayload)
+        .where(eq(schema.schoolSettings.id, existingSettings.id))
+    } else {
+      await db.insert(schema.schoolSettings).values(settingsPayload)
+    }
+
+    // Mark setup done
     markSetupComplete()
 
     return session

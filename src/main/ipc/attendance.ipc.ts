@@ -5,7 +5,8 @@ import {
 } from '../../shared/schemas/index'
 import {
   startAttendanceSession, endAttendanceSession, scanQRToken,
-  markManually, getSession, listSessions
+  markManually, getSession, listSessions, lookupStudentByToken,
+  getStudentSummary, getRemainingSessionsCount
 } from '../services/attendance.service'
 import { z } from 'zod'
 
@@ -43,4 +44,32 @@ export function registerAttendanceHandlers(): void {
     }).parse(payload ?? {})
     return listSessions(opts)
   })
+
+  // ─── Student Lookup (QR scan without automatic attendance) ──────────────────
+
+  handle(IPC_CHANNELS.ATTENDANCE_LOOKUP, async (payload) => {
+    const { token } = z.object({ token: z.string() }).parse(payload)
+    const result = await lookupStudentByToken(token)
+    return result || { error: 'Student not found' }
+  })
+
+  // ─── Get student summary (comprehensive student info) ──────────────────────
+
+  handle(IPC_CHANNELS.ATTENDANCE_STUDENT_SUMMARY, async (payload) => {
+    const { studentId, sessionId } = z.object({
+      studentId: z.number().int().positive(),
+      sessionId: z.number().int().positive().optional(),
+    }).parse(payload)
+    const result = await getStudentSummary(studentId, sessionId)
+    return result || { error: 'Student not found' }
+  })
+
+  // ─── Get remaining sessions count for enrollment ──────────────────────────
+
+  handle(IPC_CHANNELS.ATTENDANCE_REMAINING_SESSIONS, async (payload) => {
+    const { enrollmentId } = z.object({ enrollmentId: z.number().int().positive() }).parse(payload)
+    const count = await getRemainingSessionsCount(enrollmentId)
+    return { count }
+  })
 }
+

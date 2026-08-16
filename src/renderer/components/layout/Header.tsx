@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Globe } from 'lucide-react'
@@ -20,9 +21,23 @@ export default function Header() {
   const { t, i18n } = useTranslation()
   const { pathname } = useLocation()
   const { session } = useAuth()
+  const [adminPhotoUrl, setAdminPhotoUrl] = useState<string | null>(null)
 
   const rootPath = '/' + pathname.split('/')[1]
   const pageTitle = routeLabels[rootPath] ? t(routeLabels[rootPath]) : ''
+
+  useEffect(() => {
+    if (session) {
+      window.schoolApp.settings.getAdmin().then(async (res) => {
+        if (res.success && res.data?.photoPath) {
+          try {
+            const photoRes = await window.schoolApp.media.getImageUrl(res.data.photoPath)
+            if (photoRes.success && photoRes.data?.url) setAdminPhotoUrl(photoRes.data.url)
+          } catch { /* ignore */ }
+        }
+      })
+    }
+  }, [session])
 
   const handleLang = (lang: SupportedLanguage) => {
     switchLanguage(lang)
@@ -51,13 +66,17 @@ export default function Header() {
           ))}
         </div>
 
-        {/* Admin badge */}
+        {/* Admin badge with photo */}
         {session && (
           <div className="flex items-center gap-2 text-xs text-slate-500">
-            <div className="w-7 h-7 rounded-full bg-[#2563EB] flex items-center justify-center text-white font-semibold text-xs">
-              {session.fullName.charAt(0).toUpperCase()}
-            </div>
-            <span className="hidden sm:block">{session.fullName}</span>
+            {adminPhotoUrl ? (
+              <img src={adminPhotoUrl} alt={session.fullName} className="w-7 h-7 rounded-full object-cover border border-slate-200" />
+            ) : (
+              <div className="w-7 h-7 rounded-full bg-[#2563EB] flex items-center justify-center text-white font-semibold text-xs">
+                {session.fullName.charAt(0).toUpperCase()}
+              </div>
+            )}
+            <span className="hidden sm:block font-medium text-[#0F172A]">{session.fullName}</span>
           </div>
         )}
       </div>

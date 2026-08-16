@@ -8,7 +8,7 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 const appDataDir = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming')
-const devUserDataDir = path.join(appDataDir, 'Edupilot DZ')
+const devUserDataDir = path.join(appDataDir, 'Edupilot-DZ-Dev')
 
 console.log(`[dev:reset-data] User data directory: ${devUserDataDir}`)
 

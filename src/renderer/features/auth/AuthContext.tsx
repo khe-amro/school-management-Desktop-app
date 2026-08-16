@@ -7,6 +7,7 @@ interface AuthContextValue {
   isLoading: boolean
   isFirstRun: boolean
   bridgeError: string | null
+  startupState: 'checking' | 'bridge-error' | 'database-error' | 'setup-required' | 'login-required' | 'authenticated'
   retryInit: () => void
   login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>
   logout: () => Promise<void>
@@ -18,9 +19,18 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes auto-lock
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  type StartupState =
+    | 'checking'
+    | 'bridge-error'
+    | 'database-error'
+    | 'setup-required'
+    | 'login-required'
+    | 'authenticated'
+
   const [session, setSession] = useState<AuthSession | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isFirstRun, setIsFirstRun] = useState(false)
+  const [startupState, setStartupState] = useState<StartupState>('checking')
   const [bridgeError, setBridgeError] = useState<string | null>(null)
   const inactivityTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -49,9 +59,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const init = useCallback(async () => {
     setIsLoading(true)
     setBridgeError(null)
+    setStartupState('checking')
 
     if (!window.schoolApp || !window.schoolApp.health) {
       setBridgeError('Electron bridge unavailable. Preload script was not loaded.')
+      setStartupState('bridge-error')
       setIsLoading(false)
       return
     }
@@ -64,6 +76,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             ? healthRes.error ?? 'IPC health check failed'
             : 'Database failed to initialize or open SQLite connection.'
         )
+        setStartupState('database-error')
         setIsLoading(false)
         return
       }
@@ -73,16 +86,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         window.schoolApp.auth.checkFirstRun(),
       ])
 
-      if (firstRunResult.success && firstRunResult.data?.firstRun) {
-        setIsFirstRun(true)
+      if (!firstRunResult.success) {
+        setBridgeError(firstRunResult.error ?? 'Failed to determine first-run state.')
+        setStartupState('bridge-error')
+        setIsLoading(false)
+        return
       }
 
-      if (sessionResult.success && sessionResult.data) {
+      if (firstRunResult.data?.firstRun) {
+        setIsFirstRun(true)
+        setStartupState('setup-required')
+      } else if (sessionResult.success && sessionResult.data) {
         setSession(sessionResult.data)
         applyLanguage(sessionResult.data.preferredLanguage as SupportedLanguage)
+        setStartupState('authenticated')
+      } else {
+        setStartupState('login-required')
       }
     } catch (err) {
       setBridgeError(`Startup initialization error: ${err instanceof Error ? err.message : String(err)}`)
+      setStartupState('bridge-error')
     } finally {
       setIsLoading(false)
     }
@@ -99,6 +122,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(result.data)
       applyLanguage(result.data.preferredLanguage as SupportedLanguage)
       setIsFirstRun(false)
+      setStartupState('authenticated')
       return { success: true }
     }
     return { success: false, error: !result.success ? result.error : undefined }
@@ -116,13 +140,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(result.data)
       applyLanguage(result.data.preferredLanguage as SupportedLanguage)
       setIsFirstRun(false)
+      setStartupState('authenticated')
       return { success: true }
     }
     return { success: false, error: !result.success ? result.error : undefined }
   }, [])
 
   return (
-    <AuthContext.Provider value={{ session, isLoading, isFirstRun, bridgeError, retryInit: init, login, logout, completeSetup }}>
+    <AuthContext.Provider
+      value={{
+        session,
+        isLoading,
+        isFirstRun,
+        bridgeError,
+        startupState,
+        retryInit: init,
+        login,
+        logout,
+        completeSetup,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   )

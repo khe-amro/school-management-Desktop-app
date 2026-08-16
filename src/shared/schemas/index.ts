@@ -20,14 +20,14 @@ export const ChangePasswordSchema = z.object({
 export const SetupSchema = z.object({
   schoolNameAr: z.string().min(1).max(200).trim(),
   schoolNameFr: z.string().min(1).max(200).trim(),
-  schoolNameEn: z.string().min(1).max(200).trim().optional(),
-  phone: z.string().max(30).trim().optional(),
-  email: z.string().email().max(200).trim().optional().or(z.literal('')),
-  address: z.string().max(500).trim().optional(),
-  academicYear: z.string().regex(/^\d{4}-\d{4}$/).default('2025-2026'),
+  schoolNameEn: z.string().max(200).trim().optional().nullable(),
+  phone: z.string().max(50).trim().optional().nullable(),
+  email: z.string().max(200).trim().optional().nullable().or(z.literal('')),
+  address: z.string().max(500).trim().optional().nullable(),
+  academicYear: z.string().max(50).default('2025-2026'),
   adminFullName: z.string().min(1).max(200).trim(),
-  adminUsername: z.string().min(3).max(50).trim().regex(/^[a-zA-Z0-9_]+$/),
-  adminPassword: z.string().min(8).max(200),
+  adminUsername: z.string().min(1).max(50).trim(),
+  adminPassword: z.string().min(4).max(200),
   preferredLanguage: z.enum(['ar', 'fr', 'en']).default('ar'),
 })
 
@@ -59,9 +59,9 @@ export const StudentIdSchema = z.object({
 
 export const StudentListSchema = z.object({
   page: z.number().int().min(1).default(1),
-  pageSize: z.number().int().min(1).max(200).default(50),
+  pageSize: z.number().int().min(1).max(1000).default(100),
   search: z.string().max(200).trim().optional(),
-  status: z.enum(['active', 'inactive', 'archived', 'all']).default('active'),
+  status: z.enum(['active', 'inactive', 'archived', 'all']).default('all'),
 })
 
 // ─── Teachers ────────────────────────────────────────────────────────────────

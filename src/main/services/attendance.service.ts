@@ -62,22 +62,52 @@ export async function scanQRToken(sessionId: number, rawToken: string): Promise<
   const session = requireSession()
   const db = getDb()
 
-  const token = rawToken.trim().toUpperCase()
+  let token = rawToken.trim()
+  // 1. If QR code is a JSON payload
+  if (token.startsWith('{') && token.endsWith('}')) {
+    try {
+      const parsed = JSON.parse(token)
+      if (parsed.token) token = String(parsed.token).trim()
+      else if (parsed.id || parsed.matricule) {
+        const studentNum = String(parsed.id || parsed.matricule).trim()
+        const found = await db.query.students.findFirst({
+          where: eq(schema.students.studentNumber, studentNum),
+        })
+        if (found) token = found.qrToken
+      }
+    } catch {}
+  }
 
-  // 1. Validate token format
+  // 2. If multiline plain text (contains STD-... or ETU-...)
+  const stdMatch = token.match(/STD-[a-f0-9A-F]+/i)
+  if (stdMatch) {
+    token = stdMatch[0]
+  } else {
+    const etuMatch = token.match(/ETU-\d+/i)
+    if (etuMatch) {
+      const found = await db.query.students.findFirst({
+        where: eq(schema.students.studentNumber, etuMatch[0].toUpperCase()),
+      })
+      if (found) token = found.qrToken
+    }
+  }
+
+  const upperToken = token.toUpperCase()
+
+  // 3. Validate token format
   if (!token || token.length < 5) {
     return { code: 'unknown_card' }
   }
 
   // 2. Find the active token
   const student = await db.query.students.findFirst({
-    where: eq(schema.students.qrToken, token.toLowerCase() === token ? token : token),
+    where: eq(schema.students.qrToken, token),
   })
 
   // Try case-insensitive search via like pattern
   const students_found = await db.query.students.findMany()
-  const matchedStudent = students_found.find(
-    (s: typeof schema.students.$inferSelect) => s.qrToken.toUpperCase() === token
+  const matchedStudent = student ?? students_found.find(
+    (s: typeof schema.students.$inferSelect) => s.qrToken.toUpperCase() === upperToken
   )
 
   if (!matchedStudent) {
@@ -265,6 +295,194 @@ export async function listSessions(opts: { groupId?: number; limit?: number }): 
     .orderBy(desc(schema.attendanceSessions.sessionDate))
     .limit(opts.limit ?? 50)
   return rows.map(mapSessionRow)
+}
+
+// ─── Student Lookup (for QR scanning without attendance) ──────────────────────
+
+export async function lookupStudentByToken(rawToken: string): Promise<{
+  student: any
+  enrollments: any[]
+  nextSession?: any
+  error?: string
+} | null> {
+  const db = getDb()
+
+  let token = rawToken.trim()
+  if (token.startsWith('{') && token.endsWith('}')) {
+    try {
+      const parsed = JSON.parse(token)
+      if (parsed.token) token = String(parsed.token).trim()
+      else if (parsed.id || parsed.matricule) {
+        const found = await db.query.students.findFirst({
+          where: eq(schema.students.studentNumber, String(parsed.id || parsed.matricule).trim()),
+        })
+        if (found) token = found.qrToken
+      }
+    } catch {}
+  }
+
+  const stdMatch = token.match(/STD-[a-f0-9A-F]+/i)
+  if (stdMatch) {
+    token = stdMatch[0]
+  } else {
+    const etuMatch = token.match(/ETU-\d+/i)
+    if (etuMatch) {
+      const found = await db.query.students.findFirst({
+        where: eq(schema.students.studentNumber, etuMatch[0].toUpperCase()),
+      })
+      if (found) token = found.qrToken
+    }
+  }
+
+  // Find student by token
+  const student = await db.query.students.findFirst({
+    where: eq(schema.students.qrToken, token),
+  })
+
+  if (!student) {
+    return null
+  }
+
+  // Get enrollments
+  const enrollments = await db.query.enrollments.findMany({
+    where: eq(schema.enrollments.studentId, student.id),
+  })
+
+  // Get next session for each enrollment
+  const nextSessions = []
+  for (const enrollment of enrollments) {
+    const session = await db.query.attendanceSessions.findFirst({
+      where: and(
+        eq(schema.attendanceSessions.groupId, enrollment.groupId),
+        eq(schema.attendanceSessions.status, 'open'),
+      ),
+      orderBy: desc(schema.attendanceSessions.sessionDate),
+    })
+    if (session) nextSessions.push(session)
+  }
+
+  return {
+    student: {
+      id: student.id,
+      fullNameAr: `${student.firstNameAr} ${student.lastNameAr}`,
+      fullNameFr: `${student.firstNameFr} ${student.lastNameFr}`,
+      studentNumber: student.studentNumber,
+      photoPath: student.photoPath,
+      gender: student.gender,
+    },
+    enrollments: enrollments.map((e) => ({
+      id: e.id,
+      groupId: e.groupId,
+      status: e.status,
+      enrollmentDate: e.enrollmentDate,
+      agreedPrice: e.agreedPrice,
+    })),
+    nextSession: nextSessions[0],
+  }
+}
+
+// ─── Get comprehensive student summary ──────────────────────────────────────
+
+export async function getStudentSummary(studentId: number, sessionId?: number): Promise<{
+  student: any
+  enrollments: any[]
+  upcomingSessions: any[]
+  attendanceStats: {
+    totalSessions: number
+    presentCount: number
+    absentCount: number
+    lateCount: number
+    attendanceRate: number
+  }
+} | null> {
+  const db = getDb()
+
+  // Get student
+  const student = await db.query.students.findFirst({
+    where: eq(schema.students.id, studentId),
+  })
+
+  if (!student) return null
+
+  // Get enrollments
+  const enrollments = await db.query.enrollments.findMany({
+    where: eq(schema.enrollments.studentId, studentId),
+  })
+
+  // Get upcoming sessions
+  const upcomingSessions = await db.select().from(schema.attendanceSessions)
+    .where(eq(schema.attendanceSessions.status, 'open'))
+    .orderBy(desc(schema.attendanceSessions.sessionDate))
+    .limit(5)
+
+  // Get attendance statistics
+  const records = await db.query.attendanceRecords.findMany({
+    where: eq(schema.attendanceRecords.studentId, studentId),
+  })
+
+  const presentCount = records.filter((r) => r.attendanceStatus === 'present').length
+  const absentCount = records.filter((r) => r.attendanceStatus === 'absent').length
+  const lateCount = records.filter((r) => r.attendanceStatus === 'late').length
+  const totalSessions = records.length
+  const attendanceRate = totalSessions > 0 ? (presentCount / totalSessions) * 100 : 0
+
+  return {
+    student: {
+      id: student.id,
+      firstNameAr: student.firstNameAr,
+      lastNameAr: student.lastNameAr,
+      firstNameFr: student.firstNameFr,
+      lastNameFr: student.lastNameFr,
+      studentNumber: student.studentNumber,
+      photoPath: student.photoPath,
+      gender: student.gender,
+      dateOfBirth: student.dateOfBirth,
+    },
+    enrollments: enrollments.map((e) => ({
+      id: e.id,
+      groupId: e.groupId,
+      status: e.status,
+      enrollmentDate: e.enrollmentDate,
+      agreedPrice: e.agreedPrice,
+    })),
+    upcomingSessions: upcomingSessions.map(mapSessionRow),
+    attendanceStats: {
+      totalSessions,
+      presentCount,
+      absentCount,
+      lateCount,
+      attendanceRate: Math.round(attendanceRate * 100) / 100,
+    },
+  }
+}
+
+// ─── Get remaining sessions count ──────────────────────────────────────────
+
+export async function getRemainingSessionsCount(enrollmentId: number): Promise<number> {
+  const db = getDb()
+
+  // Get enrollment
+  const enrollment = await db.query.enrollments.findFirst({
+    where: eq(schema.enrollments.id, enrollmentId),
+  })
+
+  if (!enrollment) return 0
+
+  // Count total sessions for the group
+  const totalSessions = await db.query.attendanceSessions.findMany({
+    where: eq(schema.attendanceSessions.groupId, enrollment.groupId),
+  })
+
+  // Count attended sessions
+  const attendedRecords = await db.query.attendanceRecords.findMany({
+    where: and(
+      eq(schema.attendanceRecords.studentId, enrollment.studentId),
+      eq(schema.attendanceRecords.attendanceStatus, 'present'),
+    ),
+  })
+
+  const remaining = Math.max(0, totalSessions.length - attendedRecords.length)
+  return remaining
 }
 
 // ─── Row mappers ──────────────────────────────────────────────────────────────

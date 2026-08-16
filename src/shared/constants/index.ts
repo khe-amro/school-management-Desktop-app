@@ -100,11 +100,39 @@ export const IPC_CHANNELS = {
   BACKUPS_LIST: 'backups:list',
   BACKUPS_VERIFY: 'backups:verify',
 
-  // Settings
+  // Schedules (recurring weekly slots)
+  SCHEDULES_LIST: 'schedules:list',
+  SCHEDULES_CREATE: 'schedules:create',
+  SCHEDULES_UPDATE: 'schedules:update',
+  SCHEDULES_DELETE: 'schedules:delete',
+
+  // Sessions (instances of lessons)
+  SESSIONS_LIST: 'sessions:list',
+  SESSIONS_GET: 'sessions:get',
+  SESSIONS_CREATE_EXTRA: 'sessions:createExtra',
+  SESSIONS_GENERATE: 'sessions:generate',
+  SESSIONS_CANCEL: 'sessions:cancel',
+  SESSIONS_COMPLETE: 'sessions:complete',
+  SESSIONS_UPCOMING: 'sessions:upcoming',
+
+  // Attendance (extended)
+  ATTENDANCE_LOOKUP: 'attendance:lookup',
+  ATTENDANCE_STUDENT_SUMMARY: 'attendance:studentSummary',
+  ATTENDANCE_REMAINING_SESSIONS: 'attendance:remainingSessions',
+
+  // Settings (extended)
   SETTINGS_GET: 'settings:get',
   SETTINGS_UPDATE: 'settings:update',
+  SETTINGS_GET_ADMIN: 'settings:getAdmin',
+  SETTINGS_UPDATE_ADMIN: 'settings:updateAdmin',
+  SETTINGS_LIST_AUDIT_LOGS: 'settings:listAuditLogs',
+  SETTINGS_AUTO_LOCK_SET: 'settings:setAutoLock',
+  SETTINGS_AUTO_LOCK_GET: 'settings:getAutoLock',
 
   // Media
+  MEDIA_SELECT_IMAGE: 'media:selectImage',
+  MEDIA_DELETE_IMAGE: 'media:deleteImage',
+  MEDIA_GET_IMAGE_URL: 'media:getImageUrl',
   MEDIA_UPLOAD_PHOTO: 'media:uploadPhoto',
   MEDIA_GET_URL: 'media:getUrl',
 

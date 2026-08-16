@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
-import { Users, ScanLine, CreditCard, TrendingUp, UserPlus, BookOpen, AlertCircle } from 'lucide-react'
+import { Users, ScanLine, CreditCard, UserPlus, BookOpen, AlertCircle, Calendar, Clock } from 'lucide-react'
 import type { Student } from '@shared/types/index'
 
 interface DashboardStats {
@@ -11,19 +11,30 @@ interface DashboardStats {
   monthRevenue: number
 }
 
+interface UpcomingSession {
+  id: number
+  groupId: number
+  groupName?: string
+  sessionDate: string
+  plannedStartTime?: string
+  status: string
+}
+
 export default function Dashboard() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const [stats, setStats] = useState<DashboardStats>({ totalActiveStudents: 0, presentToday: 0, absentToday: 0, monthRevenue: 0 })
   const [recentStudents, setRecentStudents] = useState<Student[]>([])
+  const [upcomingSessions, setUpcomingSessions] = useState<UpcomingSession[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     async function loadData() {
       try {
-        const [studentsResult, paymentsResult] = await Promise.all([
+        const [studentsResult, paymentsSummary, upcomingRes] = await Promise.all([
           window.schoolApp.students.list({ pageSize: 5, status: 'active' }),
-          window.schoolApp.payments.list({ pageSize: 200 }),
+          window.schoolApp.payments.summary(),
+          window.schoolApp.sessions.upcoming({ limit: 5 }),
         ])
 
         if (studentsResult.success && studentsResult.data) {
@@ -31,13 +42,12 @@ export default function Dashboard() {
           setRecentStudents(studentsResult.data.items.slice(0, 5))
         }
 
-        if (paymentsResult.success && paymentsResult.data) {
-          const now = new Date()
-          const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-          const monthRev = paymentsResult.data.items
-            .filter((p) => p.billingPeriod === monthStr && p.status === 'paid')
-            .reduce((sum, p) => sum + p.amount, 0)
-          setStats((s) => ({ ...s, monthRevenue: monthRev }))
+        if (paymentsSummary.success && paymentsSummary.data) {
+          setStats((s) => ({ ...s, monthRevenue: paymentsSummary.data!.monthRevenue }))
+        }
+
+        if (upcomingRes.success && upcomingRes.data) {
+          setUpcomingSessions(upcomingRes.data)
         }
       } catch (err) {
         console.error('Dashboard load error:', err)
@@ -57,22 +67,15 @@ export default function Dashboard() {
       trend: t('dashboard.students'),
     },
     {
-      label: t('dashboard.presentToday'),
-      value: stats.presentToday,
+      label: 'Séances aujourd\'hui',
+      value: upcomingSessions.length,
       icon: ScanLine,
       color: 'bg-green-50 text-green-600',
-      trend: '',
-    },
-    {
-      label: t('dashboard.absentToday'),
-      value: stats.absentToday,
-      icon: AlertCircle,
-      color: 'bg-red-50 text-red-600',
-      trend: '',
+      trend: 'Séances planifiées',
     },
     {
       label: t('dashboard.monthRevenue'),
-      value: `${stats.monthRevenue.toLocaleString()} دج`,
+      value: `${stats.monthRevenue.toLocaleString()} DA`,
       icon: CreditCard,
       color: 'bg-teal-50 text-teal-600',
       trend: t('dashboard.thisMonth'),
@@ -81,7 +84,7 @@ export default function Dashboard() {
 
   const quickActions = [
     { label: t('dashboard.addStudent'), icon: UserPlus, to: '/students/new', color: 'bg-[#2563EB] hover:bg-[#1D4ED8]' },
-    { label: t('dashboard.startAttendance'), icon: ScanLine, to: '/attendance', color: 'bg-accent hover:bg-[#0D9488]' },
+    { label: t('dashboard.startAttendance'), icon: ScanLine, to: '/attendance', color: 'bg-emerald-600 hover:bg-emerald-700' },
     { label: t('dashboard.recordPayment'), icon: CreditCard, to: '/payments', color: 'bg-[#7C3AED] hover:bg-[#6D28D9]' },
     { label: t('dashboard.createCourse'), icon: BookOpen, to: '/courses', color: 'bg-[#F59E0B] hover:bg-[#D97706]' },
   ]
@@ -97,7 +100,7 @@ export default function Dashboard() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {statCards.map((card) => (
           <div key={card.label} className="bg-white rounded-xl border border-border p-5 hover:shadow-md transition-shadow">
             <div className="flex items-start justify-between">
@@ -124,7 +127,7 @@ export default function Dashboard() {
               <button
                 key={action.label}
                 onClick={() => navigate(action.to)}
-                className={`${action.color} text-white rounded-xl p-3.5 flex flex-col items-center gap-2 transition-colors text-center`}
+                className={`${action.color} text-white rounded-xl p-3.5 flex flex-col items-center gap-2 transition-colors text-center shadow-xs`}
               >
                 <action.icon size={20} />
                 <span className="text-xs font-medium leading-tight">{action.label}</span>
@@ -134,22 +137,18 @@ export default function Dashboard() {
         </div>
 
         {/* Recent students */}
-        <div className="lg:col-span-2 bg-white rounded-xl border border-border p-5">
+        <div className="bg-white rounded-xl border border-border p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold text-[#0F172A] text-sm">{t('nav.students')}</h3>
-            <button
-              onClick={() => navigate('/students')}
-              className="text-xs text-[#2563EB] hover:underline"
-            >
+            <button onClick={() => navigate('/students')} className="text-xs text-[#2563EB] hover:underline">
               {t('dashboard.viewAll')}
             </button>
           </div>
 
           {recentStudents.length === 0 ? (
-            <div className="text-center py-10 text-slate-400">
+            <div className="text-center py-8 text-slate-400">
               <Users size={32} className="mx-auto mb-2 opacity-40" />
               <p className="text-sm">{t('students.noStudents')}</p>
-              <p className="text-xs mt-1">{t('students.noStudentsDesc')}</p>
             </div>
           ) : (
             <div className="space-y-2.5">
@@ -163,13 +162,41 @@ export default function Dashboard() {
                     {s.firstNameAr.charAt(0)}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-[#0F172A] truncate">{s.lastNameAr} {s.firstNameAr}</p>
+                    <p className="text-sm font-medium text-[#0F172A] truncate" dir="rtl">{s.lastNameAr} {s.firstNameAr}</p>
                     <p className="text-xs text-slate-400">{s.studentNumber}</p>
                   </div>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                    s.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'
-                  }`}>
-                    {t(`students.${s.status}`)}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Upcoming sessions */}
+        <div className="bg-white rounded-xl border border-border p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold text-[#0F172A] text-sm flex items-center gap-2">
+              <Calendar size={14} /> Séances du jour
+            </h3>
+            <button onClick={() => navigate('/courses')} className="text-xs text-[#2563EB] hover:underline">
+              Gérer
+            </button>
+          </div>
+
+          {upcomingSessions.length === 0 ? (
+            <div className="text-center py-8 text-slate-400">
+              <Clock size={32} className="mx-auto mb-2 opacity-40" />
+              <p className="text-xs">Aucune séance planifiée pour aujourd'hui</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {upcomingSessions.map((sess) => (
+                <div key={sess.id} className="p-3 bg-slate-50 rounded-lg flex items-center justify-between text-xs">
+                  <div>
+                    <p className="font-bold text-[#0F172A]">{sess.groupName ?? `Groupe #${sess.groupId}`}</p>
+                    <p className="text-slate-400">{sess.plannedStartTime ?? '10:00'}</p>
+                  </div>
+                  <span className="px-2 py-0.5 rounded bg-blue-100 text-[#2563EB] font-semibold text-[10px]">
+                    {sess.status}
                   </span>
                 </div>
               ))}

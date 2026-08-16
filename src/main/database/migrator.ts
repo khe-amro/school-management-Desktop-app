@@ -225,6 +225,56 @@ const MIGRATIONS: { version: number; name: string; sql: string }[] = [
       INSERT OR IGNORE INTO app_metadata(key, value) VALUES('first_run', 'true');
     `,
   },
+  {
+    version: 2,
+    name: 'add_schedules_and_admin_photo',
+    sql: `
+      -- Add photo_path to administrators (nullable)
+      ALTER TABLE administrators ADD COLUMN photo_path TEXT;
+
+      -- Create group_schedule_slots for normalized recurring schedules
+      CREATE TABLE IF NOT EXISTS group_schedule_slots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        group_id INTEGER NOT NULL REFERENCES groups(id),
+        weekday INTEGER NOT NULL CHECK(weekday >= 0 AND weekday <= 6),
+        start_time TEXT NOT NULL,
+        end_time TEXT NOT NULL,
+        room TEXT,
+        effective_from TEXT NOT NULL DEFAULT (date('now')),
+        effective_until TEXT,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        created_by INTEGER REFERENCES administrators(id),
+        UNIQUE(group_id, weekday, start_time)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_schedule_group ON group_schedule_slots(group_id);
+      CREATE INDEX IF NOT EXISTS idx_schedule_weekday ON group_schedule_slots(weekday);
+      CREATE INDEX IF NOT EXISTS idx_schedule_active ON group_schedule_slots(is_active);
+
+      -- Create student_notes table for administrative notes
+      CREATE TABLE IF NOT EXISTS student_notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        student_id INTEGER NOT NULL REFERENCES students(id),
+        note_text TEXT NOT NULL,
+        created_by INTEGER NOT NULL REFERENCES administrators(id),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_notes_student ON student_notes(student_id);
+
+      -- Extend attendance_sessions with session_type and cancelled_reason
+      ALTER TABLE attendance_sessions ADD COLUMN session_type TEXT NOT NULL DEFAULT 'regular' 
+        CHECK(session_type IN ('regular', 'extra', 'makeup', 'cancelled'));
+      ALTER TABLE attendance_sessions ADD COLUMN schedule_slot_id INTEGER REFERENCES group_schedule_slots(id);
+      ALTER TABLE attendance_sessions ADD COLUMN cancelled_reason TEXT;
+
+      CREATE INDEX IF NOT EXISTS idx_sessions_type ON attendance_sessions(session_type);
+      CREATE INDEX IF NOT EXISTS idx_sessions_schedule_slot ON attendance_sessions(schedule_slot_id);
+    `,
+  },
 ]
 
 // ─── Migration runner ─────────────────────────────────────────────────────────
@@ -305,13 +355,20 @@ async function backupBeforeMigration(migrationVersion: number): Promise<void> {
 export function isFirstRun(): boolean {
   try {
     const sqlite = getSqlite()
-    // If no active administrator exists in the system, setup is required
     const adminCount = sqlite.prepare<[], { count: number }>(
       `SELECT COUNT(*) as count FROM administrators WHERE is_active = 1`
     ).get()
+    const settingsCount = sqlite.prepare<[], { count: number }>(
+      `SELECT COUNT(*) as count FROM school_settings`
+    ).get()
+
     if (!adminCount || adminCount.count === 0) {
       return true
     }
+    if (!settingsCount || settingsCount.count === 0) {
+      return true
+    }
+
     const row = sqlite.prepare<[], { value: string }>(
       `SELECT value FROM app_metadata WHERE key = 'first_run' LIMIT 1`
     ).get()

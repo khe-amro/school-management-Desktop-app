@@ -1,128 +1,235 @@
-import { useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Printer, Download, RefreshCw, RotateCcw } from 'lucide-react'
-import { students, courses, groups } from '../data/mockData'
-import Logo from '../components/Logo'
+﻿/**
+ * StudentCard.tsx -- rewritten as thermal ticket page
+ *
+ * Fetches real student data via IPC and renders the StudentTicket
+ * component for preview + print/PDF.
+ */
+import { useState, useEffect, useRef } from "react"
+import { useParams, useNavigate } from "react-router-dom"
+import { ArrowLeft, Printer, Download, RefreshCw } from "lucide-react"
+import StudentTicket from "../components/StudentTicket"
 
-function QRCode({ token, size = 80 }: { token: string; size?: number }) {
-  const cells = Array.from({ length: 121 }, (_, i) => {
-    const row = Math.floor(i / 11)
-    const col = i % 11
-    const isCorner = (row < 3 && col < 3) || (row < 3 && col > 7) || (row > 7 && col < 3)
-    return isCorner || (Math.abs(token.charCodeAt(i % token.length) + row * 3 + col) % 2 === 0)
-  })
-  const cellSize = size / 11
-  return (
-    <div style={{ width: size, height: size, display: 'grid', gridTemplateColumns: `repeat(11, ${cellSize}px)`, background: 'white', padding: 4, border: '1px solid #E2E8F0', borderRadius: 4 }}>
-      {cells.map((dark, i) => <div key={i} style={{ width: cellSize, height: cellSize, background: dark ? '#0F172A' : 'white' }} />)}
-    </div>
-  )
+interface StudentData {
+  id: number
+  studentNumber: string
+  firstNameFr: string
+  lastNameFr: string
+  firstNameAr?: string
+  lastNameAr?: string
+  qrToken: string
+  status: "active" | "inactive" | "archived"
+  photoPath?: string | null
+}
+
+interface EnrollmentData {
+  id: number
+  groupId: number
+  status: string
+  groupName?: string
+  courseName?: string
 }
 
 export default function StudentCard() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const [side, setSide] = useState<'front' | 'back'>('front')
+  const [student, setStudent] = useState<StudentData | null>(null)
+  const [enrollment, setEnrollment] = useState<EnrollmentData | null>(null)
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null)
+  const [schoolName, setSchoolName] = useState("Edupilot DZ")
+  const [academicYear, setAcademicYear] = useState("2025-2026")
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const ticketRef = useRef<HTMLDivElement>(null)
 
-  const student = students.find(s => s.id === id)
-  if (!student) return <div className="text-center py-20 text-slate-400">Étudiant introuvable</div>
+  useEffect(() => {
+    const load = async () => {
+      if (!id) return
+      setLoading(true)
+      try {
+        const api = (window as any).schoolApp
 
-  const course = courses.find(c => c.id === student.courseId)
-  const group = groups.find(g => g.id === student.groupId)
+        // Load student
+        const studentRes = await api.students.getById(Number(id))
+        if (!studentRes.success || !studentRes.data) {
+          setError("Etudiant introuvable")
+          return
+        }
+        const s = studentRes.data
+        setStudent({
+          id: s.id,
+          studentNumber: s.studentNumber,
+          firstNameFr: s.firstNameFr,
+          lastNameFr: s.lastNameFr,
+          firstNameAr: s.firstNameAr,
+          lastNameAr: s.lastNameAr,
+          qrToken: s.qrToken,
+          status: s.status,
+          photoPath: s.photoPath,
+        })
 
-  const cardStyle = { width: 340, height: 214, borderRadius: 12 }
+        // Load enrollments to get course/group info
+        const enrollRes = await api.enrollments.byStudent(Number(id))
+        if (enrollRes.success && enrollRes.data && enrollRes.data.length > 0) {
+          const active = enrollRes.data.find((e: any) => e.status === "active") ?? enrollRes.data[0]
+          setEnrollment(active)
+        }
+
+        // Load photo
+        if (s.photoPath) {
+          const photoRes = await api.media.getImageUrl(s.photoPath)
+          if (photoRes.success && photoRes.data?.url) {
+            setPhotoUrl(photoRes.data.url)
+          }
+        }
+
+        // Load school settings
+        const settingsRes = await api.settings.get()
+        if (settingsRes.success && settingsRes.data) {
+          setSchoolName(settingsRes.data.schoolNameFr || "Edupilot DZ")
+          setAcademicYear(settingsRes.data.academicYear || "2025-2026")
+        }
+      } catch (err) {
+        setError("Erreur lors du chargement des donnees.")
+        console.error(err)
+      } finally {
+        setLoading(false)
+      }
+    }
+    load()
+  }, [id])
+
+  const handlePrint = async () => {
+    // Trigger native print (the CSS print styles handle the layout)
+    const api = (window as any).schoolApp
+    await api.app.print()
+  }
+
+  const handlePdf = async () => {
+    const api = (window as any).schoolApp
+    await api.app.printToPdf({
+      pageSize: "A4",
+      marginsType: 0,
+      filename: `ticket-${student?.studentNumber ?? id}.pdf`,
+    })
+  }
+
+  const handleRegenQR = async () => {
+    if (!id) return
+    const api = (window as any).schoolApp
+    const res = await api.students.regenQR(Number(id))
+    if (res.success && res.data) {
+      setStudent((prev) => (prev ? { ...prev, qrToken: res.data.token } : prev))
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-slate-400 text-sm">Chargement du ticket...</div>
+      </div>
+    )
+  }
+
+  if (error || !student) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-3">
+        <div className="text-red-500 text-sm">{error ?? "Etudiant introuvable"}</div>
+        <button onClick={() => navigate(-1)} className="text-blue-600 text-sm hover:underline">
+          Retour
+        </button>
+      </div>
+    )
+  }
 
   return (
-    <div>
-      <div className="flex items-center gap-3 mb-6">
-        <button onClick={() => navigate(`/students/${id}`)} className="p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition-colors"><ArrowLeft size={18} /></button>
-        <h2 className="text-lg font-semibold text-slate-900">Carte étudiant</h2>
-      </div>
-
-      <div className="grid grid-cols-3 gap-8">
-        {/* Card preview */}
-        <div className="col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm p-8">
-          <div className="flex items-center gap-3 mb-6">
-            <button onClick={() => setSide('front')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${side === 'front' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Recto</button>
-            <button onClick={() => setSide('back')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${side === 'back' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Verso</button>
-          </div>
-
-          <div className="flex justify-center">
-            {side === 'front' ? (
-              <div style={{ ...cardStyle, background: 'linear-gradient(135deg, #0F172A 0%, #1E3A5F 100%)', position: 'relative', overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,0.3)', color: 'white', padding: 18, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                {/* Decorative arc */}
-                <div style={{ position: 'absolute', right: -40, top: -40, width: 160, height: 160, borderRadius: '50%', background: 'rgba(37,99,235,0.25)' }} />
-                <div style={{ position: 'absolute', right: -20, top: -20, width: 100, height: 100, borderRadius: '50%', background: 'rgba(20,184,166,0.18)' }} />
-
-                {/* Header */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Logo size={22} collapsed />
-                    <div>
-                      <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5 }}>EDUPILOT DZ</p>
-                      <p style={{ fontSize: 8, color: '#94A3B8', letterSpacing: 0.3 }}>Année 2025–2026</p>
-                    </div>
-                  </div>
-                  <span style={{ fontSize: 8, color: '#14B8A6', fontWeight: 600, letterSpacing: 1 }}>CARTE ÉTUDIANT</span>
-                </div>
-
-                {/* Student info */}
-                <div style={{ display: 'flex', gap: 14, alignItems: 'flex-end', position: 'relative' }}>
-                  <img src={student.photo} alt={student.firstName} style={{ width: 56, height: 56, borderRadius: 8, objectFit: 'cover', border: '2px solid rgba(255,255,255,0.3)', flexShrink: 0 }} />
-                  <div style={{ flex: 1 }}>
-                    <p style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.2 }}>{student.firstName} {student.lastName}</p>
-                    <p style={{ fontSize: 9, color: '#94A3B8', marginTop: 3, letterSpacing: 0.3 }}>{course?.name} · {group?.name}</p>
-                    <p style={{ fontSize: 10, color: '#64748B', fontFamily: 'monospace', marginTop: 4 }}>{student.studentNumber}</p>
-                  </div>
-                  <QRCode token={student.token} size={56} />
-                </div>
-              </div>
-            ) : (
-              <div style={{ ...cardStyle, background: '#F8FAFC', border: '1px solid #E2E8F0', position: 'relative', overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,0.12)', padding: 18, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                <div style={{ background: '#0F172A', height: 32, margin: -18, marginBottom: 14, display: 'flex', alignItems: 'center', paddingLeft: 16, gap: 8 }}>
-                  <Logo size={18} collapsed />
-                  <span style={{ color: 'white', fontSize: 10, fontWeight: 600 }}>EDUPILOT DZ</span>
-                </div>
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8, fontSize: 10, color: '#475569' }}>
-                  <div style={{ display: 'flex', gap: 4 }}><span style={{ fontWeight: 600 }}>Tuteur:</span><span>{student.guardianName} — {student.guardianPhone}</span></div>
-                  <div style={{ display: 'flex', gap: 4 }}><span style={{ fontWeight: 600 }}>École:</span><span>Edupilot DZ · +213 555 000 000 · info@edupilot.dz</span></div>
-                  <div style={{ background: '#F1F5F9', borderRadius: 6, padding: '6px 8px', fontSize: 9, color: '#64748B' }}>
-                    Cette carte est destinée exclusivement à l'identification et à la pointage des présences. En cas de perte, veuillez contacter l'administration.
-                  </div>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 9, color: '#94A3B8' }}>
-                  <span>Expire: Juillet 2026</span>
-                  <Logo size={16} collapsed />
-                </div>
-              </div>
-            )}
-          </div>
+    <>
+      {/* Screen-only header + controls */}
+      <div className="print:hidden flex flex-col gap-4">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => navigate(-1)}
+            className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900 transition-colors"
+          >
+            <ArrowLeft size={16} />
+            Retour au profil
+          </button>
         </div>
 
-        {/* Actions */}
-        <div className="space-y-4">
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-2">
-            <button className="flex items-center justify-center gap-2 w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg transition-colors text-sm">
-              <Printer size={15} /> Imprimer la carte
-            </button>
-            <button className="flex items-center justify-center gap-2 w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium py-2.5 rounded-lg transition-colors text-sm">
-              <Download size={15} /> Télécharger aperçu
-            </button>
-            <button className="flex items-center justify-center gap-2 w-full text-blue-600 hover:bg-blue-50 font-medium py-2.5 rounded-lg transition-colors text-sm border border-blue-200">
-              <RefreshCw size={15} /> Regénérer le QR token
-            </button>
+        <div className="flex gap-6 items-start">
+          {/* Ticket preview */}
+          <div className="flex flex-col items-center gap-4">
+            <p className="text-xs text-slate-400 uppercase tracking-wide">Apercu du ticket</p>
+            <div ref={ticketRef} className="shadow-lg rounded-sm">
+              <StudentTicket
+                student={student}
+                courseName={enrollment?.courseName}
+                groupName={enrollment?.groupName}
+                schoolName={schoolName}
+                academicYear={academicYear}
+                photoUrl={photoUrl}
+                forPrint={false}
+              />
+            </div>
           </div>
 
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-            <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Informations carte</h3>
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between"><span className="text-slate-500">Token QR</span><span className="font-mono text-xs text-blue-700">{student.token}</span></div>
-              <div className="flex justify-between"><span className="text-slate-500">Statut</span><span className="text-green-600 font-medium">Active</span></div>
-              <div className="flex justify-between"><span className="text-slate-500">Expiration</span><span className="font-medium">Juil. 2026</span></div>
+          {/* Actions panel */}
+          <div className="flex-1 max-w-xs space-y-3">
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+              <h3 className="text-sm font-semibold text-slate-900 mb-4">Actions</h3>
+              <div className="space-y-2.5">
+                <button
+                  onClick={handlePrint}
+                  className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm font-medium text-white bg-slate-900 hover:bg-slate-700 rounded-lg transition-colors"
+                >
+                  <Printer size={15} />
+                  Imprimer le ticket
+                </button>
+                <button
+                  onClick={handlePdf}
+                  className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                >
+                  <Download size={15} />
+                  Exporter en PDF
+                </button>
+                <button
+                  onClick={handleRegenQR}
+                  className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition-colors"
+                >
+                  <RefreshCw size={15} />
+                  Regenerer le QR code
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 rounded-xl border border-slate-200 p-4">
+              <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Infos du ticket</h4>
+              <div className="space-y-1.5 text-xs text-slate-600">
+                <div className="flex justify-between"><span>N etudiant:</span> <span className="font-mono text-slate-800">{student.studentNumber}</span></div>
+                <div className="flex justify-between"><span>Cours:</span> <span className="font-medium text-slate-800">{enrollment?.courseName ?? "--"}</span></div>
+                <div className="flex justify-between"><span>Groupe:</span> <span className="font-medium text-slate-800">{enrollment?.groupName ?? "--"}</span></div>
+                <div className="flex justify-between"><span>Statut:</span>
+                  <span className={`font-medium ${student.status === "active" ? "text-green-600" : "text-red-500"}`}>
+                    {student.status === "active" ? "Actif" : student.status === "inactive" ? "Inactif" : "Archive"}
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
+
+      {/* Print-only content */}
+      <div className="hidden print:flex print:items-center print:justify-center print:min-h-screen">
+        <StudentTicket
+          student={student}
+          courseName={enrollment?.courseName}
+          groupName={enrollment?.groupName}
+          schoolName={schoolName}
+          academicYear={academicYear}
+          photoUrl={photoUrl}
+          forPrint={true}
+        />
+      </div>
+    </>
   )
 }

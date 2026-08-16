@@ -5,7 +5,9 @@ import { UpdateSettingsSchema, RestoreBackupSchema, UploadPhotoSchema } from '..
 import { getSettings, updateSettings } from '../services/settings.service'
 import { createBackup, listBackups, verifyBackup, restoreBackup } from '../services/backup.service'
 import { uploadPhoto } from '../services/media.service'
-import { requireSession } from '../services/auth.service'
+import { requireSession, verifyPassword } from '../services/auth.service'
+import { getSqlite, getDb, schema } from '../database/connection'
+import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 
 export function registerUtilityHandlers(): void {
@@ -14,7 +16,6 @@ export function registerUtilityHandlers(): void {
     let sqliteOpen = false
     let migrationsApplied = false
     try {
-      const { getSqlite } = await import('../database/connection')
       const sqlite = getSqlite()
       const row = sqlite.prepare('SELECT 1 as alive').get() as { alive: number } | undefined
       sqliteOpen = row?.alive === 1
@@ -44,6 +45,142 @@ export function registerUtilityHandlers(): void {
     return updateSettings(data)
   })
 
+  // ─── Admin profile (get/update current admin) ──────────────────────────────
+
+  handle(IPC_CHANNELS.SETTINGS_GET_ADMIN, async () => {
+    const session = requireSession()
+    const sqlite = getSqlite()
+    const admin = sqlite.prepare('SELECT id, username, full_name, role, preferred_language, photo_path, created_at FROM administrators WHERE id = ? LIMIT 1').get(session.adminId) as any
+    if (!admin) throw new Error('Admin not found')
+    return {
+      id: admin.id,
+      username: admin.username,
+      fullName: admin.full_name,
+      role: admin.role,
+      preferredLanguage: admin.preferred_language,
+      photoPath: admin.photo_path,
+      createdAt: admin.created_at,
+    }
+  })
+
+  handle(IPC_CHANNELS.SETTINGS_UPDATE_ADMIN, async (payload) => {
+    const session = requireSession()
+    const data = z.object({
+      fullName: z.string().min(1).max(200).optional(),
+      preferredLanguage: z.enum(['ar', 'fr', 'en']).optional(),
+      photoPath: z.string().max(500).nullable().optional(),
+    }).parse(payload)
+    const sqlite = getSqlite()
+    const updates: string[] = ["updated_at = datetime('now')"]
+    const params: any[] = []
+    if (data.fullName !== undefined) { updates.push('full_name = ?'); params.push(data.fullName) }
+    if (data.preferredLanguage !== undefined) { updates.push('preferred_language = ?'); params.push(data.preferredLanguage) }
+    if (data.photoPath !== undefined) { updates.push('photo_path = ?'); params.push(data.photoPath) }
+    params.push(session.adminId)
+    sqlite.prepare(`UPDATE administrators SET ${updates.join(', ')} WHERE id = ?`).run(...params)
+    const updated = sqlite.prepare('SELECT id, username, full_name, role, preferred_language, photo_path FROM administrators WHERE id = ?').get(session.adminId) as any
+    return {
+      id: updated.id,
+      username: updated.username,
+      fullName: updated.full_name,
+      role: updated.role,
+      preferredLanguage: updated.preferred_language,
+      photoPath: updated.photo_path,
+    }
+  })
+
+  // ─── Audit logs ────────────────────────────────────────────────────────────
+
+  handle(IPC_CHANNELS.SETTINGS_LIST_AUDIT_LOGS, async (payload) => {
+    requireSession()
+    const opts = z.object({
+      limit: z.number().int().min(1).max(500).optional(),
+      offset: z.number().int().min(0).optional(),
+      action: z.string().optional(),
+    }).parse(payload ?? {})
+    const sqlite = getSqlite()
+    let sql = `
+      SELECT al.*, a.full_name as admin_name
+      FROM audit_logs al
+      LEFT JOIN administrators a ON al.administrator_id = a.id
+      WHERE 1=1
+    `
+    const params: any[] = []
+    if (opts.action) { sql += ' AND al.action LIKE ?'; params.push(`%${opts.action}%`) }
+    sql += ' ORDER BY al.created_at DESC'
+    sql += ` LIMIT ${opts.limit ?? 100} OFFSET ${opts.offset ?? 0}`
+    const rows = sqlite.prepare(sql).all(...params) as any[]
+    return rows.map(r => ({
+      id: r.id,
+      administratorId: r.administrator_id,
+      adminName: r.admin_name,
+      action: r.action,
+      entityType: r.entity_type,
+      entityId: r.entity_id,
+      details: r.sanitized_details_json ? JSON.parse(r.sanitized_details_json) : null,
+      createdAt: r.created_at,
+    }))
+  })
+
+  // ─── Auto-lock configuration ───────────────────────────────────────────────
+
+  handle(IPC_CHANNELS.SETTINGS_AUTO_LOCK_SET, async (payload) => {
+    requireSession()
+    const { minutes } = z.object({ minutes: z.number().int().min(0).max(120) }).parse(payload)
+    const sqlite = getSqlite()
+    sqlite.prepare(`INSERT OR REPLACE INTO app_metadata(key, value, updated_at) VALUES('auto_lock_minutes', ?, datetime('now'))`).run(String(minutes))
+    return { minutes }
+  })
+
+  handle(IPC_CHANNELS.SETTINGS_AUTO_LOCK_GET, async () => {
+    const sqlite = getSqlite()
+    const row = sqlite.prepare(`SELECT value FROM app_metadata WHERE key = 'auto_lock_minutes' LIMIT 1`).get() as any
+    return { minutes: row ? parseInt(row.value, 10) : 0 }
+  })
+
+  // ─── Payments summary stats ────────────────────────────────────────────────
+
+  handle('payments:summary', async () => {
+    requireSession()
+    const sqlite = getSqlite()
+    const today = new Date().toISOString().split('T')[0]
+    const currentMonth = today.substring(0, 7) // YYYY-MM
+
+    const monthRevenue = (sqlite.prepare(`SELECT COALESCE(SUM(amount),0) as total FROM payments WHERE billing_period = ? AND status = 'paid'`).get(currentMonth) as any)?.total ?? 0
+    const todayCollected = (sqlite.prepare(`SELECT COALESCE(SUM(amount),0) as total FROM payments WHERE payment_date = ? AND status = 'paid'`).get(today) as any)?.total ?? 0
+
+    // Outstanding: active enrollments with no paid payment for current month
+    const outstandingRows = sqlite.prepare(`
+      SELECT COALESCE(SUM(e.agreed_price),0) as total
+      FROM enrollments e
+      WHERE e.status = 'active'
+        AND NOT EXISTS (
+          SELECT 1 FROM payments p
+          WHERE p.enrollment_id = e.id
+            AND p.billing_period = ?
+            AND p.status = 'paid'
+        )
+    `).get(currentMonth) as any
+    const outstanding = outstandingRows?.total ?? 0
+
+    // Overdue count: active enrollments missing payment for previous month
+    const prevMonth = new Date(new Date().setMonth(new Date().getMonth() - 1)).toISOString().substring(0, 7)
+    const overdueRows = sqlite.prepare(`
+      SELECT COUNT(*) as cnt
+      FROM enrollments e
+      WHERE e.status = 'active'
+        AND NOT EXISTS (
+          SELECT 1 FROM payments p
+          WHERE p.enrollment_id = e.id
+            AND p.billing_period = ?
+            AND p.status = 'paid'
+        )
+    `).get(prevMonth) as any
+    const overdue = overdueRows?.cnt ?? 0
+
+    return { monthRevenue, todayCollected, outstanding, overdue }
+  })
+
   // Backups
   handle(IPC_CHANNELS.BACKUPS_CREATE, async (payload) => {
     const opts = z.object({ destinationDir: z.string().max(500).optional() }).parse(payload ?? {})
@@ -60,10 +197,7 @@ export function registerUtilityHandlers(): void {
   handle(IPC_CHANNELS.BACKUPS_RESTORE, async (payload) => {
     const data = RestoreBackupSchema.parse(payload)
     // Verify admin password before restore
-    const { verifyPassword } = await import('../services/auth.service')
     const session = requireSession()
-    const { getDb, schema } = await import('../database/connection')
-    const { eq } = await import('drizzle-orm')
     const db = getDb()
     const admin = await db.query.administrators.findFirst({
       where: eq(schema.administrators.id, session.adminId),
@@ -98,7 +232,7 @@ export function registerUtilityHandlers(): void {
   // File dialogs (main process only — never let renderer specify arbitrary paths)
   handle(IPC_CHANNELS.APP_OPEN_BACKUP_DIALOG, async () => {
     const result = await dialog.showOpenDialog({
-      title: 'Select Backup File',
+      title: 'Sélectionner le fichier de sauvegarde',
       filters: [{ name: 'Backup Files', extensions: ['zip'] }],
       properties: ['openFile'],
     })
@@ -108,7 +242,7 @@ export function registerUtilityHandlers(): void {
 
   handle(IPC_CHANNELS.APP_SHOW_SAVE_DIALOG, async () => {
     const result = await dialog.showOpenDialog({
-      title: 'Select Backup Destination Folder',
+      title: 'Sélectionner le dossier de destination',
       properties: ['openDirectory', 'createDirectory'],
     })
     if (result.canceled) return { canceled: true, path: null }
@@ -125,27 +259,46 @@ export function registerUtilityHandlers(): void {
     return true
   })
 
-  // Print to PDF
+  // Print to PDF — opens save dialog so user picks destination
   handle(IPC_CHANNELS.APP_PRINT_TO_PDF, async (payload) => {
-    const { BrowserWindow } = await import('electron')
+    const { BrowserWindow, dialog: dlg } = await import('electron')
     const fs = await import('fs/promises')
     const path = await import('path')
     const win = BrowserWindow.getFocusedWindow()
     if (!win) throw new Error('No focused window')
 
-    const opts = (payload ?? {}) as { pageSize?: 'A4' | 'Letter'; marginsType?: 0 | 1 | 2 }
+    const opts = (payload ?? {}) as { pageSize?: 'A4' | 'Letter'; marginsType?: 0 | 1 | 2; filename?: string }
+
+    // Use Downloads directory or Desktop to avoid OneDrive Documents sync lock errors on Windows
+    let baseDir = app.getPath('downloads')
+    try {
+      if (!fs.stat) await import('fs')
+    } catch {
+      baseDir = app.getPath('desktop')
+    }
+
+    const defaultFilename = opts.filename ?? `EdupilotDZ-${Date.now()}.pdf`
+    const defaultPath = path.join(baseDir, defaultFilename)
+
+    // Ask user where to save file
+    const saveResult = await dlg.showSaveDialog(win, {
+      title: 'Enregistrer le PDF',
+      defaultPath,
+      filters: [{ name: 'PDF Files', extensions: ['pdf'] }],
+    })
+
+    if (saveResult.canceled || !saveResult.filePath) {
+      return { path: null, canceled: true }
+    }
+
     const pdfOptions = {
       printBackground: true,
       marginsType: opts.marginsType ?? 0,
       pageSize: opts.pageSize ?? 'A4',
-    } as Electron.PrintToPDFOptions
+    } as any
 
     const buffer = await win.webContents.printToPDF(pdfOptions)
-    const documentsDir = app.getPath('documents')
-    const filename = `EdupilotDZ-report-${Date.now()}.pdf`
-    const outPath = path.join(documentsDir, filename)
-    await fs.writeFile(outPath, buffer)
-    return { path: outPath }
+    await fs.writeFile(saveResult.filePath, buffer)
+    return { path: saveResult.filePath, canceled: false }
   })
 }
-

@@ -10,6 +10,7 @@ export const administrators = sqliteTable('administrators', {
   fullName: text('full_name').notNull(),
   role: text('role', { enum: ['superadmin', 'admin'] }).notNull().default('admin'),
   preferredLanguage: text('preferred_language', { enum: ['ar', 'fr', 'en'] }).notNull().default('ar'),
+  photoPath: text('photo_path'),
   isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
   failedLoginAttempts: integer('failed_login_attempts').notNull().default(0),
   lockedUntil: text('locked_until'),
@@ -125,6 +126,41 @@ export const enrollments = sqliteTable('enrollments', {
   groupIdx: index('idx_enrollments_group').on(table.groupId),
 }))
 
+// ─── Group Schedule Slots (must be before attendance_sessions) ────────────────
+
+export const groupScheduleSlots = sqliteTable('group_schedule_slots', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  groupId: integer('group_id').notNull().references(() => groups.id),
+  weekday: integer('weekday').notNull(), // 0=Monday, 6=Sunday
+  startTime: text('start_time').notNull(), // HH:MM
+  endTime: text('end_time').notNull(), // HH:MM
+  room: text('room'),
+  effectiveFrom: text('effective_from').notNull().default(sql`(date('now'))`),
+  effectiveUntil: text('effective_until'),
+  isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+  createdBy: integer('created_by').references(() => administrators.id),
+}, (table) => ({
+  groupIdx: index('idx_schedule_group').on(table.groupId),
+  weekdayIdx: index('idx_schedule_weekday').on(table.weekday),
+  activeIdx: index('idx_schedule_active').on(table.isActive),
+  uniqueSlot: uniqueIndex('idx_schedule_unique').on(table.groupId, table.weekday, table.startTime),
+}))
+
+// ─── Student Notes ────────────────────────────────────────────────────────────
+
+export const studentNotes = sqliteTable('student_notes', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  studentId: integer('student_id').notNull().references(() => students.id),
+  noteText: text('note_text').notNull(),
+  createdBy: integer('created_by').notNull().references(() => administrators.id),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => ({
+  studentIdx: index('idx_notes_student').on(table.studentId),
+}))
+
 // ─── Attendance Sessions ──────────────────────────────────────────────────────
 
 export const attendanceSessions = sqliteTable('attendance_sessions', {
@@ -136,12 +172,17 @@ export const attendanceSessions = sqliteTable('attendance_sessions', {
   endTime: text('end_time'),
   lateThresholdMinutes: integer('late_threshold_minutes').notNull().default(10),
   status: text('status', { enum: ['open', 'closed'] }).notNull().default('open'),
+  sessionType: text('session_type', { enum: ['regular', 'extra', 'makeup', 'cancelled'] }).notNull().default('regular'),
+  scheduleSlotId: integer('schedule_slot_id').references(() => groupScheduleSlots.id),
+  cancelledReason: text('cancelled_reason'),
   createdBy: integer('created_by').notNull().references(() => administrators.id),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
   updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
 }, (table) => ({
   groupDateIdx: index('idx_sessions_group_date').on(table.groupId, table.sessionDate),
   dateIdx: index('idx_sessions_date').on(table.sessionDate),
+  typeIdx: index('idx_sessions_type').on(table.sessionType),
+  scheduleSlotIdx: index('idx_sessions_schedule_slot').on(table.scheduleSlotId),
 }))
 
 // ─── Attendance Records ───────────────────────────────────────────────────────
@@ -263,3 +304,9 @@ export type SelectAttendanceRecord = typeof attendanceRecords.$inferSelect
 
 export type InsertPayment = typeof payments.$inferInsert
 export type SelectPayment = typeof payments.$inferSelect
+
+export type InsertGroupScheduleSlot = typeof groupScheduleSlots.$inferInsert
+export type SelectGroupScheduleSlot = typeof groupScheduleSlots.$inferSelect
+
+export type InsertStudentNote = typeof studentNotes.$inferInsert
+export type SelectStudentNote = typeof studentNotes.$inferSelect

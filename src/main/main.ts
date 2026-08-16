@@ -1,4 +1,6 @@
 import { app, BrowserWindow } from 'electron'
+import os from 'node:os'
+import path from 'node:path'
 import log from 'electron-log'
 import { initializeDatabase } from './database/connection'
 import { runMigrations } from './database/migrator'
@@ -8,6 +10,12 @@ import { createMainWindow } from './windows/mainWindow'
 log.initialize({ preload: true })
 log.transports.file.level = 'info'
 log.transports.console.level = process.env.NODE_ENV === 'development' ? 'debug' : 'warn'
+
+// Use a separate development userData path so development data never reuses production data.
+if (process.env.NODE_ENV !== 'production') {
+  const devDataDir = path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'Edupilot-DZ-Dev')
+  app.setPath('userData', devDataDir)
+}
 
 // Single instance lock
 const gotLock = app.requestSingleInstanceLock()
