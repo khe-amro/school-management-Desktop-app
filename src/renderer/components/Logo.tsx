@@ -1,16 +1,22 @@
+import appIcon from '../assets/icon.png'
+
 interface LogoProps {
   collapsed: boolean
   size?: number
 }
 
-export default function Logo({ collapsed, size = 28 }: LogoProps) {
+export default function Logo({ collapsed, size = 32 }: LogoProps) {
   if (collapsed) {
     return (
       <div
-        className="flex items-center justify-center rounded-lg bg-[#2563EB]"
+        className="flex items-center justify-center rounded-xl overflow-hidden shadow-xs shrink-0"
         style={{ width: size, height: size }}
       >
-        <span className="text-white font-bold" style={{ fontSize: size * 0.45 }}>E</span>
+        <img
+          src={appIcon}
+          alt="Edupilot DZ"
+          className="w-full h-full object-contain rounded-xl"
+        />
       </div>
     )
   }
@@ -18,14 +24,18 @@ export default function Logo({ collapsed, size = 28 }: LogoProps) {
   return (
     <div className="flex items-center gap-2.5">
       <div
-        className="flex items-center justify-center rounded-lg bg-[#2563EB] shrink-0"
+        className="flex items-center justify-center rounded-xl overflow-hidden shadow-xs shrink-0"
         style={{ width: size, height: size }}
       >
-        <span className="text-white font-bold" style={{ fontSize: size * 0.45 }}>E</span>
+        <img
+          src={appIcon}
+          alt="Edupilot DZ"
+          className="w-full h-full object-contain rounded-xl"
+        />
       </div>
-      <div>
+      <div className="min-w-0">
         <p className="text-white font-bold text-sm leading-tight">Edupilot</p>
-        <p className="text-accent font-semibold text-[10px] leading-tight tracking-wide">DZ</p>
+        <p className="text-blue-400 font-semibold text-[10px] leading-tight tracking-wide">DZ</p>
       </div>
     </div>
   )

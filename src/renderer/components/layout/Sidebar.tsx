@@ -48,11 +48,17 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
       }`}
     >
       {/* Logo */}
-      <div className="flex items-center justify-between px-3 py-4 border-b border-white/10">
-        <div className={`overflow-hidden transition-all ${collapsed ? 'w-0 opacity-0' : 'w-full opacity-100'}`}>
-          <Logo collapsed={false} size={28} />
-        </div>
-        {collapsed && <Logo collapsed={true} size={28} />}
+      <div className={`flex items-center border-b border-white/10 py-3.5 ${collapsed ? 'flex-col justify-center gap-2 px-1' : 'justify-between px-3'}`}>
+        {!collapsed && (
+          <div className="overflow-hidden w-full">
+            <Logo collapsed={false} size={28} />
+          </div>
+        )}
+        {collapsed && (
+          <div className="flex items-center justify-center">
+            <Logo collapsed={true} size={28} />
+          </div>
+        )}
         <button
           onClick={onToggle}
           className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors shrink-0"

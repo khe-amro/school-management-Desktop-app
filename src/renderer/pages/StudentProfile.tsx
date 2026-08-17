@@ -5,9 +5,9 @@ import {
   ArrowLeft, Edit2, QrCode, RefreshCw, Archive,
   Phone, MapPin, Calendar, User, Shield, CreditCard,
   BookOpen, Clock, CheckCircle2, XCircle, StickyNote,
-  Plus, Trash2, AlertCircle
+  Plus, Trash2, AlertCircle, ArrowRightLeft, X, Check
 } from 'lucide-react'
-import type { Student, Payment, AttendanceRecord } from '@shared/types/index'
+import type { Student, Payment, AttendanceRecord, Group, Course } from '@shared/types/index'
 import QRCode from 'qrcode'
 
 type Tab = 'overview' | 'attendance' | 'payments' | 'enrollments' | 'notes'
@@ -32,9 +32,11 @@ interface NoteItem {
 }
 
 export default function StudentProfile() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { id } = useParams()
   const navigate = useNavigate()
+  const lang = i18n.language as 'ar' | 'fr' | 'en'
+
   const [student, setStudent] = useState<Student | null>(null)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<Tab>('overview')
@@ -48,6 +50,24 @@ export default function StudentProfile() {
   const [newNote, setNewNote] = useState('')
   const [savingNote, setSavingNote] = useState(false)
   const [tabLoading, setTabLoading] = useState(false)
+
+  // Available groups/courses for adding enrollment or transfer
+  const [availableGroups, setAvailableGroups] = useState<Group[]>([])
+  const [availableCourses, setAvailableCourses] = useState<Course[]>([])
+
+  // Modal: Add Enrollment
+  const [showAddEnrollModal, setShowAddEnrollModal] = useState(false)
+  const [newEnrollGroupId, setNewEnrollGroupId] = useState('')
+  const [newEnrollPrice, setNewEnrollPrice] = useState('')
+  const [savingEnroll, setSavingEnroll] = useState(false)
+
+  // Modal: Transfer Credit (Idea Implementation)
+  const [transferModalSource, setTransferModalSource] = useState<EnrollmentWithDetails | null>(null)
+  const [transferTargetEnrollId, setTransferTargetEnrollId] = useState('')
+  const [transferAmount, setTransferAmount] = useState('1000')
+  const [transferCloseSource, setTransferCloseSource] = useState(true)
+  const [transferReason, setTransferReason] = useState('')
+  const [savingTransfer, setSavingTransfer] = useState(false)
 
   const load = useCallback(async () => {
     const res = await window.schoolApp.students.getById(Number(id))
@@ -98,14 +118,18 @@ export default function StudentProfile() {
           if (res.success && res.data) {
             setEnrollments(res.data as EnrollmentWithDetails[])
           }
+          const [grpRes, crsRes] = await Promise.all([
+            window.schoolApp.groups.list({ status: 'active' }),
+            window.schoolApp.courses.list({ status: 'active' }),
+          ])
+          if (grpRes.success && grpRes.data) setAvailableGroups(grpRes.data)
+          if (crsRes.success && crsRes.data) setAvailableCourses(crsRes.data)
         }
         if (activeTab === 'payments') {
           const res = await window.schoolApp.payments.byStudent(student!.id)
           if (res.success && res.data) setPayments(res.data)
         }
-        // Notes loaded via utility - we'll use a generic approach
         if (activeTab === 'notes') {
-          // Notes aren't exposed via preload yet - show empty for now
           setNotes([])
         }
       } finally {
@@ -130,15 +154,113 @@ export default function StudentProfile() {
     navigate('/students')
   }
 
+  const handleRestore = async () => {
+    if (!student) return
+    if (!window.confirm(t('students.restoreConfirm') || 'Restaurer cet étudiant ?')) return
+    await window.schoolApp.students.update(student.id, { status: 'active' } as any)
+    await window.schoolApp.students.regenQR(student.id)
+    await load()
+  }
+
   const handleChangePhoto = async () => {
     if (!student) return
     const res = await window.schoolApp.media.selectImage('student', String(student.id))
     if (res.success && res.data?.path) {
-      // Update student record with new photo path
       await window.schoolApp.students.update(student.id, { photoPath: res.data.path } as any)
-      // Reload
       const photoRes = await window.schoolApp.media.getImageUrl(res.data.path)
       if (photoRes.success && photoRes.data?.url) setPhotoUrl(photoRes.data.url)
+    }
+  }
+
+  // Toggle enrollment status (Active / Inactive / Completed)
+  const handleToggleEnrollmentStatus = async (enrollId: number, currentStatus: string) => {
+    const nextStatus = currentStatus === 'active' ? 'completed' : 'active'
+    const confirmMsg = nextStatus === 'completed'
+      ? (lang === 'ar' ? 'هل تريد إنهاء/إلغاء هذا التسجيل؟' : 'Clôturer cette inscription ?')
+      : (lang === 'ar' ? 'هل تريد إعادة تفعيل هذا التسجيل؟' : 'Réactiver cette inscription ?')
+    if (!window.confirm(confirmMsg)) return
+
+    await window.schoolApp.enrollments.update(enrollId, { status: nextStatus })
+    const res = await window.schoolApp.enrollments.byStudent(student!.id)
+    if (res.success && res.data) setEnrollments(res.data as EnrollmentWithDetails[])
+  }
+
+  // Add new enrollment from profile
+  const handleAddEnrollment = async () => {
+    if (!student || !newEnrollGroupId) return
+    setSavingEnroll(true)
+    try {
+      const selectedGrp = availableGroups.find((g) => g.id === Number(newEnrollGroupId))
+      const price = Number(newEnrollPrice) || (selectedGrp?.monthlyPrice ?? 0)
+
+      const res = await window.schoolApp.enrollments.create({
+        studentId: student.id,
+        groupId: Number(newEnrollGroupId),
+        agreedPrice: price,
+        enrollmentDate: new Date().toISOString().slice(0, 10),
+      })
+
+      if (res.success) {
+        setShowAddEnrollModal(false)
+        setNewEnrollGroupId('')
+        setNewEnrollPrice('')
+        const enrRes = await window.schoolApp.enrollments.byStudent(student.id)
+        if (enrRes.success && enrRes.data) setEnrollments(enrRes.data as EnrollmentWithDetails[])
+      } else {
+        alert(res.error)
+      }
+    } finally {
+      setSavingEnroll(false)
+    }
+  }
+
+  // Execute Credit Transfer between courses
+  const handleExecuteCreditTransfer = async () => {
+    if (!student || !transferModalSource || !transferTargetEnrollId || !transferAmount) return
+    setSavingTransfer(true)
+    try {
+      const targetEnroll = enrollments.find((e) => e.id === Number(transferTargetEnrollId))
+      const amount = Number(transferAmount)
+      const currentMonth = new Date().toISOString().slice(0, 7)
+
+      // 1. Record credit payment onto destination enrollment
+      const sourceName = transferModalSource.courseName ?? `Groupe #${transferModalSource.groupId}`
+      const targetName = targetEnroll?.courseName ?? `Groupe #${targetEnroll?.groupId}`
+      const transferMemo = `Transfert de solde (${amount} DA) depuis [${sourceName}] vers [${targetName}]. ${transferReason}`
+
+      const payRes = await window.schoolApp.payments.create({
+        studentId: student.id,
+        enrollmentId: Number(transferTargetEnrollId),
+        billingPeriod: currentMonth,
+        amount: amount,
+        paymentMethod: 'transfer',
+        paymentDate: new Date().toISOString().slice(0, 10),
+        reference: `TRANSFER-${Date.now().toString().slice(-4)}`,
+        notes: transferMemo,
+      })
+
+      // 2. Optionally close/complete the source enrollment
+      if (transferCloseSource) {
+        await window.schoolApp.enrollments.update(transferModalSource.id, { status: 'completed' })
+      }
+
+      setTransferModalSource(null)
+      setTransferTargetEnrollId('')
+      setTransferReason('')
+
+      // Reload tabs
+      const [enrRes, payListRes] = await Promise.all([
+        window.schoolApp.enrollments.byStudent(student.id),
+        window.schoolApp.payments.byStudent(student.id),
+      ])
+      if (enrRes.success && enrRes.data) setEnrollments(enrRes.data as EnrollmentWithDetails[])
+      if (payListRes.success && payListRes.data) setPayments(payListRes.data)
+
+      alert(lang === 'ar' ? 'تم تحويل الرصيد وتسجيل الدفعة بنجاح!' : 'Transfert de crédit enregistré avec succès !')
+    } catch (err: any) {
+      alert(err?.message ?? 'Erreur lors du transfert')
+    } finally {
+      setSavingTransfer(false)
     }
   }
 
@@ -158,65 +280,52 @@ export default function StudentProfile() {
   const activeEnrollment = enrollments.find((e) => e.status === 'active')
 
   const tabs: { key: Tab; label: string }[] = [
-    { key: 'overview', label: 'Vue d\'ensemble' },
-    { key: 'attendance', label: 'Présence' },
-    { key: 'payments', label: 'Paiements' },
-    { key: 'enrollments', label: 'Inscriptions' },
-    { key: 'notes', label: 'Notes' },
+    { key: 'overview', label: lang === 'ar' ? 'نظرة عامة' : 'Vue d\'ensemble' },
+    { key: 'attendance', label: t('nav.attendance') },
+    { key: 'payments', label: t('nav.payments') },
+    { key: 'enrollments', label: t('students.enrollments') },
+    { key: 'notes', label: t('common.notes') },
   ]
 
   return (
-    <div className="animate-fade-in">
+    <div className="animate-fade-in space-y-5">
       {/* Top toolbar */}
-      <div className="flex items-center justify-between mb-5">
+      <div className="flex items-center justify-between">
         <button
           onClick={() => navigate(-1)}
-          className="flex items-center gap-2 text-slate-500 hover:text-slate-800 text-sm transition-colors"
+          className="flex items-center gap-2 text-slate-500 hover:text-slate-800 text-sm transition-colors font-medium"
         >
           <ArrowLeft size={15} /> {t('common.back')}
         </button>
         <div className="flex gap-2">
           <button
             onClick={() => navigate(`/students/${student.id}/card`)}
-            className="flex items-center gap-1.5 px-3 py-2 border border-border rounded-lg text-sm hover:bg-slate-50 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 border border-border rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors shadow-xs"
           >
-            <QrCode size={14} /> {t('students.card') ?? 'Ticket'}
+            <QrCode size={13} /> {t('students.card')}
           </button>
           <button
             onClick={() => navigate(`/students/${student.id}/edit`)}
-            className="flex items-center gap-1.5 px-3 py-2 bg-[#2563EB] text-white rounded-lg text-sm font-medium hover:bg-[#1D4ED8] transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#2563EB] text-white rounded-lg text-xs font-semibold hover:bg-[#1D4ED8] transition-colors shadow-xs"
           >
-            <Edit2 size={14} /> {t('common.edit')}
+            <Edit2 size={13} /> {t('common.edit')}
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-5">
-        {/* ── LEFT: Identity Card ── */}
+      {/* Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {/* ── LEFT: Profile card ── */}
         <div className="space-y-4">
-          {/* Profile card */}
-          <div className="bg-white rounded-xl border border-border overflow-hidden">
-            {/* Color header */}
-            <div className="h-16 bg-linear-to-r from-[#1E3A5F] to-[#2563EB]" />
-
-            <div className="px-5 pb-5">
-              {/* Avatar */}
-              <div className="flex justify-center -mt-8 mb-3 relative">
-                <div
-                  className="relative group cursor-pointer"
-                  onClick={handleChangePhoto}
-                  title="Changer la photo"
-                >
+          <div className="bg-white rounded-xl border border-border p-5 shadow-xs">
+            <div className="flex flex-col items-center">
+              {/* Photo */}
+              <div className="relative group cursor-pointer mb-3" onClick={handleChangePhoto} title={lang === 'ar' ? 'تغيير الصورة' : 'Changer la photo'}>
+                <div className="w-20 h-20 rounded-full overflow-hidden bg-[#EFF6FF] border-2 border-[#2563EB]/20 flex items-center justify-center text-[#2563EB] font-bold text-xl shadow-xs">
                   {photoUrl ? (
-                    <img
-                      src={photoUrl}
-                      alt={`${student.firstNameAr} ${student.lastNameAr}`}
-                      className="w-16 h-16 rounded-full object-cover border-3 border-white shadow-md"
-                    />
+                    <img src={photoUrl} alt="" className="w-full h-full object-cover" />
                   ) : (
-                    <div className="w-16 h-16 rounded-full bg-[#2563EB] border-3 border-white shadow-md flex items-center justify-center text-white font-bold text-xl">
-                      {initials}
-                    </div>
+                    <span>{initials}</span>
                   )}
                   <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                     <Edit2 size={14} className="text-white" />
@@ -240,17 +349,17 @@ export default function StudentProfile() {
                       ? 'bg-amber-100 text-amber-700'
                       : 'bg-slate-100 text-slate-500'
                   }`}>
-                    {student.status === 'active' ? 'Actif' : student.status === 'inactive' ? 'Inactif' : 'Archivé'}
+                    {student.status === 'active' ? t('students.active') : student.status === 'inactive' ? t('students.inactive') : t('students.archived')}
                   </span>
                 </div>
               </div>
 
               {/* Info rows */}
-              <div className="space-y-2 text-sm">
+              <div className="space-y-2 text-sm w-full pt-2 border-t border-slate-100">
                 {student.phone && (
                   <div className="flex items-center gap-2 text-slate-600">
                     <Phone size={13} className="text-slate-400 shrink-0" />
-                    <span>{student.phone}</span>
+                    <span dir="ltr">{student.phone}</span>
                   </div>
                 )}
                 {student.address && (
@@ -262,34 +371,34 @@ export default function StudentProfile() {
                 {student.registrationDate && (
                   <div className="flex items-center gap-2 text-slate-600">
                     <Calendar size={13} className="text-slate-400 shrink-0" />
-                    <span className="text-xs">Inscrit le: {student.registrationDate}</span>
+                    <span className="text-xs">{t('students.registrationDate')}: {student.registrationDate}</span>
                   </div>
                 )}
                 {student.dateOfBirth && (
                   <div className="flex items-center gap-2 text-slate-600">
                     <User size={13} className="text-slate-400 shrink-0" />
-                    <span className="text-xs">Né le: {student.dateOfBirth}</span>
+                    <span className="text-xs">{t('students.dateOfBirth')}: {student.dateOfBirth}</span>
                   </div>
                 )}
               </div>
 
               {/* QR status */}
-              <div className="mt-4 pt-3 border-t border-[#F1F5F9] text-center">
+              <div className="mt-4 pt-3 border-t border-[#F1F5F9] text-center w-full">
                 <div className="flex items-center justify-center gap-1 text-xs">
                   {student.qrTokenActive ? (
-                    <><CheckCircle2 size={12} className="text-green-500" /><span className="text-green-600">Carte QR active</span></>
+                    <><CheckCircle2 size={12} className="text-green-500" /><span className="text-green-600 font-medium">QR Active</span></>
                   ) : (
-                    <><XCircle size={12} className="text-red-500" /><span className="text-red-600">Carte QR désactivée</span></>
+                    <><XCircle size={12} className="text-red-500" /><span className="text-red-600 font-medium">QR Disabled</span></>
                   )}
                 </div>
               </div>
 
               {/* QR Code */}
               <div className="mt-3 text-center">
-                <canvas ref={qrCanvasRef} className="mx-auto rounded-lg" />
+                <canvas ref={qrCanvasRef} className="mx-auto rounded-lg border border-slate-100 shadow-xs" />
                 <button
                   onClick={handleRegenQR}
-                  className="mt-2 flex items-center gap-1.5 text-xs text-slate-400 hover:text-[#2563EB] transition-colors mx-auto"
+                  className="mt-2 flex items-center gap-1.5 text-xs text-slate-400 hover:text-[#2563EB] transition-colors mx-auto font-medium"
                 >
                   <RefreshCw size={11} /> {t('students.regenQR')}
                 </button>
@@ -299,24 +408,24 @@ export default function StudentProfile() {
 
           {/* Guardian panel */}
           {(student.guardianName || student.guardianPhone) && (
-            <div className="bg-white rounded-xl border border-border p-4">
+            <div className="bg-white rounded-xl border border-border p-4 shadow-xs">
               <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3 flex items-center gap-2">
-                <Shield size={12} /> Tuteur / Parent
+                <Shield size={12} /> {lang === 'ar' ? 'ولي الأمر' : 'Tuteur / Parent'}
               </h3>
               {student.guardianName && (
                 <div className="mb-2">
-                  <p className="text-xs text-slate-400">Nom du tuteur</p>
+                  <p className="text-xs text-slate-400">{t('students.guardianName')}</p>
                   <p className="text-sm font-medium text-[#0F172A]">{student.guardianName}</p>
                 </div>
               )}
               {student.guardianRelationship && (
                 <div className="mb-2">
-                  <p className="text-xs text-slate-400">Relation</p>
+                  <p className="text-xs text-slate-400">{t('students.guardianRelationship')}</p>
                   <p className="text-sm text-[#0F172A]">{student.guardianRelationship}</p>
                 </div>
               )}
               {student.guardianPhone && (
-                <div className="flex items-center gap-2 text-sm text-[#0F172A]">
+                <div className="flex items-center gap-2 text-sm text-[#0F172A]" dir="ltr">
                   <Phone size={12} className="text-slate-400" />
                   {student.guardianPhone}
                 </div>
@@ -324,34 +433,49 @@ export default function StudentProfile() {
             </div>
           )}
 
-          {/* Danger zone */}
-          {student.status !== 'archived' && (
-            <div className="bg-white rounded-xl border border-red-100 p-4">
+          {/* Archive / Restore Box */}
+          {student.status === 'archived' ? (
+            <div className="bg-white rounded-xl border border-emerald-200 p-4 bg-emerald-50/40 shadow-xs">
+              <h3 className="text-xs font-bold text-emerald-700 uppercase tracking-wide mb-2 flex items-center gap-2">
+                <CheckCircle2 size={13} /> {lang === 'ar' ? 'استعادة الطالب' : 'Restaurer l\'étudiant'}
+              </h3>
+              <p className="text-xs text-slate-600 mb-3">
+                {lang === 'ar' ? 'هذا الطالب مؤرشف حالياً. يمكنك استعادته لتفعيل بطاقته واستئناف التسجيلات.' : 'Cet étudiant est archivé. Restaurez-le pour réactiver sa carte QR et ses inscriptions.'}
+              </p>
+              <button
+                onClick={handleRestore}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 transition-colors shadow-xs"
+              >
+                <RefreshCw size={13} /> {lang === 'ar' ? 'استعادة وتفعيل' : 'Restaurer l\'étudiant'}
+              </button>
+            </div>
+          ) : (
+            <div className="bg-white rounded-xl border border-red-100 p-4 shadow-xs">
               <h3 className="text-xs font-semibold text-red-400 uppercase tracking-wide mb-3 flex items-center gap-2">
-                <AlertCircle size={12} /> Zone de danger
+                <AlertCircle size={12} /> {lang === 'ar' ? 'منطقة الحظر / الأرشفة' : 'Zone d\'archivage'}
               </h3>
               <button
                 onClick={handleArchive}
-                className="flex items-center gap-2 px-3 py-2 border border-red-200 text-red-600 rounded-lg text-xs hover:bg-red-50 transition-colors"
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 border border-red-200 text-red-600 rounded-lg text-xs font-semibold hover:bg-red-50 transition-colors"
               >
-                <Archive size={12} /> Archiver l'étudiant
+                <Archive size={13} /> {t('students.archive')}
               </button>
             </div>
           )}
         </div>
 
-        {/* ── RIGHT: Tabbed content ── */}
-        <div className="bg-white rounded-xl border border-border overflow-hidden">
+        {/* ── RIGHT (2 cols): Tabbed content ── */}
+        <div className="lg:col-span-2 bg-white rounded-xl border border-border shadow-xs overflow-hidden flex flex-col">
           {/* Tabs */}
-          <div className="flex border-b border-border overflow-x-auto">
+          <div className="flex border-b border-border overflow-x-auto bg-slate-50/50">
             {tabs.map((tab) => (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
-                className={`px-5 py-3.5 text-sm font-medium whitespace-nowrap transition-colors border-b-2 ${
+                className={`px-5 py-3.5 text-sm font-semibold whitespace-nowrap transition-colors border-b-2 ${
                   activeTab === tab.key
-                    ? 'text-[#2563EB] border-[#2563EB] bg-[#EFF6FF]'
-                    : 'text-slate-500 border-transparent hover:text-slate-800 hover:bg-slate-50'
+                    ? 'text-[#2563EB] border-[#2563EB] bg-white'
+                    : 'text-slate-500 border-transparent hover:text-slate-800 hover:bg-slate-100/50'
                 }`}
               >
                 {tab.label}
@@ -359,158 +483,202 @@ export default function StudentProfile() {
             ))}
           </div>
 
-          <div className="p-5">
-            {tabLoading && (
-              <div className="flex justify-center py-8">
-                <div className="w-5 h-5 border-2 border-[#2563EB] border-t-transparent rounded-full animate-spin" />
+          <div className="p-5 flex-1">
+            {tabLoading ? (
+              <div className="flex justify-center py-12">
+                <div className="w-6 h-6 border-2 border-[#2563EB] border-t-transparent rounded-full animate-spin" />
               </div>
-            )}
-
-            {!tabLoading && (
+            ) : (
               <>
                 {/* ─── Overview Tab ─── */}
                 {activeTab === 'overview' && (
                   <div className="space-y-4">
-                    {activeEnrollment ? (
-                      <div className="bg-[#EFF6FF] rounded-xl p-4">
-                        <h4 className="text-sm font-semibold text-[#2563EB] mb-3 flex items-center gap-2">
-                          <BookOpen size={15} /> Inscription active
-                        </h4>
-                        <div className="grid grid-cols-2 gap-3 text-sm">
-                          <div>
-                            <p className="text-xs text-slate-400">Groupe</p>
-                            <p className="font-medium text-[#0F172A]">#{activeEnrollment.groupId}</p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-slate-400">Tarif mensuel</p>
-                            <p className="font-medium text-[#2563EB]">{activeEnrollment.agreedPrice.toLocaleString()} DZD</p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-slate-400">Date d'inscription</p>
-                            <p className="font-medium text-[#0F172A]">{activeEnrollment.enrollmentDate}</p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-slate-400">Statut</p>
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">
-                              Actif
-                            </span>
-                          </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+                        <div className="flex items-center gap-2 text-slate-500 text-xs mb-1">
+                          <BookOpen size={14} className="text-[#2563EB]" />
+                          <span>{t('courses.groups')}</span>
                         </div>
+                        <p className="text-xl font-bold text-[#0F172A]">{enrollments.filter(e => e.status === 'active').length} {lang === 'ar' ? 'فوج نشط' : 'actif(s)'}</p>
                       </div>
-                    ) : (
-                      <div className="text-center py-8 text-slate-400 bg-slate-50 rounded-xl">
-                        <BookOpen size={32} className="mx-auto mb-2 opacity-30" />
-                        <p className="text-sm">Aucune inscription active</p>
-                        <p className="text-xs mt-1">Inscrivez l'étudiant à un cours et groupe</p>
-                      </div>
-                    )}
-
-                    {/* Student details summary */}
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="bg-slate-50 rounded-lg p-3">
-                        <p className="text-xs text-slate-400 mb-1">Genre</p>
-                        <p className="text-sm font-medium text-[#0F172A]">
-                          {student.gender === 'male' ? '♂ Masculin' : '♀ Féminin'}
+                      <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+                        <div className="flex items-center gap-2 text-slate-500 text-xs mb-1">
+                          <CreditCard size={14} className="text-emerald-500" />
+                          <span>{lang === 'ar' ? 'المجموع الشهري' : 'Total mensuel'}</span>
+                        </div>
+                        <p className="text-xl font-bold text-emerald-600">
+                          {enrollments.filter(e => e.status === 'active').reduce((acc, e) => acc + (e.agreedPrice || 0), 0).toLocaleString()} DA
                         </p>
                       </div>
-                      <div className="bg-slate-50 rounded-lg p-3">
-                        <p className="text-xs text-slate-400 mb-1">N° Étudiant</p>
-                        <p className="text-sm font-mono font-medium text-[#0F172A]">{student.studentNumber}</p>
-                      </div>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-sm text-[#0F172A] mb-3">{t('students.enrollments')}</h4>
+                      {enrollments.length === 0 ? (
+                        <p className="text-xs text-slate-400 italic py-3">{lang === 'ar' ? 'لا توجد تسجيلات بعد' : 'Aucune inscription active'}</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {enrollments.map((enr) => (
+                            <div key={enr.id} className="p-3 bg-slate-50 rounded-lg flex justify-between items-center text-xs">
+                              <div>
+                                <p className="font-bold text-[#0F172A]">{enr.courseName ?? ''} — {enr.groupName ?? `Groupe #${enr.groupId}`}</p>
+                                <p className="text-slate-400">{enr.enrollmentDate}</p>
+                              </div>
+                              <span className="font-bold text-[#2563EB]">{enr.agreedPrice.toLocaleString()} DA</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
 
                 {/* ─── Attendance Tab ─── */}
                 {activeTab === 'attendance' && (
-                  <div>
-                    <div className="text-center py-12 text-slate-400">
-                      <Clock size={36} className="mx-auto mb-3 opacity-30" />
-                      <p className="text-sm font-medium">Historique de présence</p>
-                      <p className="text-xs mt-1">
-                        Sélectionnez une session dans le module Présence pour voir l'historique
-                      </p>
-                    </div>
+                  <div className="text-center py-12 text-slate-400">
+                    <Clock size={36} className="mx-auto mb-2 opacity-30" />
+                    <p className="text-sm font-medium">{t('attendance.history')}</p>
+                    <p className="text-xs text-slate-400 mt-1">{lang === 'ar' ? 'راجع تقارير الحضور والغياب من قسم الحضور' : 'Consultez le module Présences pour scanner ou voir l\'historique détaillé'}</p>
                   </div>
                 )}
 
                 {/* ─── Payments Tab ─── */}
                 {activeTab === 'payments' && (
                   <div>
+                    <div className="flex justify-between items-center mb-4">
+                      <h4 className="font-bold text-sm text-[#0F172A]">{t('nav.payments')}</h4>
+                      <button
+                        onClick={() => navigate('/payments')}
+                        className="text-xs text-[#2563EB] hover:underline font-semibold"
+                      >
+                        {t('payments.add')} →
+                      </button>
+                    </div>
+
                     {payments.length === 0 ? (
                       <div className="text-center py-12 text-slate-400">
-                        <CreditCard size={36} className="mx-auto mb-3 opacity-30" />
-                        <p className="text-sm font-medium">Aucun paiement enregistré</p>
+                        <CreditCard size={36} className="mx-auto mb-2 opacity-30" />
+                        <p className="text-sm font-medium">{t('payments.noPayments')}</p>
                       </div>
                     ) : (
-                      <div className="space-y-3">
-                        {payments.map((payment) => (
-                          <div key={payment.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+                      <div className="space-y-2.5">
+                        {payments.map((p) => (
+                          <div key={p.id} className="p-3.5 bg-slate-50 rounded-xl flex justify-between items-center text-xs">
                             <div>
-                              <p className="text-sm font-medium text-[#0F172A]">{payment.receiptNumber}</p>
-                              <p className="text-xs text-slate-400 mt-0.5">
-                                {payment.billingPeriod} · {payment.paymentDate}
-                              </p>
-                              <p className="text-xs text-slate-400">
-                                {payment.paymentMethod === 'cash' ? 'Espèces' : payment.paymentMethod === 'transfer' ? 'Virement' : 'Chèque'}
-                              </p>
+                              <p className="font-mono font-bold text-[#0F172A]">{p.receiptNumber}</p>
+                              <p className="text-slate-400 mt-0.5">{p.billingPeriod} · {p.paymentDate}</p>
+                              {p.notes && <p className="text-[11px] text-slate-500 mt-0.5 italic">{p.notes}</p>}
                             </div>
                             <div className="text-end">
-                              <p className="font-bold text-[#2563EB]">{payment.amount.toLocaleString()} DZD</p>
-                              <span className={`text-xs px-2 py-0.5 rounded-full ${
-                                payment.status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'
+                              <p className="font-bold text-[#2563EB] text-sm">{p.amount.toLocaleString()} DA</p>
+                              <span className={`inline-block text-[10px] px-2 py-0.5 rounded-full font-semibold mt-1 ${
+                                p.status === 'paid' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'
                               }`}>
-                                {payment.status === 'paid' ? 'Payé' : 'Annulé'}
+                                {p.status === 'paid' ? t('payments.paid') : t('payments.cancelled')}
                               </span>
                             </div>
                           </div>
                         ))}
-                        <div className="pt-3 border-t border-border flex justify-between text-sm">
-                          <span className="text-slate-500 font-medium">Total payé:</span>
-                          <span className="font-bold text-[#0F172A]">
-                            {payments.filter(p => p.status === 'paid').reduce((s, p) => s + p.amount, 0).toLocaleString()} DZD
-                          </span>
-                        </div>
                       </div>
                     )}
                   </div>
                 )}
 
-                {/* ─── Enrollments Tab ─── */}
+                {/* ─── Enrollments Tab (With Transfer & Drop features) ─── */}
                 {activeTab === 'enrollments' && (
                   <div>
+                    <div className="flex justify-between items-center mb-4">
+                      <h4 className="font-bold text-sm text-[#0F172A]">{t('students.enrollments')}</h4>
+                      <button
+                        onClick={() => setShowAddEnrollModal(true)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-[#2563EB] text-white rounded-lg text-xs font-semibold hover:bg-[#1D4ED8] transition-colors shadow-xs"
+                      >
+                        <Plus size={13} /> {lang === 'ar' ? 'إضافة تسجيل في فوج' : 'Inscrire à un groupe'}
+                      </button>
+                    </div>
+
                     {enrollments.length === 0 ? (
                       <div className="text-center py-12 text-slate-400">
-                        <BookOpen size={36} className="mx-auto mb-3 opacity-30" />
-                        <p className="text-sm font-medium">Aucune inscription</p>
-                        <p className="text-xs mt-1">L'étudiant n'est inscrit à aucun groupe</p>
+                        <BookOpen size={36} className="mx-auto mb-2 opacity-30" />
+                        <p className="text-sm font-medium">{lang === 'ar' ? 'لا توجد أي تسجيلات' : 'Aucune inscription'}</p>
+                        <button
+                          onClick={() => setShowAddEnrollModal(true)}
+                          className="mt-3 text-xs text-[#2563EB] hover:underline font-semibold"
+                        >
+                          + {lang === 'ar' ? 'تسجيل في أول فوج' : 'Inscrire au premier groupe'}
+                        </button>
                       </div>
                     ) : (
                       <div className="space-y-3">
-                        {enrollments.map((enroll) => (
-                          <div key={enroll.id} className={`p-4 rounded-lg border ${
-                            enroll.status === 'active' ? 'border-[#2563EB]/30 bg-[#EFF6FF]' : 'border-border bg-slate-50'
-                          }`}>
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <p className="text-sm font-medium text-[#0F172A]">Groupe #{enroll.groupId}</p>
-                                <p className="text-xs text-slate-400 mt-0.5">
-                                  Inscrit le: {enroll.enrollmentDate}
-                                </p>
-                                <p className="text-xs text-slate-400">
-                                  Prix convenu: {enroll.agreedPrice.toLocaleString()} DZD/mois
-                                </p>
+                        {enrollments.map((enroll) => {
+                          const isActive = enroll.status === 'active'
+                          const otherActiveEnrollments = enrollments.filter(e => e.id !== enroll.id && e.status === 'active')
+
+                          return (
+                            <div
+                              key={enroll.id}
+                              className={`p-4 rounded-xl border transition-all ${
+                                isActive ? 'border-[#2563EB]/30 bg-[#EFF6FF]/40' : 'border-border bg-slate-50/60 opacity-80'
+                              }`}
+                            >
+                              <div className="flex justify-between items-start">
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <h5 className="font-bold text-sm text-[#0F172A]">
+                                      {enroll.courseName ?? ''} — {enroll.groupName ?? `Groupe #${enroll.groupId}`}
+                                    </h5>
+                                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+                                      isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'
+                                    }`}>
+                                      {isActive ? t('students.active') : t('students.inactive')}
+                                    </span>
+                                  </div>
+                                  <p className="text-xs text-slate-500 mt-1">
+                                    {t('courses.monthlyPrice')}: <span className="font-bold text-[#0F172A]">{enroll.agreedPrice.toLocaleString()} DA</span> / {lang === 'ar' ? 'شهر' : 'mois'}
+                                  </p>
+                                  <p className="text-[11px] text-slate-400 mt-0.5">
+                                    {t('students.registrationDate')}: {enroll.enrollmentDate}
+                                  </p>
+                                </div>
                               </div>
-                              <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${
-                                enroll.status === 'active' ? 'bg-green-100 text-green-700' :
-                                enroll.status === 'inactive' ? 'bg-amber-100 text-amber-700' :
-                                'bg-slate-100 text-slate-500'
-                              }`}>
-                                {enroll.status === 'active' ? 'Actif' : enroll.status === 'inactive' ? 'Inactif' : 'Terminé'}
-                              </span>
+
+                              {/* Action buttons on enrollment */}
+                              <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-200/60 flex-wrap justify-end">
+                                {/* Transfer Credit action button */}
+                                {isActive && otherActiveEnrollments.length > 0 && (
+                                  <button
+                                    onClick={() => {
+                                      setTransferModalSource(enroll)
+                                      setTransferTargetEnrollId(String(otherActiveEnrollments[0].id))
+                                      setTransferAmount('1000')
+                                      setTransferCloseSource(true)
+                                    }}
+                                    className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-500 text-white rounded text-xs font-semibold hover:bg-amber-600 transition-colors shadow-xs"
+                                    title={lang === 'ar' ? 'تحويل رصيد متبقي إلى مادة/فوج آخر' : 'Transférer le solde vers un autre cours'}
+                                  >
+                                    <ArrowRightLeft size={12} /> {lang === 'ar' ? 'تحويل رصيد لمادة أخرى' : 'Transférer solde'}
+                                  </button>
+                                )}
+
+                                {/* Close / Reactivate button */}
+                                <button
+                                  onClick={() => handleToggleEnrollmentStatus(enroll.id, enroll.status)}
+                                  className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                                    isActive
+                                      ? 'border border-red-200 text-red-600 hover:bg-red-50'
+                                      : 'border border-emerald-200 text-emerald-700 hover:bg-emerald-50'
+                                  }`}
+                                >
+                                  {isActive ? (
+                                    <><X size={12} /> {lang === 'ar' ? 'إلغاء / إنهاء الفوج' : 'Arrêter le cours'}</>
+                                  ) : (
+                                    <><Check size={12} /> {lang === 'ar' ? 'إعادة تفعيل' : 'Réactiver'}</>
+                                  )}
+                                </button>
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          )
+                        })}
                       </div>
                     )}
                   </div>
@@ -519,13 +687,12 @@ export default function StudentProfile() {
                 {/* ─── Notes Tab ─── */}
                 {activeTab === 'notes' && (
                   <div>
-                    {/* Add note form */}
                     <div className="mb-4">
                       <textarea
                         value={newNote}
                         onChange={(e) => setNewNote(e.target.value)}
                         placeholder={t('students.addNote')}
-                        className="w-full px-3 py-2.5 border border-border rounded-lg text-sm focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 resize-none"
+                        className="w-full px-3 py-2.5 border border-border rounded-lg text-sm focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 resize-none bg-white"
                         rows={3}
                       />
                       <div className="flex justify-end mt-2">
@@ -533,8 +700,6 @@ export default function StudentProfile() {
                           onClick={async () => {
                             if (!newNote.trim()) return
                             setSavingNote(true)
-                            // Notes API will be available once exposed via preload
-                            // For now show the note locally
                             setNotes((prev) => [{
                               id: Date.now(),
                               noteText: newNote,
@@ -545,10 +710,10 @@ export default function StudentProfile() {
                             setSavingNote(false)
                           }}
                           disabled={!newNote.trim() || savingNote}
-                          className="flex items-center gap-2 px-4 py-2 bg-[#2563EB] text-white rounded-lg text-sm font-medium hover:bg-[#1D4ED8] transition-colors disabled:opacity-50"
+                          className="flex items-center gap-2 px-4 py-2 bg-[#2563EB] text-white rounded-lg text-sm font-semibold hover:bg-[#1D4ED8] transition-colors disabled:opacity-50 shadow-xs"
                         >
                           <Plus size={14} />
-                          {savingNote ? t('common.saving') : t('common.add')}
+                          {savingNote ? t('common.saving') : t('common.save')}
                         </button>
                       </div>
                     </div>
@@ -578,6 +743,171 @@ export default function StudentProfile() {
           </div>
         </div>
       </div>
+
+      {/* ── Modal: Add New Enrollment ── */}
+      {showAddEnrollModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fade-in">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-bold text-[#0F172A]">{lang === 'ar' ? 'تسجيل في فوج جديد' : 'Nouvelle inscription à un groupe'}</h3>
+              <button onClick={() => setShowAddEnrollModal(false)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">{t('courses.groups')} *</label>
+                <select
+                  className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-white"
+                  value={newEnrollGroupId}
+                  onChange={(e) => {
+                    setNewEnrollGroupId(e.target.value)
+                    const found = availableGroups.find(g => g.id === Number(e.target.value))
+                    if (found) setNewEnrollPrice(String(found.monthlyPrice))
+                  }}
+                >
+                  <option value="">— {lang === 'ar' ? 'اختر الفوج / المادة' : 'Choisir un groupe / cours'} —</option>
+                  {availableGroups.map((g) => {
+                    const c = availableCourses.find(crs => crs.id === g.courseId)
+                    const cName = c ? (lang === 'ar' ? c.nameAr : c.nameFr) : ''
+                    return (
+                      <option key={g.id} value={g.id}>
+                        {cName ? `${cName} — ` : ''}{g.name} ({g.monthlyPrice.toLocaleString()} DA)
+                      </option>
+                    )
+                  })}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">{t('courses.monthlyPrice')} (DA) *</label>
+                <input
+                  type="number"
+                  className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-white"
+                  value={newEnrollPrice}
+                  onChange={(e) => setNewEnrollPrice(e.target.value)}
+                  dir="ltr"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 mt-5">
+              <button onClick={() => setShowAddEnrollModal(false)} className="px-4 py-2 border border-border rounded-lg text-xs text-slate-600">{t('common.cancel')}</button>
+              <button
+                onClick={handleAddEnrollment}
+                disabled={savingEnroll || !newEnrollGroupId}
+                className="px-4 py-2 bg-[#2563EB] text-white rounded-lg text-xs font-semibold hover:bg-[#1D4ED8] disabled:opacity-60"
+              >
+                {savingEnroll ? t('common.saving') : t('common.save')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Transfer Credit between Courses (User's Idea) ── */}
+      {transferModalSource && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fade-in">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-bold text-[#0F172A] flex items-center gap-2">
+                <ArrowRightLeft size={16} className="text-amber-500" />
+                {lang === 'ar' ? 'تحويل رصيد مالي بين المواد' : 'Transfert de solde / crédit'}
+              </h3>
+              <button onClick={() => setTransferModalSource(null)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
+            </div>
+
+            <div className="space-y-3.5 text-xs text-slate-700">
+              {/* Source info */}
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                <p className="text-[11px] text-slate-400">{lang === 'ar' ? 'المادة المصدر (التي توقف عنها):' : 'Cours source :'}</p>
+                <p className="font-bold text-[#0F172A] text-sm mt-0.5">
+                  {transferModalSource.courseName ?? `Groupe #${transferModalSource.groupId}`}
+                </p>
+                <p className="text-slate-500 mt-0.5">
+                  {lang === 'ar' ? 'السعر الشهري:' : 'Prix convenu :'} {transferModalSource.agreedPrice.toLocaleString()} DA
+                </p>
+              </div>
+
+              {/* Destination Enrollment */}
+              <div>
+                <label className="block font-medium text-slate-600 mb-1">
+                  {lang === 'ar' ? 'المادة / الفوج المستقبل للرصيد *' : 'Cours / Groupe destinataire du crédit *'}
+                </label>
+                <select
+                  className="w-full px-3 py-2 border border-border rounded-lg text-xs bg-white"
+                  value={transferTargetEnrollId}
+                  onChange={(e) => setTransferTargetEnrollId(e.target.value)}
+                >
+                  <option value="">— {lang === 'ar' ? 'اختر الفوج المستقبل' : 'Sélectionner le groupe cible'} —</option>
+                  {enrollments
+                    .filter(e => e.id !== transferModalSource.id && e.status === 'active')
+                    .map((target) => (
+                      <option key={target.id} value={target.id}>
+                        {target.courseName ?? ''} — {target.groupName ?? `Groupe #${target.groupId}`} ({target.agreedPrice.toLocaleString()} DA)
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              {/* Amount to transfer */}
+              <div>
+                <label className="block font-medium text-slate-600 mb-1">
+                  {lang === 'ar' ? 'المبلغ المراد تحويله (دج) *' : 'Montant à transférer (DA) *'}
+                </label>
+                <input
+                  type="number"
+                  className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-white font-bold text-[#2563EB]"
+                  value={transferAmount}
+                  onChange={(e) => setTransferAmount(e.target.value)}
+                  dir="ltr"
+                />
+              </div>
+
+              {/* Checkbox: Close source group */}
+              <label className="flex items-center gap-2 cursor-pointer pt-1">
+                <input
+                  type="checkbox"
+                  checked={transferCloseSource}
+                  onChange={(e) => setTransferCloseSource(e.target.checked)}
+                  className="rounded text-[#2563EB] focus:ring-0"
+                />
+                <span className="text-slate-700">
+                  {lang === 'ar' ? 'إلغاء/إنهاء تسجيل الطالب في المادة السابقة' : 'Arrêter / clôturer l\'inscription au cours source'}
+                </span>
+              </label>
+
+              {/* Notes */}
+              <div>
+                <label className="block font-medium text-slate-600 mb-1">
+                  {lang === 'ar' ? 'ملاحظة أو سبب التحويل (اختياري)' : 'Motif du transfert (Optionnel)'}
+                </label>
+                <input
+                  className="w-full px-3 py-2 border border-border rounded-lg text-xs bg-white"
+                  value={transferReason}
+                  onChange={(e) => setTransferReason(e.target.value)}
+                  placeholder={lang === 'ar' ? 'مثال: توقف عن دراسة الرياضيات بعد أسبوعين' : 'Ex: Arrêt de mathématiques après 2 semaines'}
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 mt-5">
+              <button
+                onClick={() => setTransferModalSource(null)}
+                className="px-4 py-2 border border-border rounded-lg text-xs text-slate-600"
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                onClick={handleExecuteCreditTransfer}
+                disabled={savingTransfer || !transferTargetEnrollId || !transferAmount}
+                className="px-4 py-2 bg-amber-600 text-white rounded-lg text-xs font-bold hover:bg-amber-700 disabled:opacity-60 flex items-center gap-1.5 shadow-xs"
+              >
+                <ArrowRightLeft size={13} />
+                {savingTransfer ? t('common.saving') : (lang === 'ar' ? 'تأكيد التحويل المالي' : 'Confirmer le transfert')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

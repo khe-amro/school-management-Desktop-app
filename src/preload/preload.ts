@@ -108,6 +108,8 @@ const api = {
   enrollments: {
     create: (data: { studentId: number; groupId: number; agreedPrice: number; enrollmentDate: string }) =>
       invoke<Enrollment>(IPC_CHANNELS.ENROLLMENTS_CREATE, data),
+    update: (id: number, data: Partial<{ status: 'active' | 'inactive' | 'completed'; agreedPrice: number }>) =>
+      invoke<Enrollment>(IPC_CHANNELS.ENROLLMENTS_UPDATE, { id, ...data }),
     byStudent: (studentId: number) =>
       invoke<Enrollment[]>(IPC_CHANNELS.ENROLLMENTS_BY_STUDENT, { studentId }),
     byGroup: (groupId: number) =>

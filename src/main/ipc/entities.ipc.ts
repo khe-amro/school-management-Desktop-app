@@ -10,7 +10,7 @@ import {
   listTeachers, createTeacher, updateTeacher, archiveTeacher,
   listCourses, createCourse, updateCourse,
   listGroups, createGroup, updateGroup,
-  createEnrollment, listEnrollmentsByStudent, listEnrollmentsByGroup,
+  createEnrollment, updateEnrollment, listEnrollmentsByStudent, listEnrollmentsByGroup,
 } from '../services/entities.service'
 import { z } from 'zod'
 
@@ -85,4 +85,13 @@ export function registerEntityHandlers(): void {
     const { groupId } = z.object({ groupId: z.number().int().positive() }).parse(payload)
     return listEnrollmentsByGroup(groupId)
   })
+  handle(IPC_CHANNELS.ENROLLMENTS_UPDATE, async (payload) => {
+    const { id, ...data } = z.object({
+      id: z.number().int().positive(),
+      status: z.enum(['active', 'inactive', 'completed']).optional(),
+      agreedPrice: z.number().min(0).optional(),
+    }).parse(payload)
+    return updateEnrollment(id, data)
+  })
 }
+

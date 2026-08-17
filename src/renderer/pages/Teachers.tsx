@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Pencil, Archive, Camera } from 'lucide-react'
+import { Plus, Pencil, Archive, Camera, RefreshCw } from 'lucide-react'
 import type { Teacher } from '@shared/types/index'
 
 export default function Teachers() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language as 'ar' | 'fr' | 'en'
   const [teachers, setTeachers] = useState<Teacher[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -51,6 +52,12 @@ export default function Teachers() {
     }
   }
 
+  const handleRestore = async (id: number) => {
+    if (!window.confirm(lang === 'ar' ? 'هل تريد استعادة وتفعيل هذا الأستاذ؟' : 'Voulez-vous restaurer et réactiver cet enseignant ?')) return
+    await window.schoolApp.teachers.update(id, { status: 'active' } as any)
+    await load()
+  }
+
   const inputCls = 'w-full px-3 py-2 border border-border rounded-lg text-sm focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 transition-all bg-white'
 
   return (
@@ -92,17 +99,27 @@ export default function Teachers() {
                     <p className="text-xs text-slate-400">{teacher.phone ?? teacher.email ?? '—'}</p>
                   </div>
                 </div>
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${teacher.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
-                  {teacher.status === 'active' ? t('teachers.active') : t('teachers.inactive')}
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                  teacher.status === 'active' ? 'bg-green-100 text-green-700' :
+                  teacher.status === 'inactive' ? 'bg-amber-100 text-amber-700' :
+                  'bg-slate-100 text-slate-500'
+                }`}>
+                  {teacher.status === 'active' ? t('teachers.active') : teacher.status === 'inactive' ? t('teachers.inactive') : t('students.archived')}
                 </span>
               </div>
               <div className="flex gap-2 pt-2 border-t border-slate-100">
                 <button onClick={() => openEdit(teacher)} className="flex items-center gap-1 text-xs text-slate-500 hover:text-[#2563EB] transition-colors">
                   <Pencil size={11} /> {t('common.edit')}
                 </button>
-                <button onClick={() => handleArchive(teacher.id)} className="flex items-center gap-1 text-xs text-slate-500 hover:text-red-500 transition-colors ms-auto">
-                  <Archive size={11} /> {t('teachers.archive')}
-                </button>
+                {teacher.status === 'archived' ? (
+                  <button onClick={() => handleRestore(teacher.id)} className="flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-700 transition-colors ms-auto font-semibold">
+                    <RefreshCw size={11} /> {lang === 'ar' ? 'استعادة' : 'Restaurer'}
+                  </button>
+                ) : (
+                  <button onClick={() => handleArchive(teacher.id)} className="flex items-center gap-1 text-xs text-slate-500 hover:text-red-500 transition-colors ms-auto">
+                    <Archive size={11} /> {t('teachers.archive')}
+                  </button>
+                )}
               </div>
             </div>
           ))}

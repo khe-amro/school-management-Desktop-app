@@ -179,3 +179,11 @@ export async function listEnrollmentsByGroup(groupId: number): Promise<Enrollmen
     .orderBy(desc(schema.enrollments.createdAt))
   return rows.map(r => ({ id: r.id, studentId: r.studentId, groupId: r.groupId, agreedPrice: r.agreedPrice, enrollmentDate: r.enrollmentDate, status: r.status as Enrollment['status'], createdAt: r.createdAt, updatedAt: r.updatedAt }))
 }
+
+export async function updateEnrollment(id: number, data: Partial<{ status: Enrollment['status']; agreedPrice: number }>): Promise<Enrollment> {
+  requireSession()
+  const db = getDb()
+  const result = await db.update(schema.enrollments).set({ ...data, updatedAt: new Date().toISOString() }).where(eq(schema.enrollments.id, id)).returning()
+  const r = result[0]!
+  return { id: r.id, studentId: r.studentId, groupId: r.groupId, agreedPrice: r.agreedPrice, enrollmentDate: r.enrollmentDate, status: r.status as Enrollment['status'], createdAt: r.createdAt, updatedAt: r.updatedAt }
+}
