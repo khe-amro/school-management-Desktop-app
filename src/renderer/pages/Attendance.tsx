@@ -65,43 +65,32 @@ export default function Attendance() {
   const scanInputRef = useRef<HTMLInputElement>(null)
   const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const [openSessionsList, setOpenSessionsList] = useState<AttendanceSession[]>([])
-
   const loadData = useCallback(async () => {
-    const [cr, gr, openRes] = await Promise.all([
+    // Clear any old localStorage keys from previous versions
+    try { localStorage.removeItem('edupilot_active_attendance_session_id') } catch {}
+
+    const [cr, gr] = await Promise.all([
       window.schoolApp.courses.list(),
       window.schoolApp.groups.list(),
-      window.schoolApp.attendance.listSessions({ status: 'open', limit: 5 }),
     ])
     if (cr.success && cr.data) setCourses(cr.data)
     if (gr.success && gr.data) setGroups(gr.data)
-    if (openRes.success && openRes.data) setOpenSessionsList(openRes.data)
 
-    // Check if there is an active session stored in localStorage or currently open
-    const savedSessionId = localStorage.getItem('edupilot_active_attendance_session_id')
-    if (savedSessionId) {
+    // Only restore if the user actively started a session in this browser/app session
+    const activeSessionId = sessionStorage.getItem('edupilot_active_session_id')
+    if (activeSessionId) {
       try {
-        const sessRes = await window.schoolApp.attendance.getSession(Number(savedSessionId))
+        const sessRes = await window.schoolApp.attendance.getSession(Number(activeSessionId))
         if (sessRes.success && sessRes.data && sessRes.data.status === 'open') {
           setActiveSession(sessRes.data)
           setSelectedGroup(sessRes.data.groupId)
           await refreshStats(sessRes.data.id)
-          return
         } else {
-          localStorage.removeItem('edupilot_active_attendance_session_id')
+          sessionStorage.removeItem('edupilot_active_session_id')
         }
       } catch {
-        localStorage.removeItem('edupilot_active_attendance_session_id')
+        sessionStorage.removeItem('edupilot_active_session_id')
       }
-    }
-
-    // Fallback: If any open session exists in database, automatically restore it
-    if (openRes.success && openRes.data && openRes.data.length > 0) {
-      const openSess = openRes.data[0]
-      setActiveSession(openSess)
-      setSelectedGroup(openSess.groupId)
-      localStorage.setItem('edupilot_active_attendance_session_id', String(openSess.id))
-      await refreshStats(openSess.id)
     }
   }, [])
 
@@ -166,7 +155,7 @@ export default function Attendance() {
       if (res.success) {
         setActiveSession(res.data)
         setSelectedGroup(res.data.groupId)
-        localStorage.setItem('edupilot_active_attendance_session_id', String(res.data.id))
+        sessionStorage.setItem('edupilot_active_session_id', String(res.data.id))
         await refreshStats(res.data.id)
       } else {
         showFeedback({ type: 'error', message: res.error ?? t('common.error') })
@@ -180,7 +169,7 @@ export default function Attendance() {
     if (!activeSession) return
     if (!window.confirm(t('attendance.closeSessionConfirm'))) return
     await window.schoolApp.attendance.endSession(activeSession.id)
-    localStorage.removeItem('edupilot_active_attendance_session_id')
+    sessionStorage.removeItem('edupilot_active_session_id')
     setActiveSession(null)
     setScanInput('')
     await loadData()
@@ -297,80 +286,47 @@ export default function Attendance() {
         <>
           {!activeSession ? (
             /* Session Picker Setup */
-            <div className="max-w-xl mx-auto space-y-4">
-              {openSessionsList.length > 0 && (
-                <div className="bg-blue-50 border border-[#2563EB]/20 rounded-2xl p-4 flex items-center justify-between animate-fade-in shadow-xs">
-                  <div className="flex items-center gap-3">
-                    <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse" />
-                    <div className="text-start">
-                      <p className="text-xs font-bold text-[#0F172A]">
-                        {i18n.language === 'ar' ? 'توجد جلسة حضور مفتوحة حالياً' : 'Une séance de présence est ouverte'}
-                      </p>
-                      <p className="text-[11px] text-slate-500">
-                        {openSessionsList.map((s) => {
-                          const grp = groups.find((g) => g.id === s.groupId)
-                          return grp?.name ?? `#${s.groupId}`
-                        }).join(', ')}
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => {
-                      const openSess = openSessionsList[0]
-                      setActiveSession(openSess)
-                      setSelectedGroup(openSess.groupId)
-                      localStorage.setItem('edupilot_active_attendance_session_id', String(openSess.id))
-                      refreshStats(openSess.id)
-                    }}
-                    className="px-3.5 py-1.5 bg-[#2563EB] text-white rounded-lg text-xs font-semibold hover:bg-[#1D4ED8] transition-colors shadow-xs"
-                  >
-                    {i18n.language === 'ar' ? 'متابعة الجلسة' : 'Reprendre la séance'} →
-                  </button>
-                </div>
-              )}
-
-              <div className="bg-white rounded-2xl border border-border p-8 text-center space-y-5 shadow-xs">
-                <div className="w-16 h-16 rounded-2xl bg-[#EFF6FF] flex items-center justify-center mx-auto text-[#2563EB]">
-                  <ScanLine size={32} />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-[#0F172A]">{t('attendance.startSession')}</h3>
-                  <p className="text-slate-400 text-xs mt-1">{t('attendance.startPrompt')}</p>
-                </div>
-
-                {/* Group Selector */}
-                <div className="space-y-3 text-start">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">{t('attendance.groupCourse')} *</label>
-                    <select
-                      value={selectedGroup ?? ''}
-                      onChange={(e) => setSelectedGroup(Number(e.target.value) || null)}
-                      className="w-full px-3 py-2.5 border border-border rounded-lg text-sm bg-white focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20"
-                    >
-                      <option value="">{t('attendance.chooseGroup')}</option>
-                      {courses.map((course) => {
-                        const cg = groups.filter((g) => g.courseId === course.id && g.status === 'active')
-                        if (!cg.length) return null
-                        const courseName = i18n.language === 'ar' ? (course.nameAr || course.nameFr) : (course.nameFr || course.nameAr)
-                        return (
-                          <optgroup key={course.id} label={courseName}>
-                            {cg.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-                          </optgroup>
-                        )
-                      })}
-                    </select>
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => handleStartSession()}
-                  disabled={!selectedGroup || starting}
-                  className="w-full bg-[#2563EB] text-white py-3 rounded-xl font-semibold text-sm hover:bg-[#1D4ED8] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  {starting && <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />}
-                  {t('attendance.startSession')}
-                </button>
+            <div className="max-w-xl mx-auto bg-white rounded-2xl border border-border p-8 text-center space-y-5 shadow-xs">
+              <div className="w-16 h-16 rounded-2xl bg-[#EFF6FF] flex items-center justify-center mx-auto text-[#2563EB]">
+                <ScanLine size={32} />
               </div>
+              <div>
+                <h3 className="text-lg font-bold text-[#0F172A]">{t('attendance.startSession')}</h3>
+                <p className="text-slate-400 text-xs mt-1">{t('attendance.startPrompt')}</p>
+              </div>
+
+              {/* Group Selector */}
+              <div className="space-y-3 text-start">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">{t('attendance.groupCourse')} *</label>
+                  <select
+                    value={selectedGroup ?? ''}
+                    onChange={(e) => setSelectedGroup(Number(e.target.value) || null)}
+                    className="w-full px-3 py-2.5 border border-border rounded-lg text-sm bg-white focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20"
+                  >
+                    <option value="">{t('attendance.chooseGroup')}</option>
+                    {courses.map((course) => {
+                      const cg = groups.filter((g) => g.courseId === course.id && g.status === 'active')
+                      if (!cg.length) return null
+                      const courseName = i18n.language === 'ar' ? (course.nameAr || course.nameFr) : (course.nameFr || course.nameAr)
+                      return (
+                        <optgroup key={course.id} label={courseName}>
+                          {cg.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                        </optgroup>
+                      )
+                    })}
+                  </select>
+                </div>
+              </div>
+
+              <button
+                onClick={() => handleStartSession()}
+                disabled={!selectedGroup || starting}
+                className="w-full bg-[#2563EB] text-white py-3 rounded-xl font-semibold text-sm hover:bg-[#1D4ED8] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {starting && <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />}
+                {t('attendance.startSession')}
+              </button>
             </div>
           ) : (
             /* Active Scanner UI */
