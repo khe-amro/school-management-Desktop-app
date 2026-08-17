@@ -138,8 +138,38 @@ export async function createEnrollment(data: { studentId: number; groupId: numbe
 
 export async function listEnrollmentsByStudent(studentId: number): Promise<Enrollment[]> {
   const db = getDb()
-  const rows = await db.select().from(schema.enrollments).where(eq(schema.enrollments.studentId, studentId)).orderBy(desc(schema.enrollments.createdAt))
-  return rows.map(r => ({ id: r.id, studentId: r.studentId, groupId: r.groupId, agreedPrice: r.agreedPrice, enrollmentDate: r.enrollmentDate, status: r.status as Enrollment['status'], createdAt: r.createdAt, updatedAt: r.updatedAt }))
+  const rows = await db
+    .select({
+      id: schema.enrollments.id,
+      studentId: schema.enrollments.studentId,
+      groupId: schema.enrollments.groupId,
+      agreedPrice: schema.enrollments.agreedPrice,
+      enrollmentDate: schema.enrollments.enrollmentDate,
+      status: schema.enrollments.status,
+      createdAt: schema.enrollments.createdAt,
+      updatedAt: schema.enrollments.updatedAt,
+      groupName: schema.groups.name,
+      courseNameAr: schema.courses.nameAr,
+      courseNameFr: schema.courses.nameFr,
+    })
+    .from(schema.enrollments)
+    .leftJoin(schema.groups, eq(schema.enrollments.groupId, schema.groups.id))
+    .leftJoin(schema.courses, eq(schema.groups.courseId, schema.courses.id))
+    .where(eq(schema.enrollments.studentId, studentId))
+    .orderBy(desc(schema.enrollments.createdAt))
+
+  return rows.map((r) => ({
+    id: r.id,
+    studentId: r.studentId,
+    groupId: r.groupId,
+    agreedPrice: r.agreedPrice,
+    enrollmentDate: r.enrollmentDate,
+    status: r.status as Enrollment['status'],
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+    groupName: r.groupName ?? undefined,
+    courseName: r.courseNameAr ? `${r.courseNameAr} (${r.courseNameFr})` : (r.courseNameFr ?? undefined),
+  }))
 }
 
 export async function listEnrollmentsByGroup(groupId: number): Promise<Enrollment[]> {

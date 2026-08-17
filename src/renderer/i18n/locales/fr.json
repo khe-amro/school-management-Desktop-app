@@ -312,7 +312,11 @@
     "todayCollected": "Perçu aujourd'hui",
     "outstanding": "En attente",
     "students": "élève(s)",
-    "referencePlaceholder": "N° chèque ou virement"
+    "referencePlaceholder": "N° chèque ou virement",
+    "notEnrolledYet": "Cet élève n'est inscrit dans aucun groupe. Choisissez un groupe pour l'inscrire et encaisser :",
+    "selectCourseGroup": "— Choisir un cours / groupe —",
+    "groupOrCourseRequired": "Veuillez sélectionner le cours et groupe pour enregistrer le paiement",
+    "courseAndGroup": "Cours & Groupe"
   },
   "reports": {
     "title": "Rapports",

@@ -312,7 +312,11 @@
     "todayCollected": "المحصّل اليوم",
     "outstanding": "التحصيلات المعلّقة",
     "students": "طالب",
-    "referencePlaceholder": "رقم الشيك أو التحويل"
+    "referencePlaceholder": "رقم الشيك أو التحويل",
+    "notEnrolledYet": "هذا الطالب غير مسجل في أي فوج بعد. اختر فوجاً لتسجيله وتسجيل الدفعة:",
+    "selectCourseGroup": "— اختر المادة / الفوج —",
+    "groupOrCourseRequired": "يرجى اختيار المادة والفوج لإتمام الدفع",
+    "courseAndGroup": "المادة والفوج"
   },
   "reports": {
     "title": "التقارير",

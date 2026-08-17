@@ -1,7 +1,10 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, CreditCard, Search, Printer, X, TrendingUp, AlertTriangle, CheckCircle2, Clock } from 'lucide-react'
-import type { Payment, Student, Enrollment } from '@shared/types/index'
+import {
+  Plus, Search, Printer, X, TrendingUp, AlertTriangle, CheckCircle2, Clock,
+  BookOpen, AlertCircle
+} from 'lucide-react'
+import type { Payment, Student, Enrollment, Group, Course } from '@shared/types/index'
 
 interface PaymentSummary {
   monthRevenue: number
@@ -10,8 +13,18 @@ interface PaymentSummary {
   overdue: number
 }
 
+// Convert Eastern Arabic numerals (٠-٩) and Persian numerals (۰-۹) to standard ASCII (0-9)
+function normalizeNumberInput(val: string): string {
+  const ascii = val
+    .replace(/[٠-٩]/g, (d) => '0123456789'['٠١٢٣٤٥٦٧٨٩'.indexOf(d)])
+    .replace(/[۰-۹]/g, (d) => '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(d)])
+  return ascii.replace(/[^0-9.]/g, '')
+}
+
 export default function Payments() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language as 'ar' | 'fr' | 'en'
+
   const [payments, setPayments] = useState<Payment[]>([])
   const [summary, setSummary] = useState<PaymentSummary>({ monthRevenue: 0, todayCollected: 0, outstanding: 0, overdue: 0 })
   const [loading, setLoading] = useState(true)
@@ -19,25 +32,40 @@ export default function Payments() {
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+
+  // Reference lists
   const [students, setStudents] = useState<Student[]>([])
+  const [groups, setGroups] = useState<Group[]>([])
+  const [courses, setCourses] = useState<Course[]>([])
   const [enrollments, setEnrollments] = useState<Enrollment[]>([])
   const [receiptModal, setReceiptModal] = useState<Payment | null>(null)
 
+  // Form State
   const [form, setForm] = useState({
-    studentId: '', enrollmentId: '', billingPeriod: '',
-    amount: '', paymentMethod: 'cash', paymentDate: new Date().toISOString().slice(0, 10),
-    reference: '', notes: ''
+    studentId: '',
+    enrollmentId: '',
+    newGroupId: '', // If student not enrolled, user picks a group directly
+    billingPeriod: new Date().toISOString().slice(0, 7),
+    amount: '',
+    paymentMethod: 'cash',
+    paymentDate: new Date().toISOString().slice(0, 10),
+    reference: '',
+    notes: '',
   })
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [listRes, summaryRes] = await Promise.all([
+      const [listRes, summaryRes, grpRes, crsRes] = await Promise.all([
         window.schoolApp.payments.list({ pageSize: 100 }),
         window.schoolApp.payments.summary(),
+        window.schoolApp.groups.list(),
+        window.schoolApp.courses.list(),
       ])
       if (listRes.success && listRes.data) setPayments(listRes.data.items)
       if (summaryRes.success && summaryRes.data) setSummary(summaryRes.data)
+      if (grpRes.success && grpRes.data) setGroups(grpRes.data)
+      if (crsRes.success && crsRes.data) setCourses(crsRes.data)
     } finally {
       setLoading(false)
     }
@@ -46,10 +74,58 @@ export default function Payments() {
   useEffect(() => { load() }, [load])
 
   const handleStudentChange = async (sid: string) => {
-    setForm((f) => ({ ...f, studentId: sid, enrollmentId: '' }))
-    if (!sid) { setEnrollments([]); return }
+    setError('')
+    setForm((f) => ({ ...f, studentId: sid, enrollmentId: '', newGroupId: '', amount: '' }))
+    if (!sid) {
+      setEnrollments([])
+      return
+    }
+
     const res = await window.schoolApp.enrollments.byStudent(Number(sid))
-    if (res.success && res.data) setEnrollments(res.data)
+    if (res.success && res.data && res.data.length > 0) {
+      setEnrollments(res.data)
+      // Auto-select first active enrollment and pre-fill its price
+      const first = res.data[0]
+      setForm((f) => ({
+        ...f,
+        studentId: sid,
+        enrollmentId: String(first.id),
+        newGroupId: '',
+        amount: String(first.agreedPrice || ''),
+      }))
+    } else {
+      setEnrollments([])
+      // If student has no enrollments, if groups exist, default to first group
+      if (groups.length > 0) {
+        setForm((f) => ({
+          ...f,
+          studentId: sid,
+          enrollmentId: '',
+          newGroupId: String(groups[0].id),
+          amount: String(groups[0].monthlyPrice || ''),
+        }))
+      }
+    }
+  }
+
+  const handleEnrollmentChange = (enrollId: string) => {
+    const found = enrollments.find((e) => e.id === Number(enrollId))
+    setForm((f) => ({
+      ...f,
+      enrollmentId: enrollId,
+      newGroupId: '',
+      amount: found ? String(found.agreedPrice || '') : f.amount,
+    }))
+  }
+
+  const handleNewGroupChange = (grpId: string) => {
+    const found = groups.find((g) => g.id === Number(grpId))
+    setForm((f) => ({
+      ...f,
+      newGroupId: grpId,
+      enrollmentId: '',
+      amount: found ? String(found.monthlyPrice || '') : f.amount,
+    }))
   }
 
   const openForm = async () => {
@@ -57,41 +133,84 @@ export default function Payments() {
     if (sr.success && sr.data) setStudents(sr.data.items)
     setEnrollments([])
     setForm({
-      studentId: '', enrollmentId: '',
+      studentId: '',
+      enrollmentId: '',
+      newGroupId: '',
       billingPeriod: new Date().toISOString().slice(0, 7),
-      amount: '', paymentMethod: 'cash',
+      amount: '',
+      paymentMethod: 'cash',
       paymentDate: new Date().toISOString().slice(0, 10),
-      reference: '', notes: ''
+      reference: '',
+      notes: '',
     })
     setError('')
     setShowForm(true)
   }
 
   const handleSave = async () => {
-    if (!form.studentId || !form.enrollmentId || !form.amount || !form.billingPeriod) {
-      setError(t('courses.fillRequiredFields'))
+    if (!form.studentId) {
+      setError(t('payments.student') + ' * ' + t('common.required'))
       return
     }
+    if (!form.enrollmentId && !form.newGroupId) {
+      setError(t('payments.groupOrCourseRequired'))
+      return
+    }
+    if (!form.amount || Number(form.amount) < 0) {
+      setError(t('payments.amount') + ' * ' + t('common.required'))
+      return
+    }
+    if (!form.billingPeriod) {
+      setError(t('payments.billingPeriod') + ' * ' + t('common.required'))
+      return
+    }
+
     setSaving(true)
+    setError('')
+
     try {
+      let finalEnrollmentId = Number(form.enrollmentId)
+
+      // If student was not enrolled yet, auto-enroll them in the selected group now
+      if (!finalEnrollmentId && form.newGroupId) {
+        const enrollRes = await window.schoolApp.enrollments.create({
+          studentId: Number(form.studentId),
+          groupId: Number(form.newGroupId),
+          agreedPrice: Number(form.amount),
+          enrollmentDate: form.paymentDate || new Date().toISOString().slice(0, 10),
+        })
+
+        if (!enrollRes.success || !enrollRes.data) {
+          setError(enrollRes.error ?? t('common.error'))
+          setSaving(false)
+          return
+        }
+        finalEnrollmentId = enrollRes.data.id
+      }
+
       const res = await window.schoolApp.payments.create({
         studentId: Number(form.studentId),
-        enrollmentId: Number(form.enrollmentId),
+        enrollmentId: finalEnrollmentId,
         billingPeriod: form.billingPeriod,
         amount: Number(form.amount),
         paymentMethod: form.paymentMethod as 'cash' | 'transfer' | 'check',
         paymentDate: form.paymentDate,
-        reference: form.reference || null,
-        notes: form.notes || null,
+        reference: form.reference.trim() || null,
+        notes: form.notes.trim() || null,
       })
-      if (res.success) {
+
+      if (res.success && res.data) {
         setShowForm(false)
         setReceiptModal(res.data)
         await load()
       } else {
         setError(res.error ?? t('common.error'))
       }
-    } finally { setSaving(false) }
+    } catch (err: any) {
+      setError(err?.message ?? t('common.error'))
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleCancel = async (id: number) => {
@@ -104,11 +223,27 @@ export default function Payments() {
     await window.schoolApp.app.print()
   }
 
+  const getCourseGroupName = (courseId: number, groupName: string) => {
+    const course = courses.find((c) => c.id === courseId)
+    if (!course) return groupName
+    const cName = lang === 'ar' ? course.nameAr : course.nameFr
+    return `${cName} — ${groupName}`
+  }
+
   const inputCls = 'w-full px-3 py-2 border border-border rounded-lg text-sm focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 bg-white'
   const labelCls = 'block text-xs font-medium text-slate-600 mb-1'
 
   const filtered = search
-    ? payments.filter((p) => p.receiptNumber.toLowerCase().includes(search.toLowerCase()))
+    ? payments.filter((p) => {
+        const q = search.toLowerCase()
+        return (
+          p.receiptNumber.toLowerCase().includes(q) ||
+          (p.studentName && p.studentName.toLowerCase().includes(q)) ||
+          (p.studentNumber && p.studentNumber.toLowerCase().includes(q)) ||
+          (p.courseName && p.courseName.toLowerCase().includes(q)) ||
+          (p.groupName && p.groupName.toLowerCase().includes(q))
+        )
+      })
     : payments
 
   return (
@@ -159,44 +294,61 @@ export default function Payments() {
         </div>
         <button
           onClick={openForm}
-          className="flex items-center gap-2 bg-[#2563EB] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#1D4ED8] transition-colors shrink-0"
+          className="flex items-center gap-2 bg-[#2563EB] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#1D4ED8] transition-colors"
         >
           <Plus size={15} /> {t('payments.add')}
         </button>
       </div>
 
-      {/* Table */}
+      {/* Payments Table */}
       <div className="bg-white rounded-xl border border-border overflow-hidden shadow-xs">
         {loading ? (
-          <div className="flex justify-center py-16"><div className="w-6 h-6 border-2 border-[#2563EB] border-t-transparent rounded-full animate-spin" /></div>
+          <div className="flex justify-center py-12">
+            <div className="w-6 h-6 border-2 border-[#2563EB] border-t-transparent rounded-full animate-spin" />
+          </div>
         ) : filtered.length === 0 ? (
           <div className="text-center py-16 text-slate-400">
-            <CreditCard size={36} className="mx-auto mb-3 opacity-30" />
+            <CreditCard size={36} className="mx-auto mb-2 opacity-30" />
             <p className="font-medium">{t('payments.noPayments')}</p>
           </div>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-slate-50 border-b border-border text-slate-500 text-xs uppercase tracking-wide">
-                <th className="text-start px-4 py-3 font-medium">{t('payments.receiptNumber')}</th>
-                <th className="text-start px-4 py-3 font-medium">{t('payments.billingPeriod')}</th>
-                <th className="text-start px-4 py-3 font-medium">{t('payments.amount')}</th>
-                <th className="text-start px-4 py-3 font-medium hidden sm:table-cell">{t('payments.method')}</th>
-                <th className="text-start px-4 py-3 font-medium hidden md:table-cell">{t('payments.date')}</th>
-                <th className="text-start px-4 py-3 font-medium">{t('payments.status')}</th>
+          <table className="w-full text-xs text-start">
+            <thead className="bg-slate-50 text-slate-500 font-medium border-b border-border">
+              <tr>
+                <th className="px-4 py-3 text-start">{t('payments.receiptNumber')}</th>
+                <th className="px-4 py-3 text-start">{t('payments.student')}</th>
+                <th className="px-4 py-3 text-start">{t('payments.courseAndGroup')}</th>
+                <th className="px-4 py-3 text-start">{t('payments.billingPeriod')}</th>
+                <th className="px-4 py-3 text-start">{t('payments.amount')}</th>
+                <th className="px-4 py-3 text-start">{t('payments.method')}</th>
+                <th className="px-4 py-3 text-start">{t('payments.date')}</th>
+                <th className="px-4 py-3 text-start">{t('payments.status')}</th>
                 <th className="px-4 py-3 text-end">{t('common.actions')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#F1F5F9]">
               {filtered.map((p) => (
-                <tr key={p.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-4 py-3 font-mono text-xs text-[#2563EB] font-bold">{p.receiptNumber}</td>
-                  <td className="px-4 py-3 text-slate-600">{p.billingPeriod}</td>
-                  <td className="px-4 py-3 font-semibold text-[#0F172A]">{p.amount.toLocaleString()} DA</td>
-                  <td className="px-4 py-3 text-slate-500 hidden sm:table-cell">{t(`payments.${p.paymentMethod}`)}</td>
-                  <td className="px-4 py-3 text-slate-400 text-xs hidden md:table-cell">{p.paymentDate}</td>
+                <tr key={p.id} className="hover:bg-slate-50/70 transition-colors">
+                  <td className="px-4 py-3 font-mono font-bold text-[#0F172A]">{p.receiptNumber}</td>
+                  <td className="px-4 py-3 font-medium text-[#0F172A]">
+                    <div>{p.studentName ?? `Student #${p.studentId}`}</div>
+                    {p.studentNumber && <div className="text-[10px] text-slate-400 font-mono">{p.studentNumber}</div>}
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">
+                    <span className="font-medium">{p.courseName ?? ''}</span>
+                    {p.groupName && <span className="text-slate-400 text-[11px] block">{p.groupName}</span>}
+                  </td>
+                  <td className="px-4 py-3 font-mono text-slate-500">{p.billingPeriod}</td>
+                  <td className="px-4 py-3 font-bold text-[#2563EB]">{p.amount.toLocaleString()} DA</td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {t(`payments.${p.paymentMethod}`)}
+                    {p.reference && <span className="text-[10px] text-slate-400 block font-mono">#{p.reference}</span>}
+                  </td>
+                  <td className="px-4 py-3 font-mono text-slate-500">{p.paymentDate}</td>
                   <td className="px-4 py-3">
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${p.status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-400 line-through'}`}>
+                    <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                      p.status === 'paid' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
+                    }`}>
                       {p.status === 'paid' ? t('payments.paid') : t('payments.cancelled')}
                     </span>
                   </td>
@@ -218,35 +370,85 @@ export default function Payments() {
       {/* Payment Form Modal */}
       {showForm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fade-in">
-            <h3 className="font-bold text-[#0F172A] mb-5">{t('payments.add')}</h3>
-            <div className="space-y-3">
+          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fade-in max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-bold text-base text-[#0F172A]">{t('payments.add')}</h3>
+              <button onClick={() => setShowForm(false)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
+            </div>
+
+            <div className="space-y-3.5">
+              {/* Student Selector */}
               <div>
                 <label className={labelCls}>{t('payments.student')} *</label>
                 <select className={inputCls} value={form.studentId} onChange={(e) => handleStudentChange(e.target.value)}>
                   <option value="">— {t('payments.student')} —</option>
-                  {students.map((s) => <option key={s.id} value={s.id}>{s.lastNameAr} {s.firstNameAr} — {s.studentNumber}</option>)}
+                  {students.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.lastNameAr} {s.firstNameAr} — {s.studentNumber}
+                    </option>
+                  ))}
                 </select>
               </div>
-              {enrollments.length > 0 && (
+
+              {/* Course & Group Selector (Enrollment) */}
+              {form.studentId && (
                 <div>
-                  <label className={labelCls}>{t('payments.enrollment')} *</label>
-                  <select className={inputCls} value={form.enrollmentId} onChange={(e) => setForm((f) => ({ ...f, enrollmentId: e.target.value }))}>
-                    <option value="">— {t('courses.groups')} —</option>
-                    {enrollments.map((e) => <option key={e.id} value={e.id}>{e.groupName ?? `${t('courses.groups')} #${e.groupId}`} — {e.agreedPrice.toLocaleString()} DA</option>)}
-                  </select>
+                  <label className={labelCls}>{t('payments.courseAndGroup')} *</label>
+                  {enrollments.length > 0 ? (
+                    <select className={inputCls} value={form.enrollmentId} onChange={(e) => handleEnrollmentChange(e.target.value)}>
+                      <option value="">{t('payments.selectCourseGroup')}</option>
+                      {enrollments.map((e) => (
+                        <option key={e.id} value={e.id}>
+                          {e.courseName ? `${e.courseName} — ` : ''}{e.groupName ?? `${t('courses.groups')} #${e.groupId}`} ({e.agreedPrice.toLocaleString()} DA)
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="space-y-2 p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs">
+                      <div className="flex items-center gap-1.5 text-amber-800 font-medium">
+                        <AlertCircle size={14} className="shrink-0" />
+                        <span>{t('payments.notEnrolledYet')}</span>
+                      </div>
+                      <select className={inputCls} value={form.newGroupId} onChange={(e) => handleNewGroupChange(e.target.value)}>
+                        <option value="">{t('payments.selectCourseGroup')}</option>
+                        {groups.map((g) => (
+                          <option key={g.id} value={g.id}>
+                            {getCourseGroupName(g.courseId, g.name)} ({g.monthlyPrice.toLocaleString()} DA)
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
               )}
+
+              {/* Billing Period & Amount */}
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className={labelCls}>{t('payments.billingPeriod')} *</label>
-                  <input type="month" className={inputCls} value={form.billingPeriod} onChange={(e) => setForm((f) => ({ ...f, billingPeriod: e.target.value }))} dir="ltr" />
+                  <input
+                    type="month"
+                    className={inputCls}
+                    value={form.billingPeriod}
+                    onChange={(e) => setForm((f) => ({ ...f, billingPeriod: e.target.value }))}
+                    dir="ltr"
+                  />
                 </div>
                 <div>
-                  <label className={labelCls}>{t('payments.amount')} *</label>
-                  <input type="number" className={inputCls} value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} dir="ltr" />
+                  <label className={labelCls}>{t('payments.amount')} (DA) *</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    className={inputCls}
+                    value={form.amount}
+                    onChange={(e) => setForm((f) => ({ ...f, amount: normalizeNumberInput(e.target.value) }))}
+                    placeholder="0.00"
+                    dir="ltr"
+                  />
                 </div>
               </div>
+
+              {/* Payment Method & Date */}
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className={labelCls}>{t('payments.method')}</label>
@@ -258,18 +460,47 @@ export default function Payments() {
                 </div>
                 <div>
                   <label className={labelCls}>{t('payments.date')}</label>
-                  <input type="date" className={inputCls} value={form.paymentDate} onChange={(e) => setForm((f) => ({ ...f, paymentDate: e.target.value }))} dir="ltr" />
+                  <input
+                    type="date"
+                    className={inputCls}
+                    value={form.paymentDate}
+                    onChange={(e) => setForm((f) => ({ ...f, paymentDate: e.target.value }))}
+                    dir="ltr"
+                  />
                 </div>
               </div>
+
+              {/* Reference / Note */}
               <div>
                 <label className={labelCls}>{t('payments.reference')} / {t('common.notes')}</label>
-                <input className={inputCls} value={form.reference} onChange={(e) => setForm((f) => ({ ...f, reference: e.target.value }))} placeholder={t('payments.referencePlaceholder')} />
+                <input
+                  className={inputCls}
+                  value={form.reference}
+                  onChange={(e) => setForm((f) => ({ ...f, reference: e.target.value }))}
+                  placeholder={t('payments.referencePlaceholder')}
+                />
               </div>
             </div>
-            {error && <p className="text-red-600 text-xs mt-3">{error}</p>}
+
+            {error && (
+              <div className="p-2.5 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs mt-3 flex items-center gap-1.5">
+                <AlertTriangle size={14} className="shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+
             <div className="flex justify-end gap-2 mt-5">
-              <button onClick={() => setShowForm(false)} className="px-4 py-2 border border-border rounded-lg text-sm text-slate-600 hover:bg-slate-50">{t('common.cancel')}</button>
-              <button onClick={handleSave} disabled={saving} className="px-4 py-2 bg-[#2563EB] text-white rounded-lg text-sm font-semibold hover:bg-[#1D4ED8] disabled:opacity-60 flex items-center gap-2">
+              <button
+                onClick={() => setShowForm(false)}
+                className="px-4 py-2 border border-border rounded-lg text-sm text-slate-600 hover:bg-slate-50"
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="px-4 py-2 bg-[#2563EB] text-white rounded-lg text-sm font-semibold hover:bg-[#1D4ED8] disabled:opacity-60 flex items-center gap-2 shadow-xs"
+              >
                 {saving && <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />}
                 {t('common.save')}
               </button>
@@ -278,7 +509,7 @@ export default function Payments() {
         </div>
       )}
 
-      {/* Receipt Modal */}
+      {/* Receipt Ticket Modal */}
       {receiptModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setReceiptModal(null)}>
           <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl animate-fade-in" onClick={(e) => e.stopPropagation()}>
@@ -286,21 +517,78 @@ export default function Payments() {
               <h3 className="font-bold text-[#0F172A]">{t('payments.receipt')}</h3>
               <button onClick={() => setReceiptModal(null)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
             </div>
-            <div className="space-y-3 text-xs text-slate-600 font-mono bg-slate-50 p-4 rounded-xl">
-              <p className="text-center font-bold text-sm text-[#0F172A]">EDUPILOT DZ</p>
-              <p className="text-center text-[10px] text-slate-400">{t('payments.receiptNumber')} {receiptModal.receiptNumber}</p>
+
+            {/* Printable Ticket Receipt */}
+            <div className="space-y-3 text-xs text-slate-700 font-mono bg-slate-50 p-4 rounded-xl border border-slate-200 shadow-inner">
+              <div className="text-center">
+                <p className="font-extrabold text-base text-[#0F172A] tracking-wider">EDUPILOT DZ</p>
+                <p className="text-[10px] text-slate-400 mt-0.5">{t('payments.receiptNumber')}: {receiptModal.receiptNumber}</p>
+              </div>
+
               <div className="border-b border-dashed border-slate-300 my-2" />
-              <div className="flex justify-between"><span>{t('payments.billingPeriod')}:</span><span className="font-bold text-[#0F172A]">{receiptModal.billingPeriod}</span></div>
-              <div className="flex justify-between"><span>{t('payments.amount')}:</span><span className="font-bold text-[#2563EB]">{receiptModal.amount.toLocaleString()} DA</span></div>
-              <div className="flex justify-between"><span>{t('payments.method')}:</span><span>{t(`payments.${receiptModal.paymentMethod}`)}</span></div>
-              <div className="flex justify-between"><span>{t('payments.date')}:</span><span>{receiptModal.paymentDate}</span></div>
-              {receiptModal.reference && (
-                <div className="flex justify-between"><span>{t('payments.reference')}:</span><span>{receiptModal.reference}</span></div>
+
+              {/* Student info */}
+              {receiptModal.studentName && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500">{t('payments.student')}:</span>
+                  <span className="font-bold text-[#0F172A] text-end">{receiptModal.studentName}</span>
+                </div>
               )}
+              {receiptModal.studentNumber && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500">{t('students.studentNumber')}:</span>
+                  <span className="font-bold text-slate-600">{receiptModal.studentNumber}</span>
+                </div>
+              )}
+
+              {/* Course / Group */}
+              {(receiptModal.courseName || receiptModal.groupName) && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500">{t('payments.courseAndGroup')}:</span>
+                  <span className="font-bold text-[#0F172A] text-end">
+                    {receiptModal.courseName ? `${receiptModal.courseName} ` : ''}
+                    {receiptModal.groupName ? `(${receiptModal.groupName})` : ''}
+                  </span>
+                </div>
+              )}
+
+              <div className="flex justify-between">
+                <span className="text-slate-500">{t('payments.billingPeriod')}:</span>
+                <span className="font-bold text-[#0F172A]">{receiptModal.billingPeriod}</span>
+              </div>
+
+              <div className="flex justify-between">
+                <span className="text-slate-500">{t('payments.method')}:</span>
+                <span>{t(`payments.${receiptModal.paymentMethod}`)}</span>
+              </div>
+
+              <div className="flex justify-between">
+                <span className="text-slate-500">{t('payments.date')}:</span>
+                <span>{receiptModal.paymentDate}</span>
+              </div>
+
+              {receiptModal.reference && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500">{t('payments.reference')}:</span>
+                  <span className="font-semibold">{receiptModal.reference}</span>
+                </div>
+              )}
+
+              <div className="border-b border-dashed border-slate-300 my-2" />
+
+              {/* Amount Total */}
+              <div className="flex justify-between items-center pt-1">
+                <span className="font-bold text-sm text-[#0F172A]">{t('payments.amount')}:</span>
+                <span className="font-extrabold text-base text-[#2563EB]">{receiptModal.amount.toLocaleString()} DA</span>
+              </div>
             </div>
+
             <div className="flex justify-end gap-2 mt-5">
-              <button onClick={handlePrintReceipt} className="w-full py-2 bg-[#2563EB] text-white rounded-lg text-xs font-semibold hover:bg-[#1D4ED8] flex items-center justify-center gap-1.5">
-                <Printer size={14} /> {t('payments.printReceipt')}
+              <button
+                onClick={handlePrintReceipt}
+                className="w-full py-2.5 bg-[#2563EB] text-white rounded-lg text-xs font-bold hover:bg-[#1D4ED8] flex items-center justify-center gap-2 shadow-xs transition-colors"
+              >
+                <Printer size={15} /> {t('payments.printReceipt')}
               </button>
             </div>
           </div>

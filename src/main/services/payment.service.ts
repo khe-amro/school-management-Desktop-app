@@ -16,25 +16,6 @@ async function generateReceiptNumber(): Promise<string> {
   return `${prefix}-${ts}-${String(total).padStart(4, '0')}`
 }
 
-function mapRow(row: typeof schema.payments.$inferSelect): Payment {
-  return {
-    id: row.id,
-    receiptNumber: row.receiptNumber,
-    studentId: row.studentId,
-    enrollmentId: row.enrollmentId,
-    billingPeriod: row.billingPeriod,
-    amount: row.amount,
-    paymentMethod: row.paymentMethod as Payment['paymentMethod'],
-    paymentDate: row.paymentDate,
-    reference: row.reference ?? null,
-    notes: row.notes ?? null,
-    receivedBy: row.receivedBy,
-    status: row.status as 'paid' | 'cancelled',
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  }
-}
-
 export async function listPayments(opts: {
   page?: number
   pageSize?: number
@@ -56,13 +37,66 @@ export async function listPayments(opts: {
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined
 
   const [rows, totalResult] = await Promise.all([
-    db.select().from(schema.payments).where(whereClause)
+    db
+      .select({
+        id: schema.payments.id,
+        receiptNumber: schema.payments.receiptNumber,
+        studentId: schema.payments.studentId,
+        enrollmentId: schema.payments.enrollmentId,
+        billingPeriod: schema.payments.billingPeriod,
+        amount: schema.payments.amount,
+        paymentMethod: schema.payments.paymentMethod,
+        paymentDate: schema.payments.paymentDate,
+        reference: schema.payments.reference,
+        notes: schema.payments.notes,
+        receivedBy: schema.payments.receivedBy,
+        status: schema.payments.status,
+        createdAt: schema.payments.createdAt,
+        updatedAt: schema.payments.updatedAt,
+        studentLastNameAr: schema.students.lastNameAr,
+        studentFirstNameAr: schema.students.firstNameAr,
+        studentNumber: schema.students.studentNumber,
+        groupName: schema.groups.name,
+        courseNameAr: schema.courses.nameAr,
+        courseNameFr: schema.courses.nameFr,
+      })
+      .from(schema.payments)
+      .leftJoin(schema.students, eq(schema.payments.studentId, schema.students.id))
+      .leftJoin(schema.enrollments, eq(schema.payments.enrollmentId, schema.enrollments.id))
+      .leftJoin(schema.groups, eq(schema.enrollments.groupId, schema.groups.id))
+      .leftJoin(schema.courses, eq(schema.groups.courseId, schema.courses.id))
+      .where(whereClause)
       .orderBy(desc(schema.payments.paymentDate))
-      .limit(pageSize).offset(offset),
+      .limit(pageSize)
+      .offset(offset),
     db.select({ count: count() }).from(schema.payments).where(whereClause),
   ])
 
-  return { items: rows.map(mapRow), total: totalResult[0]?.count ?? 0, page, pageSize }
+  return {
+    items: rows.map((r) => ({
+      id: r.id,
+      receiptNumber: r.receiptNumber,
+      studentId: r.studentId,
+      enrollmentId: r.enrollmentId,
+      billingPeriod: r.billingPeriod,
+      amount: r.amount,
+      paymentMethod: r.paymentMethod as Payment['paymentMethod'],
+      paymentDate: r.paymentDate,
+      reference: r.reference ?? null,
+      notes: r.notes ?? null,
+      receivedBy: r.receivedBy,
+      status: r.status as 'paid' | 'cancelled',
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+      studentName: r.studentLastNameAr && r.studentFirstNameAr ? `${r.studentLastNameAr} ${r.studentFirstNameAr}` : undefined,
+      studentNumber: r.studentNumber ?? undefined,
+      groupName: r.groupName ?? undefined,
+      courseName: r.courseNameAr ? `${r.courseNameAr} (${r.courseNameFr})` : (r.courseNameFr ?? undefined),
+    })),
+    total: totalResult[0]?.count ?? 0,
+    page,
+    pageSize,
+  }
 }
 
 export async function createPayment(data: {
@@ -109,7 +143,58 @@ export async function createPayment(data: {
     sanitizedDetailsJson: JSON.stringify({ receiptNumber, amount: data.amount, billingPeriod: data.billingPeriod }),
   })
 
-  return mapRow(row)
+  // Fetch with joined details for instant display in receipt ticket
+  const joined = await db
+    .select({
+      id: schema.payments.id,
+      receiptNumber: schema.payments.receiptNumber,
+      studentId: schema.payments.studentId,
+      enrollmentId: schema.payments.enrollmentId,
+      billingPeriod: schema.payments.billingPeriod,
+      amount: schema.payments.amount,
+      paymentMethod: schema.payments.paymentMethod,
+      paymentDate: schema.payments.paymentDate,
+      reference: schema.payments.reference,
+      notes: schema.payments.notes,
+      receivedBy: schema.payments.receivedBy,
+      status: schema.payments.status,
+      createdAt: schema.payments.createdAt,
+      updatedAt: schema.payments.updatedAt,
+      studentLastNameAr: schema.students.lastNameAr,
+      studentFirstNameAr: schema.students.firstNameAr,
+      studentNumber: schema.students.studentNumber,
+      groupName: schema.groups.name,
+      courseNameAr: schema.courses.nameAr,
+      courseNameFr: schema.courses.nameFr,
+    })
+    .from(schema.payments)
+    .leftJoin(schema.students, eq(schema.payments.studentId, schema.students.id))
+    .leftJoin(schema.enrollments, eq(schema.payments.enrollmentId, schema.enrollments.id))
+    .leftJoin(schema.groups, eq(schema.enrollments.groupId, schema.groups.id))
+    .leftJoin(schema.courses, eq(schema.groups.courseId, schema.courses.id))
+    .where(eq(schema.payments.id, row.id))
+
+  const r = joined[0] ?? row
+  return {
+    id: r.id,
+    receiptNumber: r.receiptNumber,
+    studentId: r.studentId,
+    enrollmentId: r.enrollmentId,
+    billingPeriod: r.billingPeriod,
+    amount: r.amount,
+    paymentMethod: r.paymentMethod as Payment['paymentMethod'],
+    paymentDate: r.paymentDate,
+    reference: r.reference ?? null,
+    notes: r.notes ?? null,
+    receivedBy: r.receivedBy,
+    status: r.status as 'paid' | 'cancelled',
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+    studentName: 'studentLastNameAr' in r && r.studentLastNameAr ? `${r.studentLastNameAr} ${r.studentFirstNameAr}` : undefined,
+    studentNumber: 'studentNumber' in r ? r.studentNumber ?? undefined : undefined,
+    groupName: 'groupName' in r ? r.groupName ?? undefined : undefined,
+    courseName: 'courseNameAr' in r && r.courseNameAr ? `${r.courseNameAr} (${r.courseNameFr})` : ('courseNameFr' in r ? (r.courseNameFr ?? undefined) : undefined),
+  }
 }
 
 export async function cancelPayment(id: number, reason?: string | null): Promise<void> {
@@ -137,8 +222,49 @@ export async function cancelPayment(id: number, reason?: string | null): Promise
 
 export async function getPaymentsByStudent(studentId: number): Promise<Payment[]> {
   const db = getDb()
-  const rows = await db.select().from(schema.payments)
+  const rows = await db
+    .select({
+      id: schema.payments.id,
+      receiptNumber: schema.payments.receiptNumber,
+      studentId: schema.payments.studentId,
+      enrollmentId: schema.payments.enrollmentId,
+      billingPeriod: schema.payments.billingPeriod,
+      amount: schema.payments.amount,
+      paymentMethod: schema.payments.paymentMethod,
+      paymentDate: schema.payments.paymentDate,
+      reference: schema.payments.reference,
+      notes: schema.payments.notes,
+      receivedBy: schema.payments.receivedBy,
+      status: schema.payments.status,
+      createdAt: schema.payments.createdAt,
+      updatedAt: schema.payments.updatedAt,
+      groupName: schema.groups.name,
+      courseNameAr: schema.courses.nameAr,
+      courseNameFr: schema.courses.nameFr,
+    })
+    .from(schema.payments)
+    .leftJoin(schema.enrollments, eq(schema.payments.enrollmentId, schema.enrollments.id))
+    .leftJoin(schema.groups, eq(schema.enrollments.groupId, schema.groups.id))
+    .leftJoin(schema.courses, eq(schema.groups.courseId, schema.courses.id))
     .where(eq(schema.payments.studentId, studentId))
     .orderBy(desc(schema.payments.paymentDate))
-  return rows.map(mapRow)
+
+  return rows.map((r) => ({
+    id: r.id,
+    receiptNumber: r.receiptNumber,
+    studentId: r.studentId,
+    enrollmentId: r.enrollmentId,
+    billingPeriod: r.billingPeriod,
+    amount: r.amount,
+    paymentMethod: r.paymentMethod as Payment['paymentMethod'],
+    paymentDate: r.paymentDate,
+    reference: r.reference ?? null,
+    notes: r.notes ?? null,
+    receivedBy: r.receivedBy,
+    status: r.status as 'paid' | 'cancelled',
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+    groupName: r.groupName ?? undefined,
+    courseName: r.courseNameAr ? `${r.courseNameAr} (${r.courseNameFr})` : (r.courseNameFr ?? undefined),
+  }))
 }
