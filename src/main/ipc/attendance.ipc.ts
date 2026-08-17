@@ -40,6 +40,7 @@ export function registerAttendanceHandlers(): void {
   handle(IPC_CHANNELS.ATTENDANCE_SESSIONS_LIST, async (payload) => {
     const opts = z.object({
       groupId: z.number().int().positive().optional(),
+      status: z.enum(['open', 'closed']).optional(),
       limit: z.number().int().min(1).max(200).optional(),
     }).parse(payload ?? {})
     return listSessions(opts)

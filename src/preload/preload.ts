@@ -131,7 +131,7 @@ const api = {
       invoke<boolean>(IPC_CHANNELS.ATTENDANCE_END_SESSION, { sessionId }),
     getSession: (id: number) =>
       invoke<AttendanceSession & { records: AttendanceRecord[] }>(IPC_CHANNELS.ATTENDANCE_GET_SESSION, { id }),
-    listSessions: (opts?: { groupId?: number; limit?: number }) =>
+    listSessions: (opts?: { groupId?: number; status?: 'open' | 'closed'; limit?: number }) =>
       invoke<AttendanceSession[]>(IPC_CHANNELS.ATTENDANCE_SESSIONS_LIST, opts),
     lookup: (token: string) =>
       invoke<any>(IPC_CHANNELS.ATTENDANCE_LOOKUP, { token }),

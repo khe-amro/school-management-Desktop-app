@@ -22,6 +22,18 @@ export async function startAttendanceSession(data: {
   })
   if (!group) throw new AppError(ErrorCode.NOT_FOUND, 'Group not found')
 
+  // If there is already an open attendance session for this group, reuse it instead of duplicating
+  const existingOpen = await db.query.attendanceSessions.findFirst({
+    where: and(
+      eq(schema.attendanceSessions.groupId, data.groupId),
+      eq(schema.attendanceSessions.status, 'open')
+    ),
+    orderBy: desc(schema.attendanceSessions.createdAt),
+  })
+  if (existingOpen) {
+    return mapSessionRow(existingOpen)
+  }
+
   const now = new Date().toISOString()
   const result = await db.insert(schema.attendanceSessions).values({
     groupId: data.groupId,
@@ -287,12 +299,16 @@ export async function getSession(sessionId: number): Promise<AttendanceSession &
 
 // ─── List sessions ────────────────────────────────────────────────────────────
 
-export async function listSessions(opts: { groupId?: number; limit?: number }): Promise<AttendanceSession[]> {
+export async function listSessions(opts: { groupId?: number; status?: 'open' | 'closed'; limit?: number }): Promise<AttendanceSession[]> {
   const db = getDb()
-  const conditions = opts.groupId ? eq(schema.attendanceSessions.groupId, opts.groupId) : undefined
+  const conditions = []
+  if (opts.groupId) conditions.push(eq(schema.attendanceSessions.groupId, opts.groupId))
+  if (opts.status) conditions.push(eq(schema.attendanceSessions.status, opts.status))
+
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined
   const rows = await db.select().from(schema.attendanceSessions)
-    .where(conditions)
-    .orderBy(desc(schema.attendanceSessions.sessionDate))
+    .where(whereClause)
+    .orderBy(desc(schema.attendanceSessions.createdAt))
     .limit(opts.limit ?? 50)
   return rows.map(mapSessionRow)
 }
