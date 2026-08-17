@@ -34,21 +34,21 @@ export default function Setup() {
     setError('')
     if (step === 0) {
       if (!form.schoolNameAr.trim() || !form.schoolNameFr.trim()) {
-        setError('يرجى إدخال اسم المدرسة بالعربية والفرنسية')
+        setError(t('setup.errorSchoolName'))
         return
       }
     }
     if (step === 1) {
       if (!form.adminFullName.trim() || !form.adminUsername.trim() || !form.adminPassword) {
-        setError('يرجى ملء جميع حقول المسؤول')
+        setError(t('setup.errorAdminFields'))
         return
       }
       if (form.adminPassword.length < 8) {
-        setError('كلمة المرور يجب أن تكون 8 أحرف على الأقل')
+        setError(t('setup.errorPasswordLength'))
         return
       }
       if (form.adminPassword !== form.confirmPassword) {
-        setError('كلمتا المرور غير متطابقتين')
+        setError(t('setup.errorPasswordMismatch'))
         return
       }
     }
@@ -72,7 +72,7 @@ export default function Setup() {
         preferredLanguage: form.preferredLanguage,
       })
       if (!result.success) {
-        setError(result.error ?? 'حدث خطأ أثناء الإعداد')
+        setError(result.error ?? t('setup.errorGeneral'))
       }
     } finally {
       setLoading(false)
@@ -166,7 +166,7 @@ export default function Setup() {
               <div>
                 <label className={labelCls}>{t('setup.adminPassword')} *</label>
                 <input type="password" className={inputCls} value={form.adminPassword} onChange={set('adminPassword')} dir="ltr" autoComplete="new-password" />
-                <p className="text-xs text-slate-400 mt-1">الحد الأدنى 8 أحرف</p>
+                <p className="text-xs text-slate-400 mt-1">{t('setup.minPasswordLength')}</p>
               </div>
               <div>
                 <label className={labelCls}>{t('auth.confirmPassword')} *</label>

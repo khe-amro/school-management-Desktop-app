@@ -60,11 +60,11 @@ function AppRoutes() {
     )
   }
 
-  // First launch — show Login page (which has a built-in Sign Up tab)
+  // First launch — redirect to setup wizard
   if (isFirstRun) {
     return (
       <Routes>
-        <Route path="*" element={<Login />} />
+        <Route path="*" element={<Setup />} />
       </Routes>
     )
   }

@@ -63,7 +63,7 @@ export default function Settings() {
         if (adminRes.data.photoPath) {
           try {
             const photoRes = await window.schoolApp.media.getImageUrl(adminRes.data.photoPath)
-            if (photoRes.url) setAdminPhotoUrl(photoRes.url)
+            if (photoRes.success && photoRes.data?.url) setAdminPhotoUrl(photoRes.data.url)
           } catch { /* ignore */ }
         }
       }
@@ -203,11 +203,11 @@ export default function Settings() {
 
   const handleAdminPhoto = async () => {
     const res = await window.schoolApp.media.selectImage('admin', String(admin?.username ?? 'admin'))
-    if (res.success && res.path) {
-      const updateRes = await window.schoolApp.settings.updateAdmin({ photoPath: res.path })
+    if (res.success && res.data?.path) {
+      const updateRes = await window.schoolApp.settings.updateAdmin({ photoPath: res.data.path })
       if (updateRes.success) {
-        const photoRes = await window.schoolApp.media.getImageUrl(res.path)
-        if (photoRes.url) setAdminPhotoUrl(photoRes.url)
+        const photoRes = await window.schoolApp.media.getImageUrl(res.data.path)
+        if (photoRes.success && photoRes.data?.url) setAdminPhotoUrl(photoRes.data.url)
       }
     }
   }
@@ -216,10 +216,10 @@ export default function Settings() {
   const labelCls = 'block text-xs font-medium text-slate-600 mb-1.5'
 
   const navItems: { key: SettingsSection; label: string; icon: any }[] = [
-    { key: 'school', label: 'Profil de l\'école', icon: School },
-    { key: 'application', label: 'Application', icon: Wrench },
-    { key: 'backup', label: 'Sauvegardes', icon: Database },
-    { key: 'security', label: 'Sécurité', icon: Shield },
+    { key: 'school', label: t('settings.school'), icon: School },
+    { key: 'application', label: t('settings.appearance'), icon: Wrench },
+    { key: 'backup', label: t('settings.backup'), icon: Database },
+    { key: 'security', label: t('settings.security'), icon: Shield },
   ]
 
   if (loading) {
