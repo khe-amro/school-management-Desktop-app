@@ -541,14 +541,14 @@ export default function StudentCard() {
                   disabled={printing}
                   className="flex items-center gap-1.5 text-sm border border-[#2563EB] text-[#2563EB] px-3 py-1.5 rounded-lg hover:bg-[#EFF6FF] transition-colors disabled:opacity-50"
                 >
-                  <Download size={13} /> Enregistrer PDF
+                  <Download size={13} /> {t('common.export')} PDF
                 </button>
                 <button
                   onClick={handlePrint}
                   disabled={printing}
                   className="flex items-center gap-1.5 text-sm bg-[#2563EB] text-white px-3 py-1.5 rounded-lg hover:bg-[#1D4ED8] transition-colors disabled:opacity-50"
                 >
-                  <Printer size={13} /> Imprimer
+                  <Printer size={13} /> {t('common.print')}
                 </button>
                 <button
                   onClick={() => setShowPreview(false)}

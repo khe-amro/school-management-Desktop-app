@@ -132,9 +132,9 @@ export default function Settings() {
   }
 
   const handleChangePassword = async () => {
-    if (!pwForm.current || !pwForm.next) { setPwError('Remplissez tous les champs'); return }
-    if (pwForm.next !== pwForm.confirm) { setPwError('Les mots de passe ne correspondent pas'); return }
-    if (pwForm.next.length < 6) { setPwError('Minimum 6 caractères'); return }
+    if (!pwForm.current || !pwForm.next) { setPwError(t('auth.fillAllFields')); return }
+    if (pwForm.next !== pwForm.confirm) { setPwError(t('setup.errorPasswordMismatch')); return }
+    if (pwForm.next.length < 6) { setPwError(t('setup.errorPasswordLength')); return }
     setPwError('')
     try {
       const res = await window.schoolApp.auth.changePassword(pwForm.current, pwForm.next)
@@ -143,11 +143,11 @@ export default function Settings() {
         setPwForm({ current: '', next: '', confirm: '' })
         setTimeout(() => setPwStatus('idle'), 3000)
       } else {
-        setPwError(res.error ?? 'Erreur')
+        setPwError(res.error ?? t('common.error'))
         setPwStatus('error')
       }
     } catch (e: any) {
-      setPwError(e.message ?? 'Erreur')
+      setPwError(e.message ?? t('common.error'))
       setPwStatus('error')
     }
   }
@@ -165,10 +165,10 @@ export default function Settings() {
     try {
       const res = await window.schoolApp.backups.create(settings.backupDirectory ?? undefined)
       if (res.success) {
-        setBackupStatus('Sauvegarde créée avec succès!')
+        setBackupStatus(t('backups.backupCreated'))
         await loadBackups()
       } else {
-        setBackupStatus(`Erreur: ${res.error}`)
+        setBackupStatus(`${t('common.error')}: ${res.error}`)
       }
     } finally {
       setCreating(false)
@@ -178,15 +178,15 @@ export default function Settings() {
   const handleRestoreBackup = async () => {
     const res = await window.schoolApp.app.openBackupDialog()
     if (!res.success || !res.data || res.data.canceled || !res.data.path) return
-    const confirmPw = window.prompt('Confirmez votre mot de passe administrateur pour restaurer:')
+    const confirmPw = window.prompt(t('backups.passwordConfirm'))
     if (!confirmPw) return
     setRestoring(true)
     try {
       const restoreRes = await window.schoolApp.backups.restore(res.data.path, confirmPw)
       if (restoreRes.success) {
-        alert('Restauration réussie! L\'application va redémarrer.')
+        alert(t('backups.restoreComplete'))
       } else {
-        alert(`Erreur lors de la restauration: ${restoreRes.error}`)
+        alert(`${t('common.error')}: ${restoreRes.error}`)
       }
     } finally {
       setRestoring(false)
@@ -258,7 +258,7 @@ export default function Settings() {
             saveStatus === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'
           }`}>
             {saveStatus === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
-            {saveStatus === 'success' ? 'Paramètres enregistrés avec succès' : 'Erreur lors de l\'enregistrement'}
+            {saveStatus === 'success' ? t('settings.saved') : t('common.error')}
           </div>
         )}
 
@@ -266,43 +266,43 @@ export default function Settings() {
         {section === 'school' && (
           <div className="bg-white rounded-xl border border-border p-6 space-y-4">
             <h3 className="font-semibold text-[#0F172A] text-sm pb-2 border-b border-[#F1F5F9]">
-              Informations de l'école
+              {t('settings.school')}
             </h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className={labelCls}>Nom (Arabe)</label>
+                <label className={labelCls}>{t('settings.schoolNameAr')}</label>
                 <input className={inputCls} value={settings.schoolNameAr ?? ''} onChange={set('schoolNameAr')} dir="rtl" />
               </div>
               <div>
-                <label className={labelCls}>Nom (Français)</label>
+                <label className={labelCls}>{t('settings.schoolNameFr')}</label>
                 <input className={inputCls} value={settings.schoolNameFr ?? ''} onChange={set('schoolNameFr')} />
               </div>
             </div>
             <div>
-              <label className={labelCls}>Nom (Anglais)</label>
+              <label className={labelCls}>{t('settings.schoolNameEn')}</label>
               <input className={inputCls} value={settings.schoolNameEn ?? ''} onChange={set('schoolNameEn')} dir="ltr" />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className={labelCls}>Téléphone</label>
+                <label className={labelCls}>{t('settings.phone')}</label>
                 <input className={inputCls} value={settings.phone ?? ''} onChange={set('phone')} dir="ltr" />
               </div>
               <div>
-                <label className={labelCls}>Email</label>
+                <label className={labelCls}>{t('settings.email')}</label>
                 <input type="email" className={inputCls} value={settings.email ?? ''} onChange={set('email')} dir="ltr" />
               </div>
             </div>
             <div>
-              <label className={labelCls}>Adresse</label>
+              <label className={labelCls}>{t('settings.address')}</label>
               <input className={inputCls} value={settings.address ?? ''} onChange={set('address')} />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className={labelCls}>Année scolaire</label>
+                <label className={labelCls}>{t('settings.academicYear')}</label>
                 <input className={inputCls} value={settings.academicYear ?? ''} onChange={set('academicYear')} placeholder="2025-2026" dir="ltr" />
               </div>
               <div>
-                <label className={labelCls}>Devise</label>
+                <label className={labelCls}>{t('settings.currency')}</label>
                 <input className={inputCls} value={settings.currency ?? ''} onChange={set('currency')} placeholder="DZD" dir="ltr" />
               </div>
             </div>
@@ -313,7 +313,7 @@ export default function Settings() {
                 className="flex items-center gap-2 px-5 py-2.5 bg-[#2563EB] text-white rounded-lg text-sm font-semibold hover:bg-[#1D4ED8] disabled:opacity-60 transition-colors"
               >
                 {saving ? <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> : <Save size={14} />}
-                Enregistrer
+                {saving ? t('common.saving') : t('common.save')}
               </button>
             </div>
           </div>
@@ -323,10 +323,10 @@ export default function Settings() {
         {section === 'application' && (
           <div className="bg-white rounded-xl border border-border p-6 space-y-4">
             <h3 className="font-semibold text-[#0F172A] text-sm pb-2 border-b border-[#F1F5F9]">
-              Paramètres de l'application
+              {t('settings.appearance')}
             </h3>
             <div>
-              <label className={labelCls}>Langue par défaut</label>
+              <label className={labelCls}>{t('settings.language')}</label>
               <select className={inputCls} value={settings.defaultLanguage ?? 'ar'} onChange={set('defaultLanguage')}>
                 <option value="ar">العربية</option>
                 <option value="fr">Français</option>
@@ -335,12 +335,12 @@ export default function Settings() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className={labelCls}>Préfixe numéro étudiant</label>
+                <label className={labelCls}>{t('settings.studentPrefix')}</label>
                 <input className={inputCls} value={(settings as any).studentNumberPrefix ?? 'ETU'} placeholder="ETU" dir="ltr"
                   onChange={(e) => setSettings(s => ({ ...s, studentNumberPrefix: e.target.value }))} />
               </div>
               <div>
-                <label className={labelCls}>Préfixe reçu</label>
+                <label className={labelCls}>{t('settings.receiptPrefix')}</label>
                 <input className={inputCls} value={(settings as any).receiptPrefix ?? 'REC'} placeholder="REC" dir="ltr"
                   onChange={(e) => setSettings(s => ({ ...s, receiptPrefix: e.target.value }))} />
               </div>
@@ -352,7 +352,7 @@ export default function Settings() {
                 className="flex items-center gap-2 px-5 py-2.5 bg-[#2563EB] text-white rounded-lg text-sm font-semibold hover:bg-[#1D4ED8] disabled:opacity-60 transition-colors"
               >
                 {saving ? <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> : <Save size={14} />}
-                Enregistrer
+                {saving ? t('common.saving') : t('common.save')}
               </button>
             </div>
           </div>
@@ -363,15 +363,15 @@ export default function Settings() {
           <div className="space-y-5">
             <div className="bg-white rounded-xl border border-border p-6 space-y-4">
               <h3 className="font-semibold text-[#0F172A] text-sm pb-2 border-b border-[#F1F5F9]">
-                Configuration des sauvegardes
+                {t('settings.backup')}
               </h3>
               <div>
-                <label className={labelCls}>Dossier de sauvegarde</label>
+                <label className={labelCls}>{t('settings.backupDir')}</label>
                 <div className="flex gap-2">
                   <input className={`${inputCls} flex-1`} value={settings.backupDirectory ?? ''} readOnly dir="ltr"
-                    placeholder="Dossier par défaut (userData/backups)" />
+                    placeholder={t('backups.chooseDir')} />
                   <button onClick={handleChooseBackupDir} className="px-3 py-2 border border-border rounded-lg text-sm text-slate-600 hover:bg-slate-50 shrink-0 flex items-center gap-1.5">
-                    <FolderOpen size={14} /> Choisir
+                    <FolderOpen size={14} /> {t('backups.chooseDir')}
                   </button>
                 </div>
               </div>
@@ -379,12 +379,12 @@ export default function Settings() {
                 <input type="checkbox" id="autoBackup" checked={settings.automaticBackupEnabled ?? false}
                   onChange={setChecked('automaticBackupEnabled')} className="w-4 h-4 text-[#2563EB] rounded" />
                 <label htmlFor="autoBackup" className="text-sm font-medium text-[#0F172A]">
-                  Sauvegarde automatique quotidienne
+                  {t('settings.autoBackup')}
                 </label>
               </div>
               {settings.automaticBackupEnabled && (
                 <div>
-                  <label className={labelCls}>Nombre de sauvegardes à conserver</label>
+                  <label className={labelCls}>{t('settings.backupsToRetain')}</label>
                   <input type="number" className={inputCls} value={settings.backupsToRetain ?? 30} min={1} max={365} dir="ltr"
                     onChange={(e) => setSettings(s => ({ ...s, backupsToRetain: Number(e.target.value) }))} />
                 </div>
@@ -393,16 +393,16 @@ export default function Settings() {
                 <button onClick={handleSave} disabled={saving}
                   className="flex items-center gap-2 px-4 py-2.5 bg-[#2563EB] text-white rounded-lg text-sm font-semibold hover:bg-[#1D4ED8] disabled:opacity-60 transition-colors">
                   {saving ? <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> : <Save size={14} />}
-                  Enregistrer
+                  {saving ? t('common.saving') : t('common.save')}
                 </button>
                 <button onClick={handleCreateBackup} disabled={creating}
                   className="flex items-center gap-2 px-4 py-2.5 border border-border text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 disabled:opacity-60 transition-colors">
                   {creating ? <span className="w-4 h-4 border-2 border-[#2563EB]/30 border-t-[#2563EB] rounded-full animate-spin" /> : <Plus size={14} />}
-                  Créer une sauvegarde maintenant
+                  {creating ? t('backups.creating') : t('backups.create')}
                 </button>
                 <button onClick={handleRestoreBackup} disabled={restoring}
                   className="flex items-center gap-2 px-4 py-2.5 border border-amber-300 text-amber-700 rounded-lg text-sm font-medium hover:bg-amber-50 disabled:opacity-60 transition-colors">
-                  <RotateCcw size={14} /> Restaurer
+                  <RotateCcw size={14} /> {restoring ? t('backups.restoring') : t('backups.restore')}
                 </button>
               </div>
               {backupStatus && (
@@ -414,7 +414,7 @@ export default function Settings() {
             {backups.length > 0 && (
               <div className="bg-white rounded-xl border border-border p-6">
                 <h3 className="font-semibold text-[#0F172A] text-sm pb-2 border-b border-[#F1F5F9] mb-4">
-                  Sauvegardes récentes
+                  {t('backups.list')}
                 </h3>
                 <div className="space-y-2">
                   {backups.map((b, i) => (
@@ -441,7 +441,7 @@ export default function Settings() {
             {admin && (
               <div className="bg-white rounded-xl border border-border p-6">
                 <h3 className="font-semibold text-[#0F172A] text-sm pb-2 border-b border-[#F1F5F9] mb-4 flex items-center gap-2">
-                  <User size={14} /> Profil administrateur
+                  <User size={14} /> {t('common.administrator')}
                 </h3>
                 <div className="flex items-center gap-4 mb-4">
                   <div className="relative group cursor-pointer" onClick={handleAdminPhoto}>
@@ -467,11 +467,11 @@ export default function Settings() {
             {/* Change Password */}
             <div className="bg-white rounded-xl border border-border p-6">
               <h3 className="font-semibold text-[#0F172A] text-sm pb-2 border-b border-[#F1F5F9] mb-4 flex items-center gap-2">
-                <KeyRound size={14} /> Changer le mot de passe
+                <KeyRound size={14} /> {t('auth.changePassword')}
               </h3>
               {pwStatus === 'success' && (
                 <div className="flex items-center gap-2 text-green-700 bg-green-50 px-3 py-2 rounded-lg text-sm mb-3">
-                  <CheckCircle2 size={15} /> Mot de passe changé avec succès
+                  <CheckCircle2 size={15} /> {t('auth.passwordChanged')}
                 </div>
               )}
               {pwError && (
@@ -481,7 +481,7 @@ export default function Settings() {
               )}
               <div className="space-y-3">
                 <div>
-                  <label className={labelCls}>Mot de passe actuel</label>
+                  <label className={labelCls}>{t('auth.currentPassword')}</label>
                   <div className="relative">
                     <input
                       type={showPw ? 'text' : 'password'}
@@ -496,7 +496,7 @@ export default function Settings() {
                   </div>
                 </div>
                 <div>
-                  <label className={labelCls}>Nouveau mot de passe</label>
+                  <label className={labelCls}>{t('auth.newPassword')}</label>
                   <input
                     type={showPw ? 'text' : 'password'}
                     className={inputCls}
@@ -506,7 +506,7 @@ export default function Settings() {
                   />
                 </div>
                 <div>
-                  <label className={labelCls}>Confirmer le nouveau mot de passe</label>
+                  <label className={labelCls}>{t('auth.confirmPassword')}</label>
                   <input
                     type={showPw ? 'text' : 'password'}
                     className={inputCls}
@@ -519,7 +519,7 @@ export default function Settings() {
                   onClick={handleChangePassword}
                   className="flex items-center gap-2 px-5 py-2.5 bg-[#0F172A] text-white rounded-lg text-sm font-semibold hover:bg-slate-800 transition-colors"
                 >
-                  <KeyRound size={14} /> Changer le mot de passe
+                  <KeyRound size={14} /> {t('auth.changePassword')}
                 </button>
               </div>
             </div>
@@ -527,10 +527,10 @@ export default function Settings() {
             {/* Auto-lock */}
             <div className="bg-white rounded-xl border border-border p-6">
               <h3 className="font-semibold text-[#0F172A] text-sm pb-2 border-b border-[#F1F5F9] mb-4 flex items-center gap-2">
-                <Clock size={14} /> Verrouillage automatique
+                <Clock size={14} /> {t('settings.autoLock')}
               </h3>
               <p className="text-xs text-slate-400 mb-3">
-                Verrouille l'application après une période d'inactivité. 0 = désactivé.
+                {t('settings.autoLockDesc')}
               </p>
               <div className="flex items-center gap-3">
                 <input
@@ -544,7 +544,7 @@ export default function Settings() {
                 />
                 <span className="text-sm text-slate-600">minutes</span>
                 <button onClick={handleSaveAutoLock} className="flex items-center gap-2 px-4 py-2 bg-[#2563EB] text-white rounded-lg text-sm font-medium hover:bg-[#1D4ED8] transition-colors">
-                  <Save size={14} /> Enregistrer
+                  <Save size={14} /> {t('common.save')}
                 </button>
               </div>
             </div>
@@ -553,16 +553,16 @@ export default function Settings() {
             <div className="bg-white rounded-xl border border-border p-6">
               <div className="flex items-center justify-between pb-2 border-b border-[#F1F5F9] mb-4">
                 <h3 className="font-semibold text-[#0F172A] text-sm flex items-center gap-2">
-                  <Clock size={14} /> Journal d'activité
+                  <Clock size={14} /> {t('settings.auditLog')}
                 </h3>
-                <button onClick={loadAuditLogs} className="text-xs text-[#2563EB] hover:underline">Actualiser</button>
+                <button onClick={loadAuditLogs} className="text-xs text-[#2563EB] hover:underline">{t('common.refresh')}</button>
               </div>
               {logsLoading ? (
                 <div className="flex justify-center py-6">
                   <div className="w-5 h-5 border-2 border-[#2563EB] border-t-transparent rounded-full animate-spin" />
                 </div>
               ) : auditLogs.length === 0 ? (
-                <p className="text-sm text-slate-400 text-center py-6">Aucune activité enregistrée</p>
+                <p className="text-sm text-slate-400 text-center py-6">{t('settings.noAuditLogs')}</p>
               ) : (
                 <div className="space-y-2 max-h-80 overflow-y-auto">
                   {auditLogs.map((log) => (

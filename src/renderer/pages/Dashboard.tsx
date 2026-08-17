@@ -67,11 +67,11 @@ export default function Dashboard() {
       trend: t('dashboard.students'),
     },
     {
-      label: 'Séances aujourd\'hui',
+      label: t('dashboard.todayClasses'),
       value: upcomingSessions.length,
       icon: ScanLine,
       color: 'bg-green-50 text-green-600',
-      trend: 'Séances planifiées',
+      trend: t('dashboard.plannedSessions'),
     },
     {
       label: t('dashboard.monthRevenue'),
@@ -175,17 +175,17 @@ export default function Dashboard() {
         <div className="bg-white rounded-xl border border-border p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold text-[#0F172A] text-sm flex items-center gap-2">
-              <Calendar size={14} /> Séances du jour
+              <Calendar size={14} /> {t('dashboard.todayClasses')}
             </h3>
             <button onClick={() => navigate('/courses')} className="text-xs text-[#2563EB] hover:underline">
-              Gérer
+              {t('courses.manage')}
             </button>
           </div>
 
           {upcomingSessions.length === 0 ? (
             <div className="text-center py-8 text-slate-400">
               <Clock size={32} className="mx-auto mb-2 opacity-40" />
-              <p className="text-xs">Aucune séance planifiée pour aujourd'hui</p>
+              <p className="text-xs">{t('dashboard.noClassesToday')}</p>
             </div>
           ) : (
             <div className="space-y-2">

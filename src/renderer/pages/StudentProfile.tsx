@@ -524,7 +524,7 @@ export default function StudentProfile() {
                       <textarea
                         value={newNote}
                         onChange={(e) => setNewNote(e.target.value)}
-                        placeholder="Ajouter une note administrative..."
+                        placeholder={t('students.addNote')}
                         className="w-full px-3 py-2.5 border border-border rounded-lg text-sm focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 resize-none"
                         rows={3}
                       />
@@ -538,7 +538,7 @@ export default function StudentProfile() {
                             setNotes((prev) => [{
                               id: Date.now(),
                               noteText: newNote,
-                              adminName: 'Administrateur',
+                              adminName: t('common.administrator'),
                               createdAt: new Date().toISOString(),
                             }, ...prev])
                             setNewNote('')
@@ -548,7 +548,7 @@ export default function StudentProfile() {
                           className="flex items-center gap-2 px-4 py-2 bg-[#2563EB] text-white rounded-lg text-sm font-medium hover:bg-[#1D4ED8] transition-colors disabled:opacity-50"
                         >
                           <Plus size={14} />
-                          {savingNote ? 'Enregistrement...' : 'Ajouter la note'}
+                          {savingNote ? t('common.saving') : t('common.add')}
                         </button>
                       </div>
                     </div>
@@ -556,7 +556,7 @@ export default function StudentProfile() {
                     {notes.length === 0 ? (
                       <div className="text-center py-8 text-slate-400">
                         <StickyNote size={32} className="mx-auto mb-2 opacity-30" />
-                        <p className="text-sm">Aucune note administrative</p>
+                        <p className="text-sm">{t('students.noNotes')}</p>
                       </div>
                     ) : (
                       <div className="space-y-3">

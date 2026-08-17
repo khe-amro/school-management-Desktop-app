@@ -1,8 +1,10 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { Lock, Eye, EyeOff } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { useAuth } from '../features/auth/AuthContext'
 
 export default function AutoLock() {
+  const { t } = useTranslation()
   const { session, login } = useAuth()
   const [isLocked, setIsLocked] = useState(false)
   const [password, setPassword] = useState('')
@@ -62,10 +64,10 @@ export default function AutoLock() {
         setPassword('')
         lastActivityRef.current = Date.now()
       } else {
-        setError('Mot de passe incorrect')
+        setError(t('auth.wrongPassword'))
       }
     } catch {
-      setError('Mot de passe incorrect')
+      setError(t('auth.wrongPassword'))
     } finally {
       setUnlocking(false)
     }
@@ -81,8 +83,8 @@ export default function AutoLock() {
         </div>
 
         <div>
-          <h2 className="text-lg font-bold text-[#0F172A]">Session verrouillée</h2>
-          <p className="text-xs text-slate-400 mt-1">Entrez votre mot de passe pour continuer</p>
+          <h2 className="text-lg font-bold text-[#0F172A]">{t('auth.sessionLocked')}</h2>
+          <p className="text-xs text-slate-400 mt-1">{t('auth.unlockPrompt')}</p>
         </div>
 
         <form onSubmit={handleUnlock} className="space-y-4">
@@ -91,7 +93,7 @@ export default function AutoLock() {
               type={showPw ? 'text' : 'password'}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Mot de passe"
+              placeholder={t('auth.password')}
               className="w-full px-4 py-3 border border-border rounded-xl text-sm focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 bg-white"
               autoFocus
             />
@@ -112,7 +114,7 @@ export default function AutoLock() {
             className="w-full py-3 bg-[#2563EB] text-white rounded-xl text-sm font-semibold hover:bg-[#1D4ED8] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {unlocking && <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />}
-            Déverrouiller
+            {t('auth.unlock')}
           </button>
         </form>
       </div>

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, CreditCard, Search, Printer, FileText, X, TrendingUp, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { Plus, CreditCard, Search, Printer, X, TrendingUp, AlertTriangle, CheckCircle2, Clock } from 'lucide-react'
 import type { Payment, Student, Enrollment } from '@shared/types/index'
 
 interface PaymentSummary {
@@ -69,7 +69,7 @@ export default function Payments() {
 
   const handleSave = async () => {
     if (!form.studentId || !form.enrollmentId || !form.amount || !form.billingPeriod) {
-      setError('Veuillez remplir tous les champs obligatoires')
+      setError(t('courses.fillRequiredFields'))
       return
     }
     setSaving(true)
@@ -89,7 +89,7 @@ export default function Payments() {
         setReceiptModal(res.data)
         await load()
       } else {
-        setError(res.error ?? 'Erreur')
+        setError(res.error ?? t('common.error'))
       }
     } finally { setSaving(false) }
   }
@@ -116,20 +116,32 @@ export default function Payments() {
       {/* Metrics Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white p-5 rounded-xl border border-border shadow-xs">
-          <p className="text-xs text-slate-400 font-medium mb-1">Recettes ce mois</p>
+          <div className="flex items-center gap-2 mb-1">
+            <TrendingUp size={14} className="text-emerald-500" />
+            <p className="text-xs text-slate-400 font-medium">{t('dashboard.monthRevenue')}</p>
+          </div>
           <p className="text-2xl font-bold text-emerald-600">{summary.monthRevenue.toLocaleString()} DA</p>
         </div>
         <div className="bg-white p-5 rounded-xl border border-border shadow-xs">
-          <p className="text-xs text-slate-400 font-medium mb-1">Perçu aujourd'hui</p>
+          <div className="flex items-center gap-2 mb-1">
+            <CheckCircle2 size={14} className="text-[#2563EB]" />
+            <p className="text-xs text-slate-400 font-medium">{t('payments.todayCollected')}</p>
+          </div>
           <p className="text-2xl font-bold text-[#2563EB]">{summary.todayCollected.toLocaleString()} DA</p>
         </div>
         <div className="bg-white p-5 rounded-xl border border-border shadow-xs">
-          <p className="text-xs text-slate-400 font-medium mb-1">Encaissements en attente</p>
+          <div className="flex items-center gap-2 mb-1">
+            <Clock size={14} className="text-amber-500" />
+            <p className="text-xs text-slate-400 font-medium">{t('payments.outstanding')}</p>
+          </div>
           <p className="text-2xl font-bold text-amber-600">{summary.outstanding.toLocaleString()} DA</p>
         </div>
         <div className="bg-white p-5 rounded-xl border border-border shadow-xs">
-          <p className="text-xs text-slate-400 font-medium mb-1">Retards de paiement</p>
-          <p className="text-2xl font-bold text-red-600">{summary.overdue} élève(s)</p>
+          <div className="flex items-center gap-2 mb-1">
+            <AlertTriangle size={14} className="text-red-500" />
+            <p className="text-xs text-slate-400 font-medium">{t('dashboard.overduePayments')}</p>
+          </div>
+          <p className="text-2xl font-bold text-red-600">{summary.overdue} {t('payments.students')}</p>
         </div>
       </div>
 
@@ -172,7 +184,7 @@ export default function Payments() {
                 <th className="text-start px-4 py-3 font-medium hidden sm:table-cell">{t('payments.method')}</th>
                 <th className="text-start px-4 py-3 font-medium hidden md:table-cell">{t('payments.date')}</th>
                 <th className="text-start px-4 py-3 font-medium">{t('payments.status')}</th>
-                <th className="px-4 py-3 text-end">Actions</th>
+                <th className="px-4 py-3 text-end">{t('common.actions')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#F1F5F9]">
@@ -185,12 +197,12 @@ export default function Payments() {
                   <td className="px-4 py-3 text-slate-400 text-xs hidden md:table-cell">{p.paymentDate}</td>
                   <td className="px-4 py-3">
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${p.status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-400 line-through'}`}>
-                      {p.status === 'paid' ? 'Payé' : 'Annulé'}
+                      {p.status === 'paid' ? t('payments.paid') : t('payments.cancelled')}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-end flex gap-2 justify-end">
                     <button onClick={() => setReceiptModal(p)} className="text-xs text-[#2563EB] hover:underline flex items-center gap-1">
-                      <Printer size={12} /> Reçu
+                      <Printer size={12} /> {t('payments.receipt')}
                     </button>
                     {p.status === 'paid' && (
                       <button onClick={() => handleCancel(p.id)} className="text-xs text-red-500 hover:underline">{t('payments.cancel')}</button>
@@ -212,7 +224,7 @@ export default function Payments() {
               <div>
                 <label className={labelCls}>{t('payments.student')} *</label>
                 <select className={inputCls} value={form.studentId} onChange={(e) => handleStudentChange(e.target.value)}>
-                  <option value="">— Sélectionner l'élève —</option>
+                  <option value="">— {t('payments.student')} —</option>
                   {students.map((s) => <option key={s.id} value={s.id}>{s.lastNameAr} {s.firstNameAr} — {s.studentNumber}</option>)}
                 </select>
               </div>
@@ -220,38 +232,38 @@ export default function Payments() {
                 <div>
                   <label className={labelCls}>{t('payments.enrollment')} *</label>
                   <select className={inputCls} value={form.enrollmentId} onChange={(e) => setForm((f) => ({ ...f, enrollmentId: e.target.value }))}>
-                    <option value="">— Sélectionner le groupe —</option>
-                    {enrollments.map((e) => <option key={e.id} value={e.id}>Groupe #{e.groupId} — {e.agreedPrice.toLocaleString()} DA</option>)}
+                    <option value="">— {t('courses.groups')} —</option>
+                    {enrollments.map((e) => <option key={e.id} value={e.id}>{e.groupName ?? `${t('courses.groups')} #${e.groupId}`} — {e.agreedPrice.toLocaleString()} DA</option>)}
                   </select>
                 </div>
               )}
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className={labelCls}>Période (Mois) *</label>
+                  <label className={labelCls}>{t('payments.billingPeriod')} *</label>
                   <input type="month" className={inputCls} value={form.billingPeriod} onChange={(e) => setForm((f) => ({ ...f, billingPeriod: e.target.value }))} dir="ltr" />
                 </div>
                 <div>
-                  <label className={labelCls}>Montant (DA) *</label>
+                  <label className={labelCls}>{t('payments.amount')} *</label>
                   <input type="number" className={inputCls} value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} dir="ltr" />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className={labelCls}>Mode de paiement</label>
+                  <label className={labelCls}>{t('payments.method')}</label>
                   <select className={inputCls} value={form.paymentMethod} onChange={(e) => setForm((f) => ({ ...f, paymentMethod: e.target.value }))}>
-                    <option value="cash">Espèces</option>
-                    <option value="transfer">Virement</option>
-                    <option value="check">Chèque</option>
+                    <option value="cash">{t('payments.cash')}</option>
+                    <option value="transfer">{t('payments.transfer')}</option>
+                    <option value="check">{t('payments.check')}</option>
                   </select>
                 </div>
                 <div>
-                  <label className={labelCls}>Date de paiement</label>
+                  <label className={labelCls}>{t('payments.date')}</label>
                   <input type="date" className={inputCls} value={form.paymentDate} onChange={(e) => setForm((f) => ({ ...f, paymentDate: e.target.value }))} dir="ltr" />
                 </div>
               </div>
               <div>
-                <label className={labelCls}>Référence / Note</label>
-                <input className={inputCls} value={form.reference} onChange={(e) => setForm((f) => ({ ...f, reference: e.target.value }))} placeholder="N° chèque ou virement" />
+                <label className={labelCls}>{t('payments.reference')} / {t('common.notes')}</label>
+                <input className={inputCls} value={form.reference} onChange={(e) => setForm((f) => ({ ...f, reference: e.target.value }))} placeholder={t('payments.referencePlaceholder')} />
               </div>
             </div>
             {error && <p className="text-red-600 text-xs mt-3">{error}</p>}
@@ -271,21 +283,24 @@ export default function Payments() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setReceiptModal(null)}>
           <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl animate-fade-in" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center pb-3 border-b border-slate-200 mb-4">
-              <h3 className="font-bold text-[#0F172A]">Reçu de paiement</h3>
+              <h3 className="font-bold text-[#0F172A]">{t('payments.receipt')}</h3>
               <button onClick={() => setReceiptModal(null)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
             </div>
             <div className="space-y-3 text-xs text-slate-600 font-mono bg-slate-50 p-4 rounded-xl">
               <p className="text-center font-bold text-sm text-[#0F172A]">EDUPILOT DZ</p>
-              <p className="text-center text-[10px] text-slate-400">Reçu N° {receiptModal.receiptNumber}</p>
+              <p className="text-center text-[10px] text-slate-400">{t('payments.receiptNumber')} {receiptModal.receiptNumber}</p>
               <div className="border-b border-dashed border-slate-300 my-2" />
-              <div className="flex justify-between"><span>Période:</span><span className="font-bold text-[#0F172A]">{receiptModal.billingPeriod}</span></div>
-              <div className="flex justify-between"><span>Montant:</span><span className="font-bold text-[#2563EB]">{receiptModal.amount.toLocaleString()} DA</span></div>
-              <div className="flex justify-between"><span>Méthode:</span><span>{receiptModal.paymentMethod}</span></div>
-              <div className="flex justify-between"><span>Date:</span><span>{receiptModal.paymentDate}</span></div>
+              <div className="flex justify-between"><span>{t('payments.billingPeriod')}:</span><span className="font-bold text-[#0F172A]">{receiptModal.billingPeriod}</span></div>
+              <div className="flex justify-between"><span>{t('payments.amount')}:</span><span className="font-bold text-[#2563EB]">{receiptModal.amount.toLocaleString()} DA</span></div>
+              <div className="flex justify-between"><span>{t('payments.method')}:</span><span>{t(`payments.${receiptModal.paymentMethod}`)}</span></div>
+              <div className="flex justify-between"><span>{t('payments.date')}:</span><span>{receiptModal.paymentDate}</span></div>
+              {receiptModal.reference && (
+                <div className="flex justify-between"><span>{t('payments.reference')}:</span><span>{receiptModal.reference}</span></div>
+              )}
             </div>
             <div className="flex justify-end gap-2 mt-5">
               <button onClick={handlePrintReceipt} className="w-full py-2 bg-[#2563EB] text-white rounded-lg text-xs font-semibold hover:bg-[#1D4ED8] flex items-center justify-center gap-1.5">
-                <Printer size={14} /> Imprimer le reçu
+                <Printer size={14} /> {t('payments.printReceipt')}
               </button>
             </div>
           </div>

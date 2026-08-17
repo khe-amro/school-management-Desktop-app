@@ -3,21 +3,15 @@ import { useTranslation } from 'react-i18next'
 import { FileText, Printer, Download, Eye, X, Users, CreditCard, CalendarCheck, TrendingUp } from 'lucide-react'
 import type { AttendanceSession, Payment, Student, SchoolSettings } from '@shared/types/index'
 
-const reportOptions = [
-  { id: 'students', label: 'Rapport des étudiants', description: 'Liste des élèves inscrits, coordonnées et statut' },
-  { id: 'attendance', label: 'Rapport de présence', description: 'Statistiques de présence et séances d\'apprentissage' },
-  { id: 'payments', label: 'Rapport des paiements', description: 'Historique détaillé des encaissements et règlements' },
-  { id: 'revenue', label: 'Rapport des revenus', description: 'Répartition et synthèse financière par période' },
-] as const
-
-type ReportType = (typeof reportOptions)[number]['id']
+type ReportType = 'students' | 'attendance' | 'payments' | 'revenue'
 
 function formatDateInput(date: Date) {
   return date.toISOString().slice(0, 10)
 }
 
 export default function Reports() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const isRTL = i18n.language === 'ar'
   const [reportType, setReportType] = useState<ReportType>('students')
   const [fromDate, setFromDate] = useState(formatDateInput(new Date(new Date().setMonth(new Date().getMonth() - 1))))
   const [toDate, setToDate] = useState(formatDateInput(new Date()))
@@ -31,6 +25,13 @@ export default function Reports() {
   const [showPreviewModal, setShowPreviewModal] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [exportMessage, setExportMessage] = useState<string | null>(null)
+
+  const reportOptions = useMemo(() => [
+    { id: 'students' as const, label: t('reports.students'), description: t('reports.studentsDesc') },
+    { id: 'attendance' as const, label: t('reports.attendance'), description: t('reports.attendanceDesc') },
+    { id: 'payments' as const, label: t('reports.payments'), description: t('reports.paymentsDesc') },
+    { id: 'revenue' as const, label: t('reports.revenue'), description: t('reports.revenueDesc') },
+  ], [t])
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -52,9 +53,7 @@ export default function Reports() {
 
   useEffect(() => { loadData() }, [loadData])
 
-  const filteredStudents = useMemo(() => {
-    return students
-  }, [students])
+  const filteredStudents = useMemo(() => students, [students])
 
   const filteredPayments = useMemo(() => {
     const from = new Date(fromDate)
@@ -105,9 +104,9 @@ export default function Reports() {
         filename: `Rapport-${reportType}-${fromDate}-au-${toDate}.pdf`,
       })
       if (res.success && res.data?.path) {
-        setExportMessage(`Rapport exporté en PDF avec succès: ${res.data.path}`)
+        setExportMessage(`${t('common.success')}: ${res.data.path}`)
       } else if (!res.success) {
-        setExportMessage(`Erreur: ${res.error}`)
+        setExportMessage(`${t('common.error')}: ${res.error}`)
       }
     } finally {
       setExporting(false)
@@ -143,7 +142,7 @@ export default function Reports() {
 
       const res = await window.schoolApp.app.openSaveDialog()
       if (res.success && res.data && !res.data.canceled && res.data.path) {
-        setExportMessage(`Fichier CSV exporté avec succès.`)
+        setExportMessage(t('common.success'))
       }
     } finally {
       setExporting(false)
@@ -170,15 +169,15 @@ export default function Reports() {
               <p className="text-xs text-slate-500 mt-1">{schoolSettings.address}</p>
             )}
             {schoolSettings?.phone && (
-              <p className="text-xs text-slate-500">Tél: {schoolSettings.phone}</p>
+              <p className="text-xs text-slate-500">{t('common.phone')}: {schoolSettings.phone}</p>
             )}
           </div>
           <div className="text-end">
             <div className="inline-block bg-slate-100 text-slate-800 px-3 py-1 rounded text-xs font-bold uppercase tracking-wider mb-1">
-              Document Officiel
+              {t('reports.officialDocument')}
             </div>
-            <p className="text-xs text-slate-500">Année scolaire: {schoolSettings?.academicYear || '2025-2026'}</p>
-            <p className="text-xs text-slate-500">Date d'édition: {new Date().toLocaleDateString('fr-FR')}</p>
+            <p className="text-xs text-slate-500">{t('reports.academicYearLabel')} {schoolSettings?.academicYear || '2025-2026'}</p>
+            <p className="text-xs text-slate-500">{t('reports.issueDate')} {new Date().toLocaleDateString()}</p>
           </div>
         </div>
 
@@ -188,7 +187,7 @@ export default function Reports() {
               {reportOptions.find(o => o.id === reportType)?.label}
             </h2>
             <p className="text-xs text-slate-500">
-              Période du <span className="font-semibold">{fromDate}</span> au <span className="font-semibold">{toDate}</span>
+              {t('reports.periodFrom')} <span className="font-semibold">{fromDate}</span> {t('reports.to')} <span className="font-semibold">{toDate}</span>
             </p>
           </div>
         </div>
@@ -199,15 +198,15 @@ export default function Reports() {
         {reportType === 'students' && (
           <>
             <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg text-center">
-              <span className="block text-xs text-slate-500 font-medium">Total Élèves</span>
+              <span className="block text-xs text-slate-500 font-medium">{t('reports.totalStudents')}</span>
               <span className="text-xl font-bold text-[#0F172A]">{students.length}</span>
             </div>
             <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg text-center">
-              <span className="block text-xs text-slate-500 font-medium">Garçons</span>
+              <span className="block text-xs text-slate-500 font-medium">{t('reports.boys')}</span>
               <span className="text-xl font-bold text-blue-600">{maleCount}</span>
             </div>
             <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg text-center">
-              <span className="block text-xs text-slate-500 font-medium">Filles</span>
+              <span className="block text-xs text-slate-500 font-medium">{t('reports.girls')}</span>
               <span className="text-xl font-bold text-pink-600">{femaleCount}</span>
             </div>
           </>
@@ -216,11 +215,11 @@ export default function Reports() {
         {reportType === 'payments' && (
           <>
             <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg text-center">
-              <span className="block text-xs text-slate-500 font-medium">Total Règlements</span>
+              <span className="block text-xs text-slate-500 font-medium">{t('reports.totalPayments')}</span>
               <span className="text-xl font-bold text-[#0F172A]">{filteredPayments.length}</span>
             </div>
             <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-lg text-center col-span-2">
-              <span className="block text-xs text-emerald-700 font-medium">Montant Total Encaissé</span>
+              <span className="block text-xs text-emerald-700 font-medium">{t('reports.totalCollected')}</span>
               <span className="text-2xl font-bold text-emerald-800">{revenueTotal.toLocaleString()} DZD</span>
             </div>
           </>
@@ -229,11 +228,11 @@ export default function Reports() {
         {reportType === 'revenue' && (
           <>
             <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg text-center">
-              <span className="block text-xs text-slate-500 font-medium">Nombre de Mois</span>
+              <span className="block text-xs text-slate-500 font-medium">{t('reports.monthsCount')}</span>
               <span className="text-xl font-bold text-[#0F172A]">{Object.keys(revenueByMonth).length}</span>
             </div>
             <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-lg text-center col-span-2">
-              <span className="block text-xs text-emerald-700 font-medium">Recette Totale Période</span>
+              <span className="block text-xs text-emerald-700 font-medium">{t('reports.periodTotalRevenue')}</span>
               <span className="text-2xl font-bold text-emerald-800">{revenueTotal.toLocaleString()} DZD</span>
             </div>
           </>
@@ -242,15 +241,15 @@ export default function Reports() {
         {reportType === 'attendance' && (
           <>
             <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg text-center">
-              <span className="block text-xs text-slate-500 font-medium">Séances Programmées</span>
+              <span className="block text-xs text-slate-500 font-medium">{t('reports.scheduledSessions')}</span>
               <span className="text-xl font-bold text-[#0F172A]">{filteredSessions.length}</span>
             </div>
             <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg text-center">
-              <span className="block text-xs text-blue-700 font-medium">Séances Clôturées</span>
+              <span className="block text-xs text-blue-700 font-medium">{t('reports.closedSessions')}</span>
               <span className="text-xl font-bold text-blue-800">{filteredSessions.filter(s => s.status === 'closed').length}</span>
             </div>
             <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg text-center">
-              <span className="block text-xs text-amber-700 font-medium">Séances Ouvertes</span>
+              <span className="block text-xs text-amber-700 font-medium">{t('reports.openSessions')}</span>
               <span className="text-xl font-bold text-amber-800">{filteredSessions.filter(s => s.status === 'open').length}</span>
             </div>
           </>
@@ -263,13 +262,13 @@ export default function Reports() {
           <table className="w-full text-xs text-start">
             <thead className="bg-slate-100 border-b border-slate-300 text-slate-700 font-bold">
               <tr>
-                <th className="p-2.5 text-start">N° Matricule</th>
-                <th className="p-2.5 text-start">Nom & Prénom (Arabe)</th>
-                <th className="p-2.5 text-start">Nom & Prénom (Français)</th>
-                <th className="p-2.5 text-start">Genre</th>
-                <th className="p-2.5 text-start">Téléphone</th>
-                <th className="p-2.5 text-start">Date Inscription</th>
-                <th className="p-2.5 text-center">Statut</th>
+                <th className="p-2.5 text-start">{t('students.studentNumber')}</th>
+                <th className="p-2.5 text-start">{t('students.nameArSection')}</th>
+                <th className="p-2.5 text-start">{t('students.nameFrSection')}</th>
+                <th className="p-2.5 text-start">{t('students.gender')}</th>
+                <th className="p-2.5 text-start">{t('students.phone')}</th>
+                <th className="p-2.5 text-start">{t('students.registrationDate')}</th>
+                <th className="p-2.5 text-center">{t('common.status')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
@@ -278,12 +277,12 @@ export default function Reports() {
                   <td className="p-2.5 font-mono font-bold text-[#2563EB]">{st.studentNumber}</td>
                   <td className="p-2.5 font-bold" dir="rtl">{st.lastNameAr} {st.firstNameAr}</td>
                   <td className="p-2.5">{st.lastNameFr} {st.firstNameFr}</td>
-                  <td className="p-2.5">{st.gender === 'male' ? 'Garçon' : 'Fille'}</td>
+                  <td className="p-2.5">{st.gender === 'male' ? t('students.male') : t('students.female')}</td>
                   <td className="p-2.5">{st.phone || '—'}</td>
                   <td className="p-2.5">{st.registrationDate}</td>
                   <td className="p-2.5 text-center">
                     <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-green-100 text-green-800">
-                      {st.status === 'active' ? 'Actif' : st.status}
+                      {t(`students.${st.status}`)}
                     </span>
                   </td>
                 </tr>
@@ -296,12 +295,12 @@ export default function Reports() {
           <table className="w-full text-xs text-start">
             <thead className="bg-slate-100 border-b border-slate-300 text-slate-700 font-bold">
               <tr>
-                <th className="p-2.5 text-start">N° Reçu</th>
-                <th className="p-2.5 text-start">Date</th>
-                <th className="p-2.5 text-start">Élève</th>
-                <th className="p-2.5 text-start">Mois / Période</th>
-                <th className="p-2.5 text-start">Mode</th>
-                <th className="p-2.5 text-end">Montant (DZD)</th>
+                <th className="p-2.5 text-start">{t('payments.receiptNumber')}</th>
+                <th className="p-2.5 text-start">{t('payments.date')}</th>
+                <th className="p-2.5 text-start">{t('payments.student')}</th>
+                <th className="p-2.5 text-start">{t('payments.billingPeriod')}</th>
+                <th className="p-2.5 text-start">{t('payments.method')}</th>
+                <th className="p-2.5 text-end">{t('payments.amount')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
@@ -311,12 +310,12 @@ export default function Reports() {
                   <td className="p-2.5">{p.paymentDate}</td>
                   <td className="p-2.5 font-medium">{p.studentName || `#${p.studentId}`}</td>
                   <td className="p-2.5">{p.billingPeriod}</td>
-                  <td className="p-2.5 capitalize">{p.paymentMethod}</td>
+                  <td className="p-2.5 capitalize">{t(`payments.${p.paymentMethod}`)}</td>
                   <td className="p-2.5 text-end font-bold text-[#0F172A]">{p.amount.toLocaleString()} DA</td>
                 </tr>
               ))}
               <tr className="bg-slate-100 font-bold border-t-2 border-slate-300">
-                <td colSpan={5} className="p-2.5 text-end">TOTAL ENCAISSÉ:</td>
+                <td colSpan={5} className="p-2.5 text-end">{t('payments.total')}:</td>
                 <td className="p-2.5 text-end text-[#2563EB] text-sm">{revenueTotal.toLocaleString()} DA</td>
               </tr>
             </tbody>
@@ -327,9 +326,9 @@ export default function Reports() {
           <table className="w-full text-xs text-start">
             <thead className="bg-slate-100 border-b border-slate-300 text-slate-700 font-bold">
               <tr>
-                <th className="p-2.5 text-start">Période / Mois</th>
-                <th className="p-2.5 text-end">Nombre de Règlements</th>
-                <th className="p-2.5 text-end">Recettes Totales (DZD)</th>
+                <th className="p-2.5 text-start">{t('payments.billingPeriod')}</th>
+                <th className="p-2.5 text-end">{t('reports.totalPayments')}</th>
+                <th className="p-2.5 text-end">{t('reports.periodTotalRevenue')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
@@ -343,8 +342,8 @@ export default function Reports() {
                 </tr>
               ))}
               <tr className="bg-slate-100 font-bold border-t-2 border-slate-300">
-                <td className="p-2.5">TOTAL GÉNÉRAL</td>
-                <td className="p-2.5 text-end">{filteredPayments.length} paiements</td>
+                <td className="p-2.5">{t('payments.total')}</td>
+                <td className="p-2.5 text-end">{filteredPayments.length}</td>
                 <td className="p-2.5 text-end text-emerald-800 text-sm">{revenueTotal.toLocaleString()} DA</td>
               </tr>
             </tbody>
@@ -355,11 +354,11 @@ export default function Reports() {
           <table className="w-full text-xs text-start">
             <thead className="bg-slate-100 border-b border-slate-300 text-slate-700 font-bold">
               <tr>
-                <th className="p-2.5 text-start">ID Séance</th>
-                <th className="p-2.5 text-start">Date</th>
-                <th className="p-2.5 text-start">Groupe</th>
-                <th className="p-2.5 text-start">Horaires</th>
-                <th className="p-2.5 text-center">Statut</th>
+                <th className="p-2.5 text-start">{t('attendance.sessionId')}</th>
+                <th className="p-2.5 text-start">{t('attendance.date')}</th>
+                <th className="p-2.5 text-start">{t('attendance.group')}</th>
+                <th className="p-2.5 text-start">{t('common.time')}</th>
+                <th className="p-2.5 text-center">{t('common.status')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
@@ -367,11 +366,11 @@ export default function Reports() {
                 <tr key={s.id} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
                   <td className="p-2.5 font-mono">#{s.id}</td>
                   <td className="p-2.5 font-bold">{s.sessionDate}</td>
-                  <td className="p-2.5">{s.groupName || `Groupe #${s.groupId}`}</td>
+                  <td className="p-2.5">{s.groupName || `#${s.groupId}`}</td>
                   <td className="p-2.5">{s.actualStartTime || s.plannedStartTime || '—'} - {s.endTime || '—'}</td>
                   <td className="p-2.5 text-center">
                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${s.status === 'closed' ? 'bg-slate-100 text-slate-700' : 'bg-emerald-100 text-emerald-800'}`}>
-                      {s.status === 'closed' ? 'Clôturée' : 'En cours'}
+                      {s.status === 'closed' ? t('attendance.sessionClosed') : t('attendance.inProgress')}
                     </span>
                   </td>
                 </tr>
@@ -384,11 +383,11 @@ export default function Reports() {
       {/* Document Signature Footer */}
       <div className="pt-6 border-t border-slate-300 grid grid-cols-2 text-xs">
         <div>
-          <p className="text-slate-500 text-[10px]">Généré automatiquement par le système Edupilot DZ</p>
-          <p className="text-slate-500 text-[10px]">Document interne de gestion et de suivi pédagogique</p>
+          <p className="text-slate-500 text-[10px]">{t('reports.autoGenerated')}</p>
+          <p className="text-slate-500 text-[10px]">{t('reports.internalDoc')}</p>
         </div>
         <div className="text-end">
-          <p className="font-bold text-slate-800 mb-10">Cachet & Signature de la Direction</p>
+          <p className="font-bold text-slate-800 mb-10">{t('reports.signature')}</p>
           <div className="border-b border-dashed border-slate-400 w-48 ms-auto" />
         </div>
       </div>
@@ -429,14 +428,14 @@ export default function Reports() {
         <div className="flex justify-between items-center">
           <div>
             <h2 className="text-lg font-bold text-[#0F172A]">{t('nav.reports')}</h2>
-            <p className="text-xs text-slate-400">Générez, prévisualisez et exportez les rapports de l'établissement</p>
+            <p className="text-xs text-slate-400">{t('reports.subtitle')}</p>
           </div>
           <div className="flex gap-2">
             <button
               onClick={() => setShowPreviewModal(true)}
               className="px-4 py-2 border border-border bg-white text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50 flex items-center gap-1.5 shadow-xs"
             >
-              <Eye size={14} /> Aperçu Document
+              <Eye size={14} /> {t('reports.previewDoc')}
             </button>
             <button
               onClick={handleExportPdf}
@@ -449,7 +448,7 @@ export default function Reports() {
               onClick={handlePrint}
               className="px-4 py-2 bg-[#2563EB] text-white rounded-lg text-xs font-semibold hover:bg-[#1D4ED8] flex items-center gap-1.5 shadow-xs"
             >
-              <Printer size={14} /> Imprimer
+              <Printer size={14} /> {t('common.print')}
             </button>
           </div>
         </div>
@@ -458,7 +457,7 @@ export default function Reports() {
         <div className="bg-white rounded-xl border border-border p-5 shadow-sm">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
             <div>
-              <label className={labelCls}>Type de rapport</label>
+              <label className={labelCls}>{t('reports.reportType')}</label>
               <select
                 value={reportType}
                 onChange={(e) => setReportType(e.target.value as ReportType)}
@@ -470,11 +469,11 @@ export default function Reports() {
               </select>
             </div>
             <div>
-              <label className={labelCls}>Date début</label>
+              <label className={labelCls}>{t('reports.startDate')}</label>
               <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className={inputCls} dir="ltr" />
             </div>
             <div>
-              <label className={labelCls}>Date fin</label>
+              <label className={labelCls}>{t('reports.endDate')}</label>
               <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className={inputCls} dir="ltr" />
             </div>
             <div className="flex gap-2">
@@ -483,7 +482,7 @@ export default function Reports() {
                 disabled={exporting}
                 className="flex-1 bg-emerald-600 text-white py-2 px-3 rounded-lg text-xs font-semibold hover:bg-emerald-700 flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
               >
-                <Download size={14} /> Export CSV
+                <Download size={14} /> {t('reports.exportCsv')}
               </button>
             </div>
           </div>
@@ -531,17 +530,17 @@ export default function Reports() {
                 {reportOptions.find(o => o.id === reportType)?.label}
               </h3>
               <p className="text-xs text-slate-400">
-                {reportType === 'students' ? `${students.length} élèves inscrits` :
-                 reportType === 'payments' ? `${filteredPayments.length} paiements (${revenueTotal.toLocaleString()} DA)` :
-                 reportType === 'revenue' ? `Total: ${revenueTotal.toLocaleString()} DA` :
-                 `${filteredSessions.length} séances enregistrées`}
+                {reportType === 'students' ? `${students.length} ${t('reports.totalStudents')}` :
+                 reportType === 'payments' ? `${filteredPayments.length} ${t('reports.totalPayments')} (${revenueTotal.toLocaleString()} DA)` :
+                 reportType === 'revenue' ? `${t('payments.total')}: ${revenueTotal.toLocaleString()} DA` :
+                 `${filteredSessions.length} ${t('reports.scheduledSessions')}`}
               </p>
             </div>
             <button
               onClick={() => setShowPreviewModal(true)}
               className="px-3 py-1.5 bg-white border border-border text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50 flex items-center gap-1.5 shadow-2xs"
             >
-              <Eye size={13} /> Voir Format Papier
+              <Eye size={13} /> {t('reports.viewPrintFormat')}
             </button>
           </div>
 
@@ -556,12 +555,12 @@ export default function Reports() {
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="bg-slate-50 border-b border-border text-slate-500 font-semibold text-start">
-                        <th className="p-3 text-start">Matricule</th>
-                        <th className="p-3 text-start">Nom & Prénom (AR)</th>
-                        <th className="p-3 text-start">Nom & Prénom (FR)</th>
-                        <th className="p-3 text-start">Genre</th>
-                        <th className="p-3 text-start">Téléphone</th>
-                        <th className="p-3 text-center">Statut</th>
+                        <th className="p-3 text-start">{t('students.studentNumber')}</th>
+                        <th className="p-3 text-start">{t('students.nameArSection')}</th>
+                        <th className="p-3 text-start">{t('students.nameFrSection')}</th>
+                        <th className="p-3 text-start">{t('students.gender')}</th>
+                        <th className="p-3 text-start">{t('students.phone')}</th>
+                        <th className="p-3 text-center">{t('common.status')}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -570,11 +569,11 @@ export default function Reports() {
                           <td className="p-3 font-mono font-bold text-[#2563EB]">{st.studentNumber}</td>
                           <td className="p-3 font-medium text-[#0F172A]" dir="rtl">{st.lastNameAr} {st.firstNameAr}</td>
                           <td className="p-3 text-slate-600">{st.lastNameFr} {st.firstNameFr}</td>
-                          <td className="p-3 text-slate-500">{st.gender === 'male' ? 'Garçon' : 'Fille'}</td>
+                          <td className="p-3 text-slate-500">{st.gender === 'male' ? t('students.male') : t('students.female')}</td>
                           <td className="p-3 text-slate-500">{st.phone ?? '—'}</td>
                           <td className="p-3 text-center">
                             <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-semibold text-[10px]">
-                              {st.status === 'active' ? 'Actif' : st.status}
+                              {t(`students.${st.status}`)}
                             </span>
                           </td>
                         </tr>
@@ -587,12 +586,12 @@ export default function Reports() {
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="bg-slate-50 border-b border-border text-slate-500 font-semibold text-start">
-                        <th className="p-3 text-start">N° Reçu</th>
-                        <th className="p-3 text-start">Date</th>
-                        <th className="p-3 text-start">Élève</th>
-                        <th className="p-3 text-start">Période</th>
-                        <th className="p-3 text-start">Mode</th>
-                        <th className="p-3 text-end">Montant</th>
+                        <th className="p-3 text-start">{t('payments.receiptNumber')}</th>
+                        <th className="p-3 text-start">{t('payments.date')}</th>
+                        <th className="p-3 text-start">{t('payments.student')}</th>
+                        <th className="p-3 text-start">{t('payments.billingPeriod')}</th>
+                        <th className="p-3 text-start">{t('payments.method')}</th>
+                        <th className="p-3 text-end">{t('payments.amount')}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -602,7 +601,7 @@ export default function Reports() {
                           <td className="p-3 text-slate-600">{p.paymentDate}</td>
                           <td className="p-3 font-medium">{p.studentName || `#${p.studentId}`}</td>
                           <td className="p-3 text-slate-600">{p.billingPeriod}</td>
-                          <td className="p-3 text-slate-500 capitalize">{p.paymentMethod}</td>
+                          <td className="p-3 text-slate-500 capitalize">{t(`payments.${p.paymentMethod}`)}</td>
                           <td className="p-3 text-end font-bold text-emerald-600">{p.amount.toLocaleString()} DZD</td>
                         </tr>
                       ))}
@@ -614,20 +613,20 @@ export default function Reports() {
                   <div className="space-y-4">
                     <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex justify-between items-center">
                       <div>
-                        <p className="text-xs text-emerald-700 font-semibold">Total des recettes sur la période sélectionnée</p>
+                        <p className="text-xs text-emerald-700 font-semibold">{t('reports.periodTotalRevenue')}</p>
                         <p className="text-2xl font-bold text-emerald-800 mt-1">{revenueTotal.toLocaleString()} DZD</p>
                       </div>
                       <span className="text-xs bg-emerald-200 text-emerald-800 px-2.5 py-1 rounded-full font-bold">
-                        {filteredPayments.length} encaissements
+                        {filteredPayments.length} {t('reports.totalPayments')}
                       </span>
                     </div>
 
                     <table className="w-full text-xs">
                       <thead>
                         <tr className="bg-slate-50 border-b border-border text-slate-500 font-semibold text-start">
-                          <th className="p-3 text-start">Mois</th>
-                          <th className="p-3 text-end">Règlements</th>
-                          <th className="p-3 text-end">Recettes</th>
+                          <th className="p-3 text-start">{t('payments.billingPeriod')}</th>
+                          <th className="p-3 text-end">{t('reports.totalPayments')}</th>
+                          <th className="p-3 text-end">{t('reports.periodTotalRevenue')}</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -647,11 +646,11 @@ export default function Reports() {
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="bg-slate-50 border-b border-border text-slate-500 font-semibold text-start">
-                        <th className="p-3 text-start">ID Séance</th>
-                        <th className="p-3 text-start">Date</th>
-                        <th className="p-3 text-start">Groupe</th>
-                        <th className="p-3 text-start">Horaires</th>
-                        <th className="p-3 text-center">Statut</th>
+                        <th className="p-3 text-start">{t('attendance.sessionId')}</th>
+                        <th className="p-3 text-start">{t('attendance.date')}</th>
+                        <th className="p-3 text-start">{t('attendance.group')}</th>
+                        <th className="p-3 text-start">{t('common.time')}</th>
+                        <th className="p-3 text-center">{t('common.status')}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -659,11 +658,11 @@ export default function Reports() {
                         <tr key={s.id} className="hover:bg-slate-50">
                           <td className="p-3 font-mono font-bold text-[#2563EB]">#{s.id}</td>
                           <td className="p-3 text-slate-600 font-medium">{s.sessionDate}</td>
-                          <td className="p-3 text-slate-600">{s.groupName || `Groupe #${s.groupId}`}</td>
+                          <td className="p-3 text-slate-600">{s.groupName || `#${s.groupId}`}</td>
                           <td className="p-3 text-slate-500">{s.actualStartTime || s.plannedStartTime || '—'} - {s.endTime || '—'}</td>
                           <td className="p-3 text-center">
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${s.status === 'closed' ? 'bg-slate-100 text-slate-700' : 'bg-green-100 text-green-700'}`}>
-                              {s.status === 'closed' ? 'Clôturée' : 'En cours'}
+                              {s.status === 'closed' ? t('attendance.sessionClosed') : t('attendance.inProgress')}
                             </span>
                           </td>
                         </tr>
@@ -684,7 +683,7 @@ export default function Reports() {
             <div className="flex justify-between items-center p-4 border-b border-border bg-slate-50">
               <div className="flex items-center gap-2">
                 <FileText className="text-[#2563EB]" size={18} />
-                <h3 className="font-bold text-[#0F172A] text-sm">Aperçu du Rapport (Format A4)</h3>
+                <h3 className="font-bold text-[#0F172A] text-sm">{t('reports.previewA4')}</h3>
               </div>
               <div className="flex gap-2">
                 <button
@@ -698,7 +697,7 @@ export default function Reports() {
                   onClick={handlePrint}
                   className="flex items-center gap-1.5 text-xs bg-[#2563EB] text-white px-3 py-1.5 rounded-lg hover:bg-[#1D4ED8] transition-colors"
                 >
-                  <Printer size={13} /> Imprimer
+                  <Printer size={13} /> {t('common.print')}
                 </button>
                 <button onClick={() => setShowPreviewModal(false)} className="text-slate-400 hover:text-slate-600 p-1">
                   <X size={18} />

@@ -25,7 +25,7 @@ export default function Teachers() {
   const openEdit = (t: Teacher) => { setEditing(t); setForm({ firstName: t.firstName, lastName: t.lastName, phone: t.phone ?? '', email: t.email ?? '', address: t.address ?? '' }); setError(''); setShowForm(true) }
 
   const handleSave = async () => {
-    if (!form.firstName.trim() || !form.lastName.trim()) { setError('Veuillez remplir le nom et le prénom'); return }
+    if (!form.firstName.trim() || !form.lastName.trim()) { setError(t('teachers.fillNames')); return }
     setSaving(true)
     try {
       const payload = { firstName: form.firstName, lastName: form.lastName, phone: form.phone || null, email: form.email || null, address: form.address || null }
@@ -58,7 +58,7 @@ export default function Teachers() {
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-lg font-bold text-[#0F172A]">{t('nav.teachers')}</h2>
-          <p className="text-xs text-slate-400">Gestion du corps enseignant</p>
+          <p className="text-xs text-slate-400">{t('teachers.subtitle')}</p>
         </div>
         <button onClick={openCreate} className="flex items-center gap-2 bg-[#2563EB] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#1D4ED8] transition-colors">
           <Plus size={15} /> {t('teachers.add')}
@@ -80,7 +80,7 @@ export default function Teachers() {
                   <div
                     onClick={() => handleUploadPhoto(teacher.id)}
                     className="relative group cursor-pointer w-11 h-11 rounded-full bg-[#F0FDF4] flex items-center justify-center text-green-700 font-bold text-base border-2 border-emerald-200 shrink-0"
-                    title="Changer la photo"
+                    title={t('teachers.changePhoto')}
                   >
                     {teacher.firstName.charAt(0)}
                     <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
@@ -93,7 +93,7 @@ export default function Teachers() {
                   </div>
                 </div>
                 <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${teacher.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
-                  {teacher.status === 'active' ? 'Actif' : 'Inactif'}
+                  {teacher.status === 'active' ? t('teachers.active') : t('teachers.inactive')}
                 </span>
               </div>
               <div className="flex gap-2 pt-2 border-t border-slate-100">

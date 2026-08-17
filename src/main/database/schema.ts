@@ -170,6 +170,7 @@ export const attendanceSessions = sqliteTable('attendance_sessions', {
   plannedStartTime: text('planned_start_time'),
   actualStartTime: text('actual_start_time'),
   endTime: text('end_time'),
+  room: text('room'),
   lateThresholdMinutes: integer('late_threshold_minutes').notNull().default(10),
   status: text('status', { enum: ['open', 'closed'] }).notNull().default('open'),
   sessionType: text('session_type', { enum: ['regular', 'extra', 'makeup', 'cancelled'] }).notNull().default('regular'),

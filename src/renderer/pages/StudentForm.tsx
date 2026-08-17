@@ -44,7 +44,7 @@ export default function StudentForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!form.firstNameAr.trim() || !form.lastNameAr.trim() || !form.firstNameFr.trim() || !form.lastNameFr.trim()) {
-      setError('يرجى ملء حقول الاسم بالعربية والفرنسية')
+      setError(t('students.fillNamesRequired'))
       return
     }
     setSaving(true)
@@ -89,7 +89,7 @@ export default function StudentForm() {
       <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-border p-6 space-y-5">
         {/* Arabic name */}
         <div>
-          <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">الاسم بالعربية</h3>
+          <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">{t('students.nameArSection')}</h3>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelCls}>{t('students.lastNameAr')} *</label>
@@ -104,7 +104,7 @@ export default function StudentForm() {
 
         {/* French name */}
         <div>
-          <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Nom en Français</h3>
+          <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">{t('students.nameFrSection')}</h3>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelCls}>{t('students.lastNameFr')} *</label>

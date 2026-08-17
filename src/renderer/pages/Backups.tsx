@@ -69,7 +69,7 @@ export default function Backups() {
         <div className="flex items-center justify-between">
           <div>
             <h3 className="font-semibold text-[#0F172A] text-sm">{t('backups.create')}</h3>
-            <p className="text-xs text-slate-400 mt-0.5">يشمل قاعدة البيانات وصور الطلاب</p>
+            <p className="text-xs text-slate-400 mt-0.5">{t('backups.backupIncludes')}</p>
           </div>
           <button onClick={handleCreate} disabled={creating} className="flex items-center gap-2 bg-[#2563EB] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#1D4ED8] disabled:opacity-60 transition-colors">
             {creating ? <RefreshCw size={14} className="animate-spin" /> : <HardDrive size={14} />}

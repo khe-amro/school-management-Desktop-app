@@ -157,6 +157,7 @@ const MIGRATIONS: { version: number; name: string; sql: string }[] = [
         planned_start_time TEXT,
         actual_start_time TEXT,
         end_time TEXT,
+        room TEXT,
         late_threshold_minutes INTEGER NOT NULL DEFAULT 10,
         status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'closed')),
         created_by INTEGER NOT NULL REFERENCES administrators(id),
@@ -273,6 +274,13 @@ const MIGRATIONS: { version: number; name: string; sql: string }[] = [
 
       CREATE INDEX IF NOT EXISTS idx_sessions_type ON attendance_sessions(session_type);
       CREATE INDEX IF NOT EXISTS idx_sessions_schedule_slot ON attendance_sessions(schedule_slot_id);
+    `,
+  },
+  {
+    version: 3,
+    name: 'add_room_to_attendance_sessions',
+    sql: `
+      ALTER TABLE attendance_sessions ADD COLUMN room TEXT;
     `,
   },
 ]

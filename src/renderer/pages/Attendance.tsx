@@ -38,7 +38,7 @@ interface StudentLookupResult {
 }
 
 export default function Attendance() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
 
   // Mode selection: attendance vs lookup
   const [mode, setMode] = useState<QRMode>('attendance')
@@ -135,7 +135,7 @@ export default function Attendance() {
         setActiveSession(res.data)
         await refreshStats(res.data.id)
       } else {
-        showFeedback({ type: 'error', message: res.error ?? 'Erreur au démarrage de la séance' })
+        showFeedback({ type: 'error', message: res.error ?? t('common.error') })
       }
     } finally {
       setStarting(false)
@@ -144,7 +144,7 @@ export default function Attendance() {
 
   const handleEndSession = async () => {
     if (!activeSession) return
-    if (!window.confirm('Voulez-vous terminer cette séance de présence ?')) return
+    if (!window.confirm(t('attendance.closeSessionConfirm'))) return
     await window.schoolApp.attendance.endSession(activeSession.id)
     setActiveSession(null)
     setScanInput('')
@@ -163,27 +163,27 @@ export default function Attendance() {
       case 'recorded':
         showFeedback({
           type: data.attendanceStatus === 'late' ? 'late' : 'success',
-          message: `${data.studentName} — ${data.attendanceStatus === 'late' ? 'En retard' : 'Présent(e)'}`,
+          message: `${data.studentName} — ${data.attendanceStatus === 'late' ? t('attendance.late') : t('attendance.present')}`,
         })
         await refreshStats(activeSession.id)
         break
       case 'already_scanned':
-        showFeedback({ type: 'warn', message: `${data.studentName} — Déjà scanné(e)` })
+        showFeedback({ type: 'warn', message: `${data.studentName} — ${t('attendance.alreadyScanned')}` })
         break
       case 'unknown_card':
-        showFeedback({ type: 'error', message: 'Carte non reconnue' })
+        showFeedback({ type: 'error', message: t('attendance.unknownCard') })
         break
       case 'disabled_card':
-        showFeedback({ type: 'error', message: 'Carte désactivée' })
+        showFeedback({ type: 'error', message: t('attendance.disabledCard') })
         break
       case 'student_inactive':
-        showFeedback({ type: 'error', message: `${data.studentName} — Étudiant inactif` })
+        showFeedback({ type: 'error', message: `${data.studentName} — ${t('attendance.studentInactive')}` })
         break
       case 'not_enrolled':
-        showFeedback({ type: 'error', message: `${data.studentName} — Non inscrit dans ce groupe` })
+        showFeedback({ type: 'error', message: `${data.studentName} — ${t('attendance.notEnrolled')}` })
         break
       case 'session_closed':
-        showFeedback({ type: 'error', message: 'Séance fermée' })
+        showFeedback({ type: 'error', message: t('attendance.sessionClosed') })
         break
     }
   }
@@ -195,7 +195,7 @@ export default function Attendance() {
       if (res.success) {
         setLookupResult(res.data)
       } else {
-        showFeedback({ type: 'error', message: res.error ?? 'Carte non trouvée' })
+        showFeedback({ type: 'error', message: res.error ?? t('attendance.cardNotFound') })
       }
     } finally {
       setLookupLoading(false)
@@ -228,7 +228,7 @@ export default function Attendance() {
       <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-4 rounded-xl border border-border">
         <div>
           <h2 className="text-lg font-bold text-[#0F172A]">{t('nav.attendance')}</h2>
-          <p className="text-xs text-slate-400">Scanner de présence et consultation rapide</p>
+          <p className="text-xs text-slate-400">{t('attendance.subtitle')}</p>
         </div>
 
         {/* Mode Toggle Buttons */}
@@ -241,7 +241,7 @@ export default function Attendance() {
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <ScanLine size={14} /> Mode Prise de Présence
+            <ScanLine size={14} /> {t('attendance.modeAttendance')}
           </button>
           <button
             onClick={() => setMode('lookup')}
@@ -251,7 +251,7 @@ export default function Attendance() {
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <Search size={14} /> Mode Consultation (Scan & Fiche)
+            <Search size={14} /> {t('attendance.modeLookup')}
           </button>
         </div>
       </div>
@@ -266,25 +266,26 @@ export default function Attendance() {
                 <ScanLine size={32} />
               </div>
               <div>
-                <h3 className="text-lg font-bold text-[#0F172A]">Démarrer une séance de présence</h3>
-                <p className="text-slate-400 text-xs mt-1">Sélectionnez la matière et le groupe pour ouvrir la séance de scan</p>
+                <h3 className="text-lg font-bold text-[#0F172A]">{t('attendance.startSession')}</h3>
+                <p className="text-slate-400 text-xs mt-1">{t('attendance.startPrompt')}</p>
               </div>
 
               {/* Group Selector */}
               <div className="space-y-3 text-start">
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Groupe / Cours *</label>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">{t('attendance.groupCourse')} *</label>
                   <select
                     value={selectedGroup ?? ''}
                     onChange={(e) => setSelectedGroup(Number(e.target.value) || null)}
                     className="w-full px-3 py-2.5 border border-border rounded-lg text-sm bg-white focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20"
                   >
-                    <option value="">— Choisir un groupe —</option>
+                    <option value="">{t('attendance.chooseGroup')}</option>
                     {courses.map((course) => {
                       const cg = groups.filter((g) => g.courseId === course.id && g.status === 'active')
                       if (!cg.length) return null
+                      const courseName = i18n.language === 'ar' ? (course.nameAr || course.nameFr) : (course.nameFr || course.nameAr)
                       return (
-                        <optgroup key={course.id} label={course.nameAr}>
+                        <optgroup key={course.id} label={courseName}>
                           {cg.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
                         </optgroup>
                       )
@@ -299,7 +300,7 @@ export default function Attendance() {
                 className="w-full bg-[#2563EB] text-white py-3 rounded-xl font-semibold text-sm hover:bg-[#1D4ED8] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {starting && <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />}
-                Ouvrir la session de présence
+                {t('attendance.startSession')}
               </button>
             </div>
           ) : (
@@ -311,15 +312,15 @@ export default function Attendance() {
                 <div className="grid grid-cols-3 gap-3">
                   <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
                     <p className="text-3xl font-bold text-green-600">{sessionStats.present}</p>
-                    <p className="text-xs text-green-700 font-medium mt-1">Présents</p>
+                    <p className="text-xs text-green-700 font-medium mt-1">{t('attendance.presentCount')}</p>
                   </div>
                   <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-center">
                     <p className="text-3xl font-bold text-amber-600">{sessionStats.late}</p>
-                    <p className="text-xs text-amber-700 font-medium mt-1">En retard</p>
+                    <p className="text-xs text-amber-700 font-medium mt-1">{t('attendance.lateCount')}</p>
                   </div>
                   <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-center">
                     <p className="text-3xl font-bold text-[#2563EB]">{sessionStats.total}</p>
-                    <p className="text-xs text-blue-700 font-medium mt-1">Scannés au total</p>
+                    <p className="text-xs text-blue-700 font-medium mt-1">{t('attendance.totalScanned')}</p>
                   </div>
                 </div>
 
@@ -328,12 +329,12 @@ export default function Attendance() {
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-2">
                       <div className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse" />
-                      <span className="text-sm font-bold text-[#0F172A]">Prêt pour le scan de carte QR</span>
+                      <span className="text-sm font-bold text-[#0F172A]">{t('attendance.readyToScan')}</span>
                     </div>
                     <button
                       onClick={() => setSoundEnabled(!soundEnabled)}
                       className="text-slate-400 hover:text-slate-600 p-1"
-                      title={soundEnabled ? 'Désactiver le son' : 'Activer le son'}
+                      title={soundEnabled ? t('attendance.disableSound') : t('attendance.enableSound')}
                     >
                       {soundEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
                     </button>
@@ -345,7 +346,7 @@ export default function Attendance() {
                     value={scanInput}
                     onChange={(e) => setScanInput(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder="Scannez ou saisissez le code QR de l'étudiant (STD-...)"
+                    placeholder={t('attendance.scanOrType')}
                     className="w-full px-4 py-3.5 border-2 border-[#2563EB]/30 rounded-xl text-sm focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 transition-all bg-background font-mono"
                     dir="ltr"
                     autoFocus
@@ -366,7 +367,7 @@ export default function Attendance() {
                     onClick={handleEndSession}
                     className="mt-6 w-full flex items-center justify-center gap-2 py-3 border border-red-300 text-red-600 rounded-xl text-sm font-semibold hover:bg-red-50 transition-colors"
                   >
-                    <Square size={14} /> Fermer la séance de présence
+                    <Square size={14} /> {t('attendance.closeSession')}
                   </button>
                 </div>
               </div>
@@ -374,19 +375,19 @@ export default function Attendance() {
               {/* Right 4 cols: Session details */}
               <div className="lg:col-span-4 space-y-4">
                 <div className="bg-white rounded-xl border border-border p-5">
-                  <h4 className="font-bold text-sm text-[#0F172A] mb-3">Détails de la séance</h4>
+                  <h4 className="font-bold text-sm text-[#0F172A] mb-3">{t('attendance.sessionDetails')}</h4>
                   <div className="space-y-2 text-xs">
                     <div className="flex justify-between py-1 border-b border-slate-100">
-                      <span className="text-slate-400">ID Séance:</span>
+                      <span className="text-slate-400">{t('attendance.sessionId')}:</span>
                       <span className="font-mono font-bold">#{activeSession.id}</span>
                     </div>
                     <div className="flex justify-between py-1 border-b border-slate-100">
-                      <span className="text-slate-400">Date:</span>
+                      <span className="text-slate-400">{t('attendance.date')}:</span>
                       <span className="font-medium">{activeSession.sessionDate}</span>
                     </div>
                     <div className="flex justify-between py-1 border-b border-slate-100">
-                      <span className="text-slate-400">Statut:</span>
-                      <span className="text-green-600 font-bold">En cours</span>
+                      <span className="text-slate-400">{t('common.status')}:</span>
+                      <span className="text-green-600 font-bold">{t('attendance.inProgress')}</span>
                     </div>
                   </div>
                 </div>
@@ -401,10 +402,10 @@ export default function Attendance() {
         <div className="space-y-6">
           <div className="max-w-2xl mx-auto bg-white rounded-2xl border border-border p-6 shadow-sm">
             <h3 className="font-bold text-sm text-[#0F172A] mb-3 flex items-center gap-2">
-              <Search size={16} className="text-[#2563EB]" /> Consultation rapide d'étudiant
+              <Search size={16} className="text-[#2563EB]" /> {t('attendance.quickLookup')}
             </h3>
             <p className="text-xs text-slate-400 mb-4">
-              Scannez n'importe quelle carte QR pour voir les informations complètes sans enregistrer de présence
+              {t('attendance.quickLookupDesc')}
             </p>
             <input
               ref={scanInputRef}
@@ -412,7 +413,7 @@ export default function Attendance() {
               value={scanInput}
               onChange={(e) => setScanInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Scannez la carte QR de l'étudiant..."
+              placeholder={t('attendance.scanPlaceholder')}
               className="w-full px-4 py-3 border-2 border-[#2563EB]/30 rounded-xl text-sm focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 bg-background font-mono"
               dir="ltr"
               autoFocus
@@ -433,7 +434,7 @@ export default function Attendance() {
                   {lookupResult.student.firstNameAr.charAt(0)}
                 </div>
                 <div>
-                  <h3 className="font-bold text-base text-[#0F172A]" dir="rtl">
+                  <h3 className="font-bold text-base text-[#0F172A]">
                     {lookupResult.student.lastNameAr} {lookupResult.student.firstNameAr}
                   </h3>
                   <p className="text-xs text-slate-400">{lookupResult.student.lastNameFr} {lookupResult.student.firstNameFr}</p>
@@ -442,24 +443,24 @@ export default function Attendance() {
                 <span className={`ms-auto text-xs px-3 py-1 rounded-full font-bold ${
                   lookupResult.student.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600'
                 }`}>
-                  {lookupResult.student.status === 'active' ? 'Actif' : 'Inactif'}
+                  {lookupResult.student.status === 'active' ? t('students.active') : t('students.inactive')}
                 </span>
               </div>
 
               {/* Quick stats grid */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-slate-50 p-4 rounded-xl">
-                  <p className="text-xs text-slate-400 mb-1">Présences au total</p>
+                  <p className="text-xs text-slate-400 mb-1">{t('attendance.totalAttendance')}</p>
                   <p className="text-lg font-bold text-green-600">
                     {lookupResult.attendanceSummary?.present ?? 0} / {lookupResult.attendanceSummary?.totalSessions ?? 0}
                   </p>
                 </div>
                 <div className="bg-slate-50 p-4 rounded-xl">
-                  <p className="text-xs text-slate-400 mb-1">Statut financier</p>
+                  <p className="text-xs text-slate-400 mb-1">{t('attendance.financialStatus')}</p>
                   <p className={`text-lg font-bold ${
                     lookupResult.paymentsSummary?.status === 'paid' ? 'text-green-600' : 'text-amber-600'
                   }`}>
-                    {lookupResult.paymentsSummary?.status === 'paid' ? 'À jour' : 'En attente'}
+                    {lookupResult.paymentsSummary?.status === 'paid' ? t('attendance.upToDate') : t('attendance.pending')}
                   </p>
                 </div>
               </div>

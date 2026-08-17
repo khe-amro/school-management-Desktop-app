@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  Plus, ChevronDown, Users, Calendar, Clock, Edit2,
-  Trash2, Play, Sparkles, X, Check, BookOpen
+  Plus, ChevronDown, Calendar, Clock, Edit2,
+  Trash2, Sparkles, X, BookOpen
 } from 'lucide-react'
 import type { Course, Group, Teacher } from '@shared/types/index'
 
@@ -40,7 +40,13 @@ const Modal = ({ title, onClose, children }: { title: string; onClose: () => voi
 
 export default function Courses() {
   const { t, i18n } = useTranslation()
-  const isRTL = i18n.language === 'ar'
+  const lang = i18n.language as 'ar' | 'fr' | 'en'
+
+  const getWeekdayLabel = (day: typeof WEEKDAYS[0]) => {
+    if (lang === 'ar') return day.ar
+    if (lang === 'en') return day.en
+    return day.fr
+  }
 
   const [courses, setCourses] = useState<Course[]>([])
   const [groups, setGroups] = useState<Group[]>([])
@@ -88,7 +94,7 @@ export default function Courses() {
 
   const handleCreateCourse = async () => {
     if (!courseForm.nameAr.trim() || !courseForm.nameFr.trim()) {
-      setError('Veuillez remplir les noms de la matière')
+      setError(t('courses.fillCourseNames'))
       return
     }
     setSaving(true)
@@ -104,14 +110,14 @@ export default function Courses() {
         setError('')
         await loadData()
       } else {
-        setError(res.error ?? 'Erreur lors de la création')
+        setError(res.error ?? t('common.error'))
       }
     } finally { setSaving(false) }
   }
 
   const handleCreateGroup = async (courseId: number) => {
     if (!groupForm.name.trim() || !groupForm.teacherId || !groupForm.startDate) {
-      setError('Veuillez remplir tous les champs obligatoires')
+      setError(t('courses.fillRequiredFields'))
       return
     }
     setSaving(true)
@@ -131,14 +137,14 @@ export default function Courses() {
         setError('')
         await loadData()
       } else {
-        setError(res.error ?? 'Erreur lors de la création du groupe')
+        setError(res.error ?? t('common.error'))
       }
     } finally { setSaving(false) }
   }
 
   const handleAddSlot = async (groupId: number) => {
     if (slotForm.startTime >= slotForm.endTime) {
-      setError('L\'heure de début doit être antérieure à l\'heure de fin')
+      setError(t('courses.invalidTimeRange'))
       return
     }
     setSaving(true)
@@ -155,20 +161,19 @@ export default function Courses() {
         setError('')
         await loadData()
       } else {
-        setError(res.error ?? 'Erreur d\'ajout du créneau')
+        setError(res.error ?? t('common.error'))
       }
     } finally { setSaving(false) }
   }
 
   const handleDeleteSlot = async (slotId: number) => {
-    if (!window.confirm('Voulez-vous supprimer ce créneau horaire ?')) return
+    if (!window.confirm(t('courses.deleteSlotConfirm'))) return
     await window.schoolApp.schedules.delete(slotId)
     await loadData()
   }
 
   const handleGenerateSessions = async (groupId: number) => {
     const startDate = new Date().toISOString().slice(0, 10)
-    // Default to next 30 days
     const nextMonth = new Date()
     nextMonth.setMonth(nextMonth.getMonth() + 1)
     const endDate = nextMonth.toISOString().slice(0, 10)
@@ -177,9 +182,9 @@ export default function Courses() {
     try {
       const res = await window.schoolApp.sessions.generate(groupId, startDate, endDate)
       if (res.success) {
-        alert(`${res.data.generated} séance(s) générée(s) pour les 30 prochains jours.`)
+        alert(t('courses.generatedSessionsMsg', { count: res.data.generated }))
       } else {
-        alert(`Information: ${res.error}`)
+        alert(res.error)
       }
     } finally { setSaving(false) }
   }
@@ -196,9 +201,9 @@ export default function Courses() {
       })
       if (res.success) {
         setShowExtraSessionModal(null)
-        alert('Séance supplémentaire créée avec succès!')
+        alert(t('courses.extraSessionSuccess'))
       } else {
-        setError(res.error ?? 'Erreur lors de la création de la séance')
+        setError(res.error ?? t('common.error'))
       }
     } finally { setSaving(false) }
   }
@@ -220,13 +225,13 @@ export default function Courses() {
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-lg font-bold text-[#0F172A]">{t('nav.courses')}</h2>
-          <p className="text-xs text-slate-400">Gérez les matières, groupes et emplois du temps hebdomadaires</p>
+          <p className="text-xs text-slate-400">{t('courses.subtitle')}</p>
         </div>
         <button
           onClick={() => { setShowCourseModal(true); setError('') }}
           className="flex items-center gap-2 bg-[#2563EB] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#1D4ED8] transition-colors"
         >
-          <Plus size={15} /> {t('courses.addCourse') ?? 'Ajouter une matière'}
+          <Plus size={15} /> {t('courses.addCourse')}
         </button>
       </div>
 
@@ -256,7 +261,7 @@ export default function Courses() {
                       </div>
                       <div className="text-start">
                         <p className="font-bold text-[#0F172A] text-sm">{course.nameAr} ({course.nameFr})</p>
-                        <p className="text-xs text-slate-400">{courseGroups.length} groupe(s)</p>
+                        <p className="text-xs text-slate-400">{t('courses.groupsCount', { count: courseGroups.length })}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
@@ -273,7 +278,7 @@ export default function Courses() {
                       ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           {courseGroups.map((group) => {
-                            const teacher = teachers.find((t) => t.id === group.teacherId)
+                            const teacher = teachers.find((tch) => tch.id === group.teacherId)
                             const groupSlots = schedules.filter((s) => s.groupId === group.id)
                             const isSelected = selectedGroup?.id === group.id
 
@@ -291,7 +296,7 @@ export default function Courses() {
                                   <div>
                                     <h4 className="font-bold text-sm text-[#0F172A]">{group.name}</h4>
                                     <p className="text-xs text-slate-500">
-                                      {teacher ? `${teacher.lastName} ${teacher.firstName}` : 'Sans enseignant'}
+                                      {teacher ? `${teacher.lastName} ${teacher.firstName}` : t('courses.noTeacher')}
                                     </p>
                                   </div>
                                   <span className="text-xs font-bold text-[#2563EB]">
@@ -301,12 +306,12 @@ export default function Courses() {
 
                                 <div className="space-y-1 text-[11px] text-slate-500 mt-2 border-t border-slate-100 pt-2">
                                   <div className="flex justify-between">
-                                    <span>Capacité:</span>
-                                    <span className="font-medium text-slate-700">{group.capacity} élèves</span>
+                                    <span>{t('courses.capacity')}:</span>
+                                    <span className="font-medium text-slate-700">{group.capacity}</span>
                                   </div>
                                   <div className="flex justify-between">
-                                    <span>Créneaux récurrents:</span>
-                                    <span className="font-medium text-[#2563EB]">{groupSlots.length} slot(s)</span>
+                                    <span>{t('courses.recurringSlots')}:</span>
+                                    <span className="font-medium text-[#2563EB]">{t('courses.slotsCount', { count: groupSlots.length })}</span>
                                   </div>
                                 </div>
 
@@ -320,7 +325,7 @@ export default function Courses() {
                                     }}
                                     className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[11px] font-medium flex items-center gap-1"
                                   >
-                                    <Clock size={11} /> Emploi du temps
+                                    <Clock size={11} /> {t('courses.schedule')}
                                   </button>
                                   <button
                                     onClick={(e) => {
@@ -328,9 +333,9 @@ export default function Courses() {
                                       handleGenerateSessions(group.id)
                                     }}
                                     className="px-2 py-1 bg-[#EFF6FF] hover:bg-blue-100 text-[#2563EB] rounded text-[11px] font-medium flex items-center gap-1"
-                                    title="Générer les séances pour 30 jours"
+                                    title={t('courses.generateTooltip')}
                                   >
-                                    <Sparkles size={11} /> Générer
+                                    <Sparkles size={11} /> {t('courses.generate')}
                                   </button>
                                   <button
                                     onClick={(e) => {
@@ -340,7 +345,7 @@ export default function Courses() {
                                     }}
                                     className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded text-[11px] font-medium flex items-center gap-1"
                                   >
-                                    <Plus size={11} /> Séance extra
+                                    <Plus size={11} /> {t('courses.extraSession')}
                                   </button>
                                 </div>
                               </div>
@@ -356,7 +361,7 @@ export default function Courses() {
                         }}
                         className="flex items-center gap-1.5 text-xs text-[#2563EB] font-semibold hover:underline pt-1"
                       >
-                        <Plus size={13} /> {t('courses.addGroup') ?? 'Ajouter un groupe'}
+                        <Plus size={13} /> {t('courses.addGroup')}
                       </button>
                     </div>
                   )}
@@ -372,9 +377,11 @@ export default function Courses() {
             <div className="flex justify-between items-center pb-3 border-b border-[#F1F5F9] mb-4">
               <div>
                 <h3 className="font-bold text-sm text-[#0F172A]">
-                  {selectedGroup ? `Emploi du temps — ${selectedGroup.name}` : 'Emploi du temps du groupe'}
+                  {selectedGroup
+                    ? t('courses.groupSchedule', { name: selectedGroup.name })
+                    : t('courses.groupTimetable')}
                 </h3>
-                <p className="text-[11px] text-slate-400">Créneaux horaires hebdomadaires récurrents</p>
+                <p className="text-[11px] text-slate-400">{t('courses.scheduleSubtitle')}</p>
               </div>
               {selectedGroup && (
                 <button
@@ -384,7 +391,7 @@ export default function Courses() {
                   }}
                   className="px-2.5 py-1 bg-[#2563EB] text-white rounded text-xs font-semibold hover:bg-[#1D4ED8] flex items-center gap-1"
                 >
-                  <Plus size={12} /> Gérer
+                  <Plus size={12} /> {t('courses.manage')}
                 </button>
               )}
             </div>
@@ -392,63 +399,84 @@ export default function Courses() {
             {!selectedGroup ? (
               <div className="text-center py-12 text-slate-400">
                 <Calendar size={32} className="mx-auto mb-2 opacity-30" />
-                <p className="text-xs">Sélectionnez un groupe à gauche pour voir son emploi du temps</p>
+                <p className="text-xs">{t('courses.selectGroupPrompt')}</p>
               </div>
-            ) : (
-              <div className="space-y-2">
-                {WEEKDAYS.map((day) => {
-                  const daySlots = schedules.filter(
-                    (s) => s.groupId === selectedGroup.id && s.weekday === day.id
-                  )
+            ) : (() => {
+              // Resolve course & teacher for selected group
+              const selCourse = courses.find(c => c.id === selectedGroup.courseId)
+              const selTeacher = teachers.find(tch => tch.id === selectedGroup.teacherId)
+              const courseLabel = selCourse
+                ? (lang === 'ar' ? selCourse.nameAr : selCourse.nameFr)
+                : ''
+              const teacherLabel = selTeacher
+                ? `${selTeacher.lastName} ${selTeacher.firstName}`
+                : t('courses.noTeacher')
 
-                  return (
-                    <div key={day.id} className="p-3 bg-slate-50 rounded-lg text-xs flex justify-between items-center">
-                      <span className="font-bold text-slate-700 w-24">
-                        {isRTL ? day.ar : day.fr}
-                      </span>
-                      <div className="flex-1 text-end">
-                        {daySlots.length === 0 ? (
-                          <span className="text-slate-400 italic">Pas de cours</span>
-                        ) : (
-                          daySlots.map((slot) => (
-                            <span
-                              key={slot.id}
-                              className="inline-block bg-white border border-border text-[#2563EB] font-bold px-2 py-1 rounded shadow-2xs ms-1 my-0.5"
-                            >
-                              {slot.startTime} - {slot.endTime} {slot.room ? `(${slot.room})` : ''}
-                            </span>
-                          ))
-                        )}
+              return (
+                <div className="space-y-2">
+                  {/* Group info bar */}
+                  <div className="flex gap-3 mb-3 text-[11px] text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
+                    <span className="font-semibold text-[#0F172A]">{courseLabel}</span>
+                    <span>•</span>
+                    <span>{teacherLabel}</span>
+                  </div>
+                  {WEEKDAYS.map((day) => {
+                    const daySlots = schedules.filter(
+                      (s) => s.groupId === selectedGroup.id && s.weekday === day.id
+                    )
+
+                    return (
+                      <div key={day.id} className="p-3 bg-slate-50 rounded-lg text-xs flex justify-between items-center">
+                        <span className="font-bold text-slate-700 w-24">
+                          {getWeekdayLabel(day)}
+                        </span>
+                        <div className="flex-1 text-end flex flex-wrap justify-end gap-1">
+                          {daySlots.length === 0 ? (
+                            <span className="text-slate-400 italic">{t('courses.noClasses')}</span>
+                          ) : (
+                            daySlots.map((slot) => (
+                              <div
+                                key={slot.id}
+                                className="inline-block bg-white border border-border px-2 py-1 rounded shadow-sm my-0.5"
+                              >
+                                <div className="font-bold text-[#2563EB]">{slot.startTime} – {slot.endTime}</div>
+                                {slot.room && (
+                                  <div className="text-[10px] text-slate-500">{slot.room}</div>
+                                )}
+                              </div>
+                            ))
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
+                    )
+                  })}
+                </div>
+              )
+            })()}
           </div>
         </div>
       </div>
 
       {/* ── Modal: Create Course ── */}
       {showCourseModal && (
-        <Modal title="Ajouter une matière" onClose={() => setShowCourseModal(false)}>
+        <Modal title={t('courses.addCourse')} onClose={() => setShowCourseModal(false)}>
           <div>
-            <label className={labelCls}>Nom (Arabe) *</label>
+            <label className={labelCls}>{t('courses.nameAr')} *</label>
             <input className={inputCls} value={courseForm.nameAr} onChange={(e) => setCourseForm(f => ({ ...f, nameAr: e.target.value }))} dir="rtl" />
           </div>
           <div>
-            <label className={labelCls}>Nom (Français) *</label>
+            <label className={labelCls}>{t('courses.nameFr')} *</label>
             <input className={inputCls} value={courseForm.nameFr} onChange={(e) => setCourseForm(f => ({ ...f, nameFr: e.target.value }))} />
           </div>
           <div>
-            <label className={labelCls}>Prix par défaut (DA)</label>
+            <label className={labelCls}>{t('courses.defaultPrice')}</label>
             <input type="number" className={inputCls} value={courseForm.defaultPrice} onChange={(e) => setCourseForm(f => ({ ...f, defaultPrice: e.target.value }))} dir="ltr" />
           </div>
           {error && <p className="text-xs text-red-600">{error}</p>}
           <div className="flex justify-end gap-2 pt-3">
-            <button onClick={() => setShowCourseModal(false)} className="px-4 py-2 border border-border rounded-lg text-xs text-slate-600">Annuler</button>
+            <button onClick={() => setShowCourseModal(false)} className="px-4 py-2 border border-border rounded-lg text-xs text-slate-600">{t('common.cancel')}</button>
             <button onClick={handleCreateCourse} disabled={saving} className="px-4 py-2 bg-[#2563EB] text-white rounded-lg text-xs font-semibold hover:bg-[#1D4ED8]">
-              Enregistrer
+              {saving ? t('common.saving') : t('common.save')}
             </button>
           </div>
         </Modal>
@@ -456,41 +484,41 @@ export default function Courses() {
 
       {/* ── Modal: Create Group ── */}
       {showGroupModal !== null && (
-        <Modal title="Ajouter un groupe" onClose={() => setShowGroupModal(null)}>
+        <Modal title={t('courses.addGroup')} onClose={() => setShowGroupModal(null)}>
           <div>
-            <label className={labelCls}>Nom du groupe *</label>
-            <input className={inputCls} value={groupForm.name} onChange={(e) => setGroupForm(f => ({ ...f, name: e.target.value }))} placeholder="Ex: Groupe 1 - Niveau Avancé" />
+            <label className={labelCls}>{t('common.name')} *</label>
+            <input className={inputCls} value={groupForm.name} onChange={(e) => setGroupForm(f => ({ ...f, name: e.target.value }))} />
           </div>
           <div>
-            <label className={labelCls}>Enseignant *</label>
+            <label className={labelCls}>{t('courses.teacher')} *</label>
             <select className={inputCls} value={groupForm.teacherId} onChange={(e) => setGroupForm(f => ({ ...f, teacherId: e.target.value }))}>
-              <option value="">— Sélectionner l'enseignant —</option>
-              {teachers.map((t) => <option key={t.id} value={t.id}>{t.lastName} {t.firstName}</option>)}
+              <option value="">— {t('courses.teacher')} —</option>
+              {teachers.map((tch) => <option key={tch.id} value={tch.id}>{tch.lastName} {tch.firstName}</option>)}
             </select>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className={labelCls}>Tarif mensuel (DA)</label>
+              <label className={labelCls}>{t('courses.monthlyPrice')}</label>
               <input type="number" className={inputCls} value={groupForm.monthlyPrice} onChange={(e) => setGroupForm(f => ({ ...f, monthlyPrice: e.target.value }))} dir="ltr" />
             </div>
             <div>
-              <label className={labelCls}>Capacité</label>
+              <label className={labelCls}>{t('courses.capacity')}</label>
               <input type="number" className={inputCls} value={groupForm.capacity} onChange={(e) => setGroupForm(f => ({ ...f, capacity: e.target.value }))} dir="ltr" />
             </div>
           </div>
           <div>
-            <label className={labelCls}>Date de début *</label>
+            <label className={labelCls}>{t('courses.startDate')} *</label>
             <input type="date" className={inputCls} value={groupForm.startDate} onChange={(e) => setGroupForm(f => ({ ...f, startDate: e.target.value }))} dir="ltr" />
           </div>
           <div>
-            <label className={labelCls}>Salle (Optionnelle)</label>
-            <input className={inputCls} value={groupForm.room} onChange={(e) => setGroupForm(f => ({ ...f, room: e.target.value }))} placeholder="Ex: Salle A1" />
+            <label className={labelCls}>{t('courses.roomOptional')}</label>
+            <input className={inputCls} value={groupForm.room} onChange={(e) => setGroupForm(f => ({ ...f, room: e.target.value }))} placeholder={t('courses.roomPlaceholder')} />
           </div>
           {error && <p className="text-xs text-red-600">{error}</p>}
           <div className="flex justify-end gap-2 pt-3">
-            <button onClick={() => setShowGroupModal(null)} className="px-4 py-2 border border-border rounded-lg text-xs text-slate-600">Annuler</button>
+            <button onClick={() => setShowGroupModal(null)} className="px-4 py-2 border border-border rounded-lg text-xs text-slate-600">{t('common.cancel')}</button>
             <button onClick={() => handleCreateGroup(showGroupModal!)} disabled={saving} className="px-4 py-2 bg-[#2563EB] text-white rounded-lg text-xs font-semibold hover:bg-[#1D4ED8]">
-              Enregistrer
+              {saving ? t('common.saving') : t('common.save')}
             </button>
           </div>
         </Modal>
@@ -498,19 +526,23 @@ export default function Courses() {
 
       {/* ── Modal: Manage Schedule Slots ── */}
       {showScheduleModal && (
-        <Modal title={`Gestion de l'emploi du temps — ${showScheduleModal.name}`} onClose={() => setShowScheduleModal(null)}>
+        <Modal title={t('courses.manageScheduleFor', { name: showScheduleModal.name })} onClose={() => setShowScheduleModal(null)}>
           <div className="space-y-4">
             {/* Existing slots */}
             <div className="space-y-2">
-              <p className="text-xs font-bold text-slate-700">Créneaux actuels</p>
+              <p className="text-xs font-bold text-slate-700">{t('courses.currentSlots')}</p>
               {schedules.filter(s => s.groupId === showScheduleModal.id).length === 0 ? (
-                <p className="text-xs text-slate-400 italic">Aucun créneau configuré</p>
+                <p className="text-xs text-slate-400 italic">{t('courses.noSlotsConfigured')}</p>
               ) : (
                 schedules.filter(s => s.groupId === showScheduleModal.id).map(slot => {
-                  const dayName = WEEKDAYS.find(w => w.id === slot.weekday)?.fr
+                  const dayObj = WEEKDAYS.find(w => w.id === slot.weekday)
+                  const dayName = dayObj ? getWeekdayLabel(dayObj) : ''
                   return (
                     <div key={slot.id} className="flex justify-between items-center p-2 bg-slate-50 rounded text-xs">
-                      <span><strong>{dayName}:</strong> {slot.startTime} - {slot.endTime} {slot.room ? `(${slot.room})` : ''}</span>
+                      <span>
+                        <strong>{dayName}:</strong> {slot.startTime} – {slot.endTime}
+                        {slot.room ? ` (${slot.room})` : ''}
+                      </span>
                       <button onClick={() => handleDeleteSlot(slot.id)} className="text-red-500 hover:text-red-700">
                         <Trash2 size={13} />
                       </button>
@@ -522,30 +554,57 @@ export default function Courses() {
 
             {/* Add new slot form */}
             <div className="border-t border-slate-200 pt-3 space-y-2">
-              <p className="text-xs font-bold text-[#2563EB]">Ajouter un créneau hebdomadaire</p>
+              <p className="text-xs font-bold text-[#2563EB]">{t('courses.addWeeklySlot')}</p>
               <div>
-                <label className={labelCls}>Jour de la semaine</label>
-                <select className={inputCls} value={slotForm.weekday} onChange={e => setSlotForm(f => ({ ...f, weekday: Number(e.target.value) }))}>
-                  {WEEKDAYS.map(w => <option key={w.id} value={w.id}>{w.fr} ({w.ar})</option>)}
+                <label className={labelCls}>{t('courses.dayOfWeek')}</label>
+                <select
+                  className={inputCls}
+                  value={slotForm.weekday}
+                  onChange={e => setSlotForm(f => ({ ...f, weekday: Number(e.target.value) }))}
+                >
+                  {WEEKDAYS.map(w => (
+                    <option key={w.id} value={w.id}>{getWeekdayLabel(w)}</option>
+                  ))}
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className={labelCls}>Début</label>
-                  <input type="time" className={inputCls} value={slotForm.startTime} onChange={e => setSlotForm(f => ({ ...f, startTime: e.target.value }))} dir="ltr" />
+                  <label className={labelCls}>{t('courses.startTime')}</label>
+                  <input
+                    type="time"
+                    className={inputCls}
+                    value={slotForm.startTime}
+                    onChange={e => setSlotForm(f => ({ ...f, startTime: e.target.value }))}
+                    dir="ltr"
+                  />
                 </div>
                 <div>
-                  <label className={labelCls}>Fin</label>
-                  <input type="time" className={inputCls} value={slotForm.endTime} onChange={e => setSlotForm(f => ({ ...f, endTime: e.target.value }))} dir="ltr" />
+                  <label className={labelCls}>{t('courses.endTime')}</label>
+                  <input
+                    type="time"
+                    className={inputCls}
+                    value={slotForm.endTime}
+                    onChange={e => setSlotForm(f => ({ ...f, endTime: e.target.value }))}
+                    dir="ltr"
+                  />
                 </div>
               </div>
               <div>
-                <label className={labelCls}>Salle (Optionnelle)</label>
-                <input className={inputCls} value={slotForm.room} onChange={e => setSlotForm(f => ({ ...f, room: e.target.value }))} />
+                <label className={labelCls}>{t('courses.roomOptional')}</label>
+                <input
+                  className={inputCls}
+                  value={slotForm.room}
+                  onChange={e => setSlotForm(f => ({ ...f, room: e.target.value }))}
+                  placeholder={t('courses.roomPlaceholder')}
+                />
               </div>
               {error && <p className="text-xs text-red-600">{error}</p>}
-              <button onClick={() => handleAddSlot(showScheduleModal.id)} disabled={saving} className="w-full py-2 bg-[#2563EB] text-white rounded text-xs font-semibold hover:bg-[#1D4ED8]">
-                Ajouter le créneau
+              <button
+                onClick={() => handleAddSlot(showScheduleModal.id)}
+                disabled={saving}
+                className="w-full py-2 bg-[#2563EB] text-white rounded text-xs font-semibold hover:bg-[#1D4ED8]"
+              >
+                {saving ? t('common.saving') : t('courses.addWeeklySlot')}
               </button>
             </div>
           </div>
@@ -554,30 +613,30 @@ export default function Courses() {
 
       {/* ── Modal: Extra Session ── */}
       {showExtraSessionModal && (
-        <Modal title={`Créer une séance supplémentaire — ${showExtraSessionModal.name}`} onClose={() => setShowExtraSessionModal(null)}>
+        <Modal title={t('courses.createExtraSession') + ' — ' + showExtraSessionModal.name} onClose={() => setShowExtraSessionModal(null)}>
           <div>
-            <label className={labelCls}>Date de la séance *</label>
+            <label className={labelCls}>{t('courses.sessionDate')} *</label>
             <input type="date" className={inputCls} value={extraSessionForm.date} onChange={e => setExtraSessionForm(f => ({ ...f, date: e.target.value }))} dir="ltr" />
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className={labelCls}>Heure de début *</label>
+              <label className={labelCls}>{t('courses.startTime')} *</label>
               <input type="time" className={inputCls} value={extraSessionForm.startTime} onChange={e => setExtraSessionForm(f => ({ ...f, startTime: e.target.value }))} dir="ltr" />
             </div>
             <div>
-              <label className={labelCls}>Heure de fin *</label>
+              <label className={labelCls}>{t('courses.endTime')} *</label>
               <input type="time" className={inputCls} value={extraSessionForm.endTime} onChange={e => setExtraSessionForm(f => ({ ...f, endTime: e.target.value }))} dir="ltr" />
             </div>
           </div>
           <div>
-            <label className={labelCls}>Salle (Optionnelle)</label>
-            <input className={inputCls} value={extraSessionForm.room} onChange={e => setExtraSessionForm(f => ({ ...f, room: e.target.value }))} />
+            <label className={labelCls}>{t('courses.roomOptional')}</label>
+            <input className={inputCls} value={extraSessionForm.room} onChange={e => setExtraSessionForm(f => ({ ...f, room: e.target.value }))} placeholder={t('courses.roomPlaceholder')} />
           </div>
           {error && <p className="text-xs text-red-600">{error}</p>}
           <div className="flex justify-end gap-2 pt-3">
-            <button onClick={() => setShowExtraSessionModal(null)} className="px-4 py-2 border border-border rounded-lg text-xs text-slate-600">Annuler</button>
+            <button onClick={() => setShowExtraSessionModal(null)} className="px-4 py-2 border border-border rounded-lg text-xs text-slate-600">{t('common.cancel')}</button>
             <button onClick={() => handleAddExtraSession(showExtraSessionModal.id)} disabled={saving} className="px-4 py-2 bg-amber-600 text-white rounded-lg text-xs font-semibold hover:bg-amber-700">
-              Créer la séance extra
+              {saving ? t('common.saving') : t('courses.extraSession')}
             </button>
           </div>
         </Modal>

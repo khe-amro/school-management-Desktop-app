@@ -32,8 +32,8 @@ export default function AttendanceHistory() {
                 <th className="text-start px-4 py-3 font-medium">{t('attendance.date')}</th>
                 <th className="text-start px-4 py-3 font-medium">{t('attendance.group')}</th>
                 <th className="text-start px-4 py-3 font-medium">{t('common.status')}</th>
-                <th className="text-start px-4 py-3 font-medium hidden md:table-cell">Start</th>
-                <th className="text-start px-4 py-3 font-medium hidden md:table-cell">End</th>
+                <th className="text-start px-4 py-3 font-medium hidden md:table-cell">{t('courses.startTime')}</th>
+                <th className="text-start px-4 py-3 font-medium hidden md:table-cell">{t('courses.endTime')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#F1F5F9]">
