@@ -92,6 +92,8 @@ const api = {
       invoke<Course>(IPC_CHANNELS.COURSES_CREATE, data),
     update: (id: number, data: Partial<{ nameAr: string; nameFr: string; defaultPrice: number; status: string }>) =>
       invoke<Course>(IPC_CHANNELS.COURSES_UPDATE, { id, ...data }),
+    delete: (id: number) =>
+      invoke<boolean>(IPC_CHANNELS.COURSES_DELETE, { id }),
   },
 
   groups: {
@@ -103,6 +105,8 @@ const api = {
       invoke<Group>(IPC_CHANNELS.GROUPS_CREATE, data),
     update: (id: number, data: Partial<{ name: string; room: string | null; capacity: number; monthlyPrice: number; status: string }>) =>
       invoke<Group>(IPC_CHANNELS.GROUPS_UPDATE, { id, ...data }),
+    delete: (id: number) =>
+      invoke<boolean>(IPC_CHANNELS.GROUPS_DELETE, { id }),
   },
 
   enrollments: {
@@ -161,6 +165,8 @@ const api = {
       invoke<boolean>(IPC_CHANNELS.SESSIONS_CANCEL, { sessionId, reason }),
     complete: (sessionId: number) =>
       invoke<boolean>(IPC_CHANNELS.SESSIONS_COMPLETE, { sessionId }),
+    delete: (sessionId: number) =>
+      invoke<boolean>(IPC_CHANNELS.SESSIONS_DELETE, { sessionId }),
     upcoming: (opts?: { groupId?: number; limit?: number }) =>
       invoke<any[]>(IPC_CHANNELS.SESSIONS_UPCOMING, opts),
   },

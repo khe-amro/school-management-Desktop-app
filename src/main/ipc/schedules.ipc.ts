@@ -181,6 +181,7 @@ export function registerSchedulesHandlers(): void {
     const sqlite = getSqlite()
 
     try {
+      sqlite.prepare('UPDATE attendance_sessions SET schedule_slot_id = NULL WHERE schedule_slot_id = ?').run(id)
       sqlite.prepare('DELETE FROM group_schedule_slots WHERE id = ?').run(id)
       return true
     } catch (err) {

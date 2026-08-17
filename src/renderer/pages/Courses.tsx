@@ -208,6 +208,25 @@ export default function Courses() {
     } finally { setSaving(false) }
   }
 
+  const handleDeleteCourse = async (courseId: number, courseName: string) => {
+    const msg = lang === 'ar'
+      ? `هل أنت متأكد من حذف مادة "${courseName}" وجميع أفواجها وحصصها؟`
+      : `Êtes-vous sûr de vouloir supprimer le cours "${courseName}" et tous ses groupes ?`
+    if (!window.confirm(msg)) return
+    await window.schoolApp.courses.delete(courseId)
+    await loadData()
+  }
+
+  const handleDeleteGroup = async (groupId: number, groupName: string) => {
+    const msg = lang === 'ar'
+      ? `هل أنت متأكد من حذف فوج "${groupName}"؟`
+      : `Êtes-vous sûr de vouloir supprimer le groupe "${groupName}" ?`
+    if (!window.confirm(msg)) return
+    await window.schoolApp.groups.delete(groupId)
+    if (selectedGroup?.id === groupId) setSelectedGroup(null)
+    await loadData()
+  }
+
   const inputCls = 'w-full px-3 py-2 border border-border rounded-lg text-sm focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 bg-white'
   const labelCls = 'block text-xs font-medium text-slate-600 mb-1'
 
@@ -264,8 +283,15 @@ export default function Courses() {
                         <p className="text-xs text-slate-400">{t('courses.groupsCount', { count: courseGroups.length })}</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
                       <span className="text-sm font-bold text-[#2563EB]">{course.defaultPrice.toLocaleString()} DZD</span>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDeleteCourse(course.id, course.nameAr) }}
+                        className="p-1 text-slate-300 hover:text-red-500 transition-colors rounded"
+                        title={t('common.delete')}
+                      >
+                        <Trash2 size={14} />
+                      </button>
                       <ChevronDown size={16} className={`text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
                     </div>
                   </div>
@@ -346,6 +372,16 @@ export default function Courses() {
                                     className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded text-[11px] font-medium flex items-center gap-1"
                                   >
                                     <Plus size={11} /> {t('courses.extraSession')}
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleDeleteGroup(group.id, group.name)
+                                    }}
+                                    className="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-500 rounded text-[11px] font-medium flex items-center gap-1 ms-auto"
+                                    title={t('common.delete')}
+                                  >
+                                    <Trash2 size={11} /> {t('common.delete')}
                                   </button>
                                 </div>
                               </div>

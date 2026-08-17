@@ -8,8 +8,8 @@ import {
 } from '../../shared/schemas/index'
 import {
   listTeachers, createTeacher, updateTeacher, archiveTeacher,
-  listCourses, createCourse, updateCourse,
-  listGroups, createGroup, updateGroup,
+  listCourses, createCourse, updateCourse, deleteCourse,
+  listGroups, createGroup, updateGroup, deleteGroup,
   createEnrollment, updateEnrollment, listEnrollmentsByStudent, listEnrollmentsByGroup,
 } from '../services/entities.service'
 import { z } from 'zod'
@@ -49,6 +49,10 @@ export function registerEntityHandlers(): void {
     const { id, ...rest } = data
     return updateCourse(id, rest)
   })
+  handle(IPC_CHANNELS.COURSES_DELETE, async (payload) => {
+    const { id } = z.object({ id: z.number().int().positive() }).parse(payload)
+    return deleteCourse(id)
+  })
 
   // Groups
   handle(IPC_CHANNELS.GROUPS_LIST, async (payload) => {
@@ -70,6 +74,10 @@ export function registerEntityHandlers(): void {
     const data = UpdateGroupSchema.parse(payload)
     const { id, ...rest } = data
     return updateGroup(id, rest)
+  })
+  handle(IPC_CHANNELS.GROUPS_DELETE, async (payload) => {
+    const { id } = z.object({ id: z.number().int().positive() }).parse(payload)
+    return deleteGroup(id)
   })
 
   // Enrollments

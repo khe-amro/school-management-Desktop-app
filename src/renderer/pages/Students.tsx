@@ -31,7 +31,9 @@ export default function Students() {
   const handleSearch = (v: string) => {
     setSearch(v)
     if (searchRef.current) clearTimeout(searchRef.current)
-    searchRef.current = setTimeout(() => { setPage(1); load(1, v, status) }, 350)
+    // If user types a QR token (STD-...) or student number, search ALL statuses so archived students are also found
+    const effectiveStatus = v.startsWith('STD-') || v.startsWith('ETU-') ? 'all' : status
+    searchRef.current = setTimeout(() => { setPage(1); load(1, v, effectiveStatus) }, 350)
   }
 
   const total = result?.total ?? 0

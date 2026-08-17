@@ -10,9 +10,9 @@ export async function listTeachers(opts: { status?: string } = {}): Promise<Teac
   const db = getDb()
   const rows = await db.select().from(schema.teachers)
     .orderBy(desc(schema.teachers.createdAt))
-  const filtered = opts.status && opts.status !== 'all'
-    ? rows.filter(r => r.status === opts.status)
-    : rows.filter(r => r.status !== 'archived')
+  const filtered = opts.status === 'all'
+    ? rows
+    : (opts.status ? rows.filter(r => r.status === opts.status) : rows.filter(r => r.status !== 'archived'))
   return filtered.map(r => ({
     id: r.id, firstName: r.firstName, lastName: r.lastName, phone: r.phone ?? null,
     email: r.email ?? null, address: r.address ?? null, photoPath: r.photoPath ?? null,
@@ -74,6 +74,17 @@ export async function updateCourse(id: number, data: Partial<{ nameAr: string; n
   return { id: r.id, nameAr: r.nameAr, nameFr: r.nameFr, nameEn: r.nameEn, descriptionAr: r.descriptionAr ?? null, descriptionFr: r.descriptionFr ?? null, descriptionEn: r.descriptionEn ?? null, defaultPrice: r.defaultPrice, status: r.status as Course['status'], createdAt: r.createdAt, updatedAt: r.updatedAt }
 }
 
+export async function deleteCourse(id: number): Promise<boolean> {
+  requireSession()
+  const db = getDb()
+  const courseGroups = await db.query.groups.findMany({ where: eq(schema.groups.courseId, id) })
+  for (const g of courseGroups) {
+    await deleteGroup(g.id)
+  }
+  await db.delete(schema.courses).where(eq(schema.courses.id, id))
+  return true
+}
+
 // ─── Groups ───────────────────────────────────────────────────────────────────
 
 export async function listGroups(opts: { courseId?: number; status?: string } = {}): Promise<Group[]> {
@@ -115,6 +126,36 @@ export async function updateGroup(id: number, data: Partial<{ name: string; room
   if (!result[0]) throw new AppError(ErrorCode.NOT_FOUND, 'Group not found')
   const r = result[0]
   return { id: r.id, courseId: r.courseId, teacherId: r.teacherId, name: r.name, room: r.room ?? null, scheduleJson: r.scheduleJson ?? null, capacity: r.capacity, monthlyPrice: r.monthlyPrice, startDate: r.startDate, endDate: r.endDate ?? null, status: r.status as Group['status'], createdAt: r.createdAt, updatedAt: r.updatedAt }
+}
+
+export async function deleteGroup(id: number): Promise<boolean> {
+  requireSession()
+  const db = getDb()
+
+  // 1. Delete attendance records for all sessions in this group
+  const sessions = await db.query.attendanceSessions.findMany({ where: eq(schema.attendanceSessions.groupId, id) })
+  for (const s of sessions) {
+    await db.delete(schema.attendanceRecords).where(eq(schema.attendanceRecords.sessionId, s.id))
+  }
+
+  // 2. Delete attendance sessions in this group (breaks foreign key references to groupScheduleSlots and groups)
+  await db.delete(schema.attendanceSessions).where(eq(schema.attendanceSessions.groupId, id))
+
+  // 3. Delete group schedule slots (safe now that sessions referencing them are deleted)
+  await db.delete(schema.groupScheduleSlots).where(eq(schema.groupScheduleSlots.groupId, id))
+
+  // 4. Find all enrollments in this group and delete their associated payments
+  const groupEnrollments = await db.query.enrollments.findMany({ where: eq(schema.enrollments.groupId, id) })
+  for (const enr of groupEnrollments) {
+    await db.delete(schema.payments).where(eq(schema.payments.enrollmentId, enr.id))
+  }
+
+  // 5. Delete enrollments in this group (safe now that payments referencing them are deleted)
+  await db.delete(schema.enrollments).where(eq(schema.enrollments.groupId, id))
+
+  // 6. Finally delete the group
+  await db.delete(schema.groups).where(eq(schema.groups.id, id))
+  return true
 }
 
 // ─── Enrollments ──────────────────────────────────────────────────────────────

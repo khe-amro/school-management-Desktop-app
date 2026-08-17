@@ -427,18 +427,20 @@ export default function Attendance() {
           )}
 
           {/* Lookup Result Card */}
-          {lookupResult && !lookupLoading && (
+          {lookupResult?.student && !lookupLoading && (
             <div className="max-w-2xl mx-auto bg-white rounded-2xl border border-border p-6 shadow-lg space-y-5 animate-fade-in">
               <div className="flex items-center gap-4 pb-4 border-b border-slate-100">
-                <div className="w-16 h-16 rounded-full bg-[#EFF6FF] border-2 border-[#2563EB] flex items-center justify-center text-[#2563EB] font-bold text-xl">
-                  {lookupResult.student.firstNameAr.charAt(0)}
+                <div className="w-16 h-16 rounded-full bg-[#EFF6FF] border-2 border-[#2563EB] flex items-center justify-center text-[#2563EB] font-bold text-xl overflow-hidden shrink-0">
+                  {lookupResult.student.firstNameAr ? lookupResult.student.firstNameAr.charAt(0) : (lookupResult.student.firstNameFr ? lookupResult.student.firstNameFr.charAt(0) : 'S')}
                 </div>
                 <div>
-                  <h3 className="font-bold text-base text-[#0F172A]">
-                    {lookupResult.student.lastNameAr} {lookupResult.student.firstNameAr}
+                  <h3 className="font-bold text-base text-[#0F172A]" dir="rtl">
+                    {lookupResult.student.lastNameAr || ''} {lookupResult.student.firstNameAr || ''}
                   </h3>
-                  <p className="text-xs text-slate-400">{lookupResult.student.lastNameFr} {lookupResult.student.firstNameFr}</p>
-                  <p className="text-xs font-mono text-[#2563EB] font-bold mt-0.5">{lookupResult.student.studentNumber}</p>
+                  <p className="text-xs text-slate-400">
+                    {lookupResult.student.lastNameFr || ''} {lookupResult.student.firstNameFr || ''}
+                  </p>
+                  <p className="text-xs font-mono text-[#2563EB] font-bold mt-0.5">{lookupResult.student.studentNumber || ''}</p>
                 </div>
                 <span className={`ms-auto text-xs px-3 py-1 rounded-full font-bold ${
                   lookupResult.student.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600'
@@ -454,6 +456,9 @@ export default function Attendance() {
                   <p className="text-lg font-bold text-green-600">
                     {lookupResult.attendanceSummary?.present ?? 0} / {lookupResult.attendanceSummary?.totalSessions ?? 0}
                   </p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    {t('attendance.rate') ?? 'Taux'}: {lookupResult.attendanceSummary?.attendanceRate ?? 100}%
+                  </p>
                 </div>
                 <div className="bg-slate-50 p-4 rounded-xl">
                   <p className="text-xs text-slate-400 mb-1">{t('attendance.financialStatus')}</p>
@@ -462,6 +467,11 @@ export default function Attendance() {
                   }`}>
                     {lookupResult.paymentsSummary?.status === 'paid' ? t('attendance.upToDate') : t('attendance.pending')}
                   </p>
+                  {lookupResult.paymentsSummary?.lastPaymentDate && (
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      {lookupResult.paymentsSummary.lastPaymentDate}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>

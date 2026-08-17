@@ -193,6 +193,20 @@ export function registerSessionsHandlers(): void {
     }
   })
 
+  handle(IPC_CHANNELS.SESSIONS_DELETE, async (payload) => {
+    const { sessionId } = z.object({ sessionId: z.number().int().positive() }).parse(payload)
+    const sqlite = getSqlite()
+
+    try {
+      sqlite.prepare(`DELETE FROM attendance_records WHERE session_id = ?`).run(sessionId)
+      sqlite.prepare(`DELETE FROM attendance_sessions WHERE id = ?`).run(sessionId)
+      return true
+    } catch (err) {
+      log.error('Failed to delete session:', err)
+      throw new Error(`Unable to delete session: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  })
+
   handle(IPC_CHANNELS.SESSIONS_LIST, async (payload) => {
     const opts = z.object({
       groupId: z.number().int().positive().optional(),

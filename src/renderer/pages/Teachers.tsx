@@ -14,13 +14,15 @@ export default function Teachers() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
-  const load = async () => {
-    const res = await window.schoolApp.teachers.list()
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'archived'>('all')
+
+  const load = async (filter = statusFilter) => {
+    const res = await window.schoolApp.teachers.list({ status: filter })
     if (res.success && res.data) setTeachers(res.data)
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load(statusFilter) }, [statusFilter])
 
   const openCreate = () => { setEditing(null); setForm({ firstName: '', lastName: '', phone: '', email: '', address: '' }); setError(''); setShowForm(true) }
   const openEdit = (t: Teacher) => { setEditing(t); setForm({ firstName: t.firstName, lastName: t.lastName, phone: t.phone ?? '', email: t.email ?? '', address: t.address ?? '' }); setError(''); setShowForm(true) }
@@ -67,9 +69,26 @@ export default function Teachers() {
           <h2 className="text-lg font-bold text-[#0F172A]">{t('nav.teachers')}</h2>
           <p className="text-xs text-slate-400">{t('teachers.subtitle')}</p>
         </div>
-        <button onClick={openCreate} className="flex items-center gap-2 bg-[#2563EB] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#1D4ED8] transition-colors">
+        <button onClick={openCreate} className="flex items-center gap-2 bg-[#2563EB] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#1D4ED8] transition-colors shadow-xs">
           <Plus size={15} /> {t('teachers.add')}
         </button>
+      </div>
+
+      {/* Filter tabs */}
+      <div className="flex gap-2">
+        {(['all', 'active', 'archived'] as const).map((s) => (
+          <button
+            key={s}
+            onClick={() => setStatusFilter(s)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              statusFilter === s
+                ? 'bg-[#2563EB] text-white shadow-xs'
+                : 'bg-white border border-border text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            {s === 'all' ? (lang === 'ar' ? 'الكل' : 'Tous') : s === 'active' ? t('teachers.active') : (lang === 'ar' ? 'المؤرشفون' : t('students.archived'))}
+          </button>
+        ))}
       </div>
 
       {loading ? (

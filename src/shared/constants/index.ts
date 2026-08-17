@@ -60,12 +60,14 @@ export const IPC_CHANNELS = {
   COURSES_GET: 'courses:getById',
   COURSES_CREATE: 'courses:create',
   COURSES_UPDATE: 'courses:update',
+  COURSES_DELETE: 'courses:delete',
 
   // Groups
   GROUPS_LIST: 'groups:list',
   GROUPS_GET: 'groups:getById',
   GROUPS_CREATE: 'groups:create',
   GROUPS_UPDATE: 'groups:update',
+  GROUPS_DELETE: 'groups:delete',
   GROUPS_BY_COURSE: 'groups:byCourse',
 
   // Enrollments
@@ -113,6 +115,7 @@ export const IPC_CHANNELS = {
   SESSIONS_GENERATE: 'sessions:generate',
   SESSIONS_CANCEL: 'sessions:cancel',
   SESSIONS_COMPLETE: 'sessions:complete',
+  SESSIONS_DELETE: 'sessions:delete',
   SESSIONS_UPCOMING: 'sessions:upcoming',
 
   // Attendance (extended)

@@ -124,6 +124,7 @@
     "regenQRConfirm": "Régénérer le code QR ? L'ancien code sera immédiatement invalidé.",
     "archive": "Archiver l'étudiant",
     "archiveConfirm": "Archiver cet étudiant ? Il ne pourra plus être marqué présent.",
+    "restoreConfirm": "Restaurer et réactiver cet étudiant ? Son code QR sera également réactivé.",
     "noStudents": "Aucun étudiant",
     "noStudentsDesc": "Commencez par ajouter votre premier étudiant",
     "enrollments": "Inscriptions",

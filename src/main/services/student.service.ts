@@ -80,7 +80,8 @@ export async function listStudents(opts: {
         like(schema.students.firstNameFr, q),
         like(schema.students.lastNameFr, q),
         like(schema.students.studentNumber, q),
-        like(schema.students.phone, q)
+        like(schema.students.phone, q),
+        like(schema.students.qrToken, q)
       )
     )
   }

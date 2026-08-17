@@ -51,6 +51,7 @@ export const CreateStudentSchema = z.object({
 
 export const UpdateStudentSchema = CreateStudentSchema.partial().extend({
   id: z.number().int().positive(),
+  status: z.enum(['active', 'inactive', 'archived']).optional(),
 })
 
 export const StudentIdSchema = z.object({
@@ -76,6 +77,7 @@ export const CreateTeacherSchema = z.object({
 
 export const UpdateTeacherSchema = CreateTeacherSchema.partial().extend({
   id: z.number().int().positive(),
+  status: z.enum(['active', 'inactive', 'archived']).optional(),
 })
 
 // ─── Courses ─────────────────────────────────────────────────────────────────

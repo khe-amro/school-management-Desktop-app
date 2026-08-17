@@ -303,6 +303,8 @@ export async function lookupStudentByToken(rawToken: string): Promise<{
   student: any
   enrollments: any[]
   nextSession?: any
+  attendanceSummary?: any
+  paymentsSummary?: any
   error?: string
 } | null> {
   const db = getDb()
@@ -321,23 +323,33 @@ export async function lookupStudentByToken(rawToken: string): Promise<{
     } catch {}
   }
 
-  const stdMatch = token.match(/STD-[a-f0-9A-F]+/i)
+  // Remove spaces or linebreaks in token
+  const compactToken = token.replace(/\s+/g, '')
+
+  let cleanToken = token
+  const stdMatch = compactToken.match(/STD-[a-f0-9A-F]+/i) || token.match(/STD-[a-f0-9A-F]+/i)
   if (stdMatch) {
-    token = stdMatch[0]
+    cleanToken = stdMatch[0]
   } else {
-    const etuMatch = token.match(/ETU-\d+/i)
+    const etuMatch = compactToken.match(/ETU-\d+/i) || token.match(/ETU-\d+/i)
     if (etuMatch) {
       const found = await db.query.students.findFirst({
         where: eq(schema.students.studentNumber, etuMatch[0].toUpperCase()),
       })
-      if (found) token = found.qrToken
+      if (found) cleanToken = found.qrToken
     }
   }
 
-  // Find student by token
-  const student = await db.query.students.findFirst({
-    where: eq(schema.students.qrToken, token),
+  // Find student by token or studentNumber
+  let student = await db.query.students.findFirst({
+    where: eq(schema.students.qrToken, cleanToken),
   })
+
+  if (!student) {
+    student = await db.query.students.findFirst({
+      where: eq(schema.students.studentNumber, cleanToken.toUpperCase()),
+    })
+  }
 
   if (!student) {
     return null
@@ -348,26 +360,37 @@ export async function lookupStudentByToken(rawToken: string): Promise<{
     where: eq(schema.enrollments.studentId, student.id),
   })
 
-  // Get next session for each enrollment
-  const nextSessions = []
-  for (const enrollment of enrollments) {
-    const session = await db.query.attendanceSessions.findFirst({
-      where: and(
-        eq(schema.attendanceSessions.groupId, enrollment.groupId),
-        eq(schema.attendanceSessions.status, 'open'),
-      ),
-      orderBy: desc(schema.attendanceSessions.sessionDate),
-    })
-    if (session) nextSessions.push(session)
-  }
+  // Get attendance stats
+  const records = await db.query.attendanceRecords.findMany({
+    where: eq(schema.attendanceRecords.studentId, student.id),
+  })
+  const present = records.filter((r) => r.attendanceStatus === 'present').length
+  const absent = records.filter((r) => r.attendanceStatus === 'absent').length
+  const late = records.filter((r) => r.attendanceStatus === 'late').length
+  const totalSessions = records.length
+  const attendanceRate = totalSessions > 0 ? Math.round((present / totalSessions) * 100) : 100
+
+  // Get payment summary
+  const payments = await db.query.payments.findMany({
+    where: eq(schema.payments.studentId, student.id),
+    orderBy: desc(schema.payments.paymentDate),
+  })
+  const totalPaid = payments.filter((p) => p.status === 'paid').reduce((acc, p) => acc + p.amount, 0)
+  const lastPayment = payments[0]
 
   return {
     student: {
       id: student.id,
-      fullNameAr: `${student.firstNameAr} ${student.lastNameAr}`,
-      fullNameFr: `${student.firstNameFr} ${student.lastNameFr}`,
       studentNumber: student.studentNumber,
+      firstNameAr: student.firstNameAr,
+      lastNameAr: student.lastNameAr,
+      firstNameFr: student.firstNameFr,
+      lastNameFr: student.lastNameFr,
+      fullNameAr: `${student.lastNameAr} ${student.firstNameAr}`,
+      fullNameFr: `${student.lastNameFr} ${student.firstNameFr}`,
+      phone: student.phone,
       photoPath: student.photoPath,
+      status: student.status,
       gender: student.gender,
     },
     enrollments: enrollments.map((e) => ({
@@ -377,7 +400,18 @@ export async function lookupStudentByToken(rawToken: string): Promise<{
       enrollmentDate: e.enrollmentDate,
       agreedPrice: e.agreedPrice,
     })),
-    nextSession: nextSessions[0],
+    attendanceSummary: {
+      totalSessions,
+      present,
+      absent,
+      late,
+      attendanceRate,
+    },
+    paymentsSummary: {
+      totalPaid,
+      lastPaymentDate: lastPayment?.paymentDate,
+      status: payments.some((p) => p.status === 'paid') ? 'paid' : 'pending',
+    },
   }
 }
 

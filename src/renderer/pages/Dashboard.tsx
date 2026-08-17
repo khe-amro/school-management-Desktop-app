@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
-import { Users, ScanLine, CreditCard, UserPlus, BookOpen, AlertCircle, Calendar, Clock } from 'lucide-react'
+import { Users, ScanLine, CreditCard, UserPlus, BookOpen, AlertCircle, Calendar, Clock, Trash2 } from 'lucide-react'
 import type { Student } from '@shared/types/index'
 
 interface DashboardStats {
@@ -27,6 +27,7 @@ export default function Dashboard() {
   const [recentStudents, setRecentStudents] = useState<Student[]>([])
   const [upcomingSessions, setUpcomingSessions] = useState<UpcomingSession[]>([])
   const [loading, setLoading] = useState(true)
+  const [sessionsDismissed, setSessionsDismissed] = useState(false)
 
   useEffect(() => {
     async function loadData() {
@@ -177,12 +178,36 @@ export default function Dashboard() {
             <h3 className="font-semibold text-[#0F172A] text-sm flex items-center gap-2">
               <Calendar size={14} /> {t('dashboard.todayClasses')}
             </h3>
-            <button onClick={() => navigate('/courses')} className="text-xs text-[#2563EB] hover:underline">
-              {t('courses.manage')}
-            </button>
+            <div className="flex items-center gap-2">
+              {upcomingSessions.length > 0 && !sessionsDismissed && (
+                <button
+                  onClick={() => setSessionsDismissed(true)}
+                  title={t('common.delete')}
+                  className="text-slate-400 hover:text-red-500 transition-colors"
+                >
+                  <Trash2 size={13} />
+                </button>
+              )}
+              {sessionsDismissed && (
+                <button
+                  onClick={() => setSessionsDismissed(false)}
+                  className="text-xs text-[#2563EB] hover:underline"
+                >
+                  {t('common.refresh')}
+                </button>
+              )}
+              <button onClick={() => navigate('/courses')} className="text-xs text-[#2563EB] hover:underline">
+                {t('courses.manage')}
+              </button>
+            </div>
           </div>
 
-          {upcomingSessions.length === 0 ? (
+          {sessionsDismissed ? (
+            <div className="text-center py-8 text-slate-400">
+              <Clock size={32} className="mx-auto mb-2 opacity-40" />
+              <p className="text-xs">{t('dashboard.noClassesToday')}</p>
+            </div>
+          ) : upcomingSessions.length === 0 ? (
             <div className="text-center py-8 text-slate-400">
               <Clock size={32} className="mx-auto mb-2 opacity-40" />
               <p className="text-xs">{t('dashboard.noClassesToday')}</p>
