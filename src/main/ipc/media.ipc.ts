@@ -1,12 +1,10 @@
-import { ipcMain } from 'electron'
-import { app, dialog } from 'electron'
+import { ipcMain, app, dialog, nativeImage } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import { z } from 'zod'
 import log from 'electron-log'
 import { IPC_CHANNELS } from '@shared/constants'
 import { getSqlite } from '../database/connection'
-import sharp from 'sharp'
 
 // Validation schemas
 const SelectProfileImageSchema = z.object({
@@ -117,13 +115,27 @@ export function registerMediaHandlers() {
       const filename = generateImageFilename(ext)
       const destPath = path.join(typeDir, filename)
 
-      // Process and store image (compress if needed using sharp)
-      await sharp(selectedFile)
-        .resize(1024, 1024, {
-          fit: 'cover',
-          position: 'center',
-        })
-        .toFile(destPath)
+      // Process and store image using Electron nativeImage (no external binary dependency)
+      try {
+        const image = nativeImage.createFromPath(selectedFile)
+        if (!image.isEmpty()) {
+          const size = image.getSize()
+          const maxDim = 1024
+          let resized = image
+          if (size.width > maxDim || size.height > maxDim) {
+            const aspect = size.width / size.height
+            const newWidth = size.width >= size.height ? maxDim : Math.round(maxDim * aspect)
+            const newHeight = size.width >= size.height ? Math.round(maxDim / aspect) : maxDim
+            resized = image.resize({ width: newWidth, height: newHeight, quality: 'better' })
+          }
+          const jpegBuffer = resized.toJPEG(85)
+          await fs.promises.writeFile(destPath, jpegBuffer)
+        } else {
+          await fs.promises.copyFile(selectedFile, destPath)
+        }
+      } catch {
+        await fs.promises.copyFile(selectedFile, destPath)
+      }
 
       // Return relative path for storage in DB
       // Format: media/administrators/filename.jpg
