@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Plus, Search, Printer, X, TrendingUp, AlertTriangle, CheckCircle2, Clock,
-  BookOpen, AlertCircle
+  BookOpen, AlertCircle, CreditCard
 } from 'lucide-react'
 import type { Payment, Student, Enrollment, Group, Course } from '@shared/types/index'
 
@@ -180,7 +180,7 @@ export default function Payments() {
           enrollmentDate: form.paymentDate || new Date().toISOString().slice(0, 10),
         })
 
-        if (!enrollRes.success || !enrollRes.data) {
+        if (!enrollRes.success) {
           setError(enrollRes.error ?? t('common.error'))
           setSaving(false)
           return
@@ -199,12 +199,12 @@ export default function Payments() {
         notes: form.notes.trim() || null,
       })
 
-      if (res.success && res.data) {
+      if (!res.success) {
+        setError(res.error ?? t('common.error'))
+      } else {
         setShowForm(false)
         setReceiptModal(res.data)
         await load()
-      } else {
-        setError(res.error ?? t('common.error'))
       }
     } catch (err: any) {
       setError(err?.message ?? t('common.error'))

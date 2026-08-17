@@ -164,6 +164,9 @@ export interface Payment {
   updatedAt: string
   // Joined
   studentName?: string
+  studentNumber?: string
+  courseName?: string
+  groupName?: string
   receivedByName?: string
 }
 
