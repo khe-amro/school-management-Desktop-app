@@ -17,16 +17,23 @@ type SelectProfileImageInput = z.infer<typeof SelectProfileImageSchema>
 /**
  * Ensure media folders exist
  */
+// Maps API type param to the actual folder name under media/
+const TYPE_TO_FOLDER: Record<string, string> = {
+  admin: 'administrators',
+  student: 'students',
+  teacher: 'teachers',
+}
+
 function ensureMediaFolders(): string {
   const mediaDir = path.join(app.getPath('userData'), 'media')
-  const types = ['administrators', 'students', 'teachers']
+  const folders = ['administrators', 'students', 'teachers']
 
   if (!fs.existsSync(mediaDir)) {
     fs.mkdirSync(mediaDir, { recursive: true })
   }
 
-  for (const type of types) {
-    const typeDir = path.join(mediaDir, type)
+  for (const folder of folders) {
+    const typeDir = path.join(mediaDir, folder)
     if (!fs.existsSync(typeDir)) {
       fs.mkdirSync(typeDir, { recursive: true })
     }
@@ -110,7 +117,8 @@ export function registerMediaHandlers() {
 
       // Ensure media folders exist
       const mediaDir = ensureMediaFolders()
-      const typeDir = path.join(mediaDir, `${type}s`) // administrators, students, teachers
+      const folderName = TYPE_TO_FOLDER[type] ?? `${type}s`
+      const typeDir = path.join(mediaDir, folderName) // administrators, students, teachers
       const ext = path.extname(selectedFile)
       const filename = generateImageFilename(ext)
       const destPath = path.join(typeDir, filename)
@@ -139,7 +147,7 @@ export function registerMediaHandlers() {
 
       // Return relative path for storage in DB
       // Format: media/administrators/filename.jpg
-      const relativePath = path.join('media', `${type}s`, filename).replace(/\\/g, '/')
+      const relativePath = `media/${folderName}/${filename}`
 
       log.info(`[MEDIA] Profile image stored: ${relativePath}`)
 
