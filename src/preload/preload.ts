@@ -64,7 +64,7 @@ const api = {
     update: (id: number, data: Partial<{
       firstNameAr: string; lastNameAr: string; firstNameFr: string; lastNameFr: string
       gender: 'male' | 'female'; dateOfBirth: string | null; phone: string | null
-      guardianName: string | null; status: string
+      guardianName: string | null; status: string; photoPath: string | null
     }>) => invoke<Student>(IPC_CHANNELS.STUDENTS_UPDATE, { id, ...data }),
     archive: (id: number) =>
       invoke<boolean>(IPC_CHANNELS.STUDENTS_ARCHIVE, { id }),
@@ -77,9 +77,9 @@ const api = {
   teachers: {
     list: (opts?: { status?: string }) =>
       invoke<Teacher[]>(IPC_CHANNELS.TEACHERS_LIST, opts),
-    create: (data: { firstName: string; lastName: string; phone?: string | null; email?: string | null; address?: string | null }) =>
+    create: (data: { firstName: string; lastName: string; phone?: string | null; email?: string | null; address?: string | null; photoPath?: string | null }) =>
       invoke<Teacher>(IPC_CHANNELS.TEACHERS_CREATE, data),
-    update: (id: number, data: Partial<{ firstName: string; lastName: string; phone: string | null; email: string | null; status: string }>) =>
+    update: (id: number, data: Partial<{ firstName: string; lastName: string; phone: string | null; email: string | null; address: string | null; status: string; photoPath: string | null }>) =>
       invoke<Teacher>(IPC_CHANNELS.TEACHERS_UPDATE, { id, ...data }),
     archive: (id: number) =>
       invoke<boolean>(IPC_CHANNELS.TEACHERS_ARCHIVE, { id }),

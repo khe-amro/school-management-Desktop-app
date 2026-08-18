@@ -3,6 +3,37 @@ import { useTranslation } from 'react-i18next'
 import { Plus, Pencil, Archive, Camera, RefreshCw } from 'lucide-react'
 import type { Teacher } from '@shared/types/index'
 
+function TeacherAvatar({ teacher, onUpload, title }: { teacher: Teacher; onUpload: () => void; title: string }) {
+  const [url, setUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (teacher.photoPath) {
+      window.schoolApp.media.getImageUrl(teacher.photoPath).then((res) => {
+        if (res.success && res.data?.url) setUrl(res.data.url)
+      }).catch(() => {})
+    } else {
+      setUrl(null)
+    }
+  }, [teacher.photoPath])
+
+  return (
+    <div
+      onClick={onUpload}
+      className="relative group cursor-pointer w-11 h-11 rounded-full bg-[#F0FDF4] flex items-center justify-center text-green-700 font-bold text-base border-2 border-emerald-200 shrink-0 overflow-hidden"
+      title={title}
+    >
+      {url ? (
+        <img src={url} alt="" className="w-full h-full object-cover" />
+      ) : (
+        teacher.firstName.charAt(0)
+      )}
+      <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+        <Camera size={14} className="text-white" />
+      </div>
+    </div>
+  )
+}
+
 export default function Teachers() {
   const { t, i18n } = useTranslation()
   const lang = i18n.language as 'ar' | 'fr' | 'en'
@@ -103,16 +134,11 @@ export default function Teachers() {
             <div key={teacher.id} className="bg-white rounded-xl border border-border p-5 hover:shadow-md transition-shadow">
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-3">
-                  <div
-                    onClick={() => handleUploadPhoto(teacher.id)}
-                    className="relative group cursor-pointer w-11 h-11 rounded-full bg-[#F0FDF4] flex items-center justify-center text-green-700 font-bold text-base border-2 border-emerald-200 shrink-0"
+                  <TeacherAvatar
+                    teacher={teacher}
+                    onUpload={() => handleUploadPhoto(teacher.id)}
                     title={t('teachers.changePhoto')}
-                  >
-                    {teacher.firstName.charAt(0)}
-                    <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                      <Camera size={14} className="text-white" />
-                    </div>
-                  </div>
+                  />
                   <div>
                     <p className="font-semibold text-[#0F172A] text-sm">{teacher.lastName} {teacher.firstName}</p>
                     <p className="text-xs text-slate-400">{teacher.phone ?? teacher.email ?? '—'}</p>

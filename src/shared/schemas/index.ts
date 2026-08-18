@@ -66,18 +66,20 @@ export const StudentListSchema = z.object({
 })
 
 // ─── Teachers ────────────────────────────────────────────────────────────────
-
+ 
 export const CreateTeacherSchema = z.object({
   firstName: z.string().min(1).max(100).trim(),
   lastName: z.string().min(1).max(100).trim(),
   phone: z.string().max(30).trim().optional().nullable(),
   email: z.string().email().max(200).trim().optional().nullable().or(z.literal('')),
   address: z.string().max(500).trim().optional().nullable(),
+  photoPath: z.string().max(500).optional().nullable(),
 })
 
 export const UpdateTeacherSchema = CreateTeacherSchema.partial().extend({
   id: z.number().int().positive(),
   status: z.enum(['active', 'inactive', 'archived']).optional(),
+  photoPath: z.string().max(500).optional().nullable(),
 })
 
 // ─── Courses ─────────────────────────────────────────────────────────────────

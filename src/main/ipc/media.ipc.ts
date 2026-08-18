@@ -161,14 +161,18 @@ export function registerMediaHandlers() {
       })
       const { relativePath } = schema.parse(input)
 
-      const mediaDir = path.join(app.getPath('userData'), 'media')
-      const imagePath = path.join(mediaDir, relativePath)
+      const userData = app.getPath('userData')
+      const imagePath = path.isAbsolute(relativePath)
+        ? relativePath
+        : relativePath.startsWith('media')
+          ? path.join(userData, relativePath)
+          : path.join(userData, 'media', relativePath)
 
-      // Security check: ensure file is within media directory
+      // Security check: ensure file is within userData directory
       const resolvedPath = path.resolve(imagePath)
-      const resolvedMediaDir = path.resolve(mediaDir)
+      const resolvedUserData = path.resolve(userData)
 
-      if (!resolvedPath.startsWith(resolvedMediaDir)) {
+      if (!resolvedPath.startsWith(resolvedUserData)) {
         return { success: false, error: 'Invalid path' }
       }
 
@@ -187,12 +191,12 @@ export function registerMediaHandlers() {
 
   /**
    * IPC Handler: Get image URL (for displaying stored images)
-   * Returns file:// URL for display in <img> tag
+   * Returns base64 Data URL for universal display without Chromium file:// security blocks
    */
   ipcMain.handle(IPC_CHANNELS.MEDIA_GET_IMAGE_URL, async (_, input: unknown) => {
     try {
       const schema = z.object({
-        relativePath: z.string().optional(),
+        relativePath: z.string().optional().nullable(),
       })
       const { relativePath } = schema.parse(input)
 
@@ -200,24 +204,23 @@ export function registerMediaHandlers() {
         return { url: null }
       }
 
-      const mediaDir = path.join(app.getPath('userData'), 'media')
-      const imagePath = path.join(mediaDir, relativePath)
-
-      // Security check
-      const resolvedPath = path.resolve(imagePath)
-      const resolvedMediaDir = path.resolve(mediaDir)
-
-      if (!resolvedPath.startsWith(resolvedMediaDir)) {
-        return { url: null, error: 'Invalid path' }
-      }
+      const userData = app.getPath('userData')
+      const imagePath = path.isAbsolute(relativePath)
+        ? relativePath
+        : relativePath.startsWith('media')
+          ? path.join(userData, relativePath)
+          : path.join(userData, 'media', relativePath)
 
       if (!fs.existsSync(imagePath)) {
         return { url: null, error: 'File not found' }
       }
 
-      // Return file:// URL for img src
-      const fileUrl = `file://${imagePath.replace(/\\/g, '/')}`
-      return { url: fileUrl, error: null }
+      const buf = fs.readFileSync(imagePath)
+      const ext = path.extname(imagePath).slice(1).toLowerCase()
+      const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg'
+      const dataUrl = `data:${mime};base64,${buf.toString('base64')}`
+
+      return { url: dataUrl, error: null }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
       log.error('[MEDIA] Error in MEDIA_GET_IMAGE_URL:', errorMessage)
