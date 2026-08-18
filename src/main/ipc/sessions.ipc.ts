@@ -297,17 +297,37 @@ export function registerSessionsHandlers(): void {
     const sqlite = getSqlite()
 
     try {
-      const today = new Date().toISOString().split('T')[0]
+      const now = new Date()
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+
+      // Automatic cleanup: if a day has completely passed (session_date < today)
+      // 1. Delete expired open sessions that have no attendance records recorded
+      sqlite.prepare(`
+        DELETE FROM attendance_sessions
+        WHERE session_date < ?
+          AND status = 'open'
+          AND id NOT IN (SELECT DISTINCT session_id FROM attendance_records WHERE attendance_status IN ('present', 'late'))
+      `).run(today)
+
+      // 2. Automatically mark remaining past open sessions as closed
+      sqlite.prepare(`
+        UPDATE attendance_sessions
+        SET status = 'closed', updated_at = datetime('now')
+        WHERE session_date < ? AND status = 'open'
+      `).run(today)
 
       let sql = `
-        SELECT * FROM attendance_sessions
-        WHERE session_date >= ? AND session_type != 'cancelled'
-        ORDER BY session_date ASC, planned_start_time ASC
+        SELECT s.*, g.name as group_name, c.name_ar as course_name_ar, c.name_fr as course_name_fr
+        FROM attendance_sessions s
+        LEFT JOIN groups g ON s.group_id = g.id
+        LEFT JOIN courses c ON g.course_id = c.id
+        WHERE s.session_date >= ? AND s.session_type != 'cancelled'
+        ORDER BY s.session_date ASC, s.planned_start_time ASC
       `
       const params: any[] = [today]
 
       if (opts.groupId) {
-        sql = sql.replace('WHERE', 'WHERE group_id = ? AND')
+        sql = sql.replace('WHERE', 'WHERE s.group_id = ? AND')
         params.unshift(opts.groupId)
       }
 
@@ -323,6 +343,8 @@ export function registerSessionsHandlers(): void {
       return rows.map((row) => ({
         id: row.id,
         groupId: row.group_id,
+        groupName: row.group_name || (row.course_name_fr || row.course_name_ar ? `${row.course_name_fr || row.course_name_ar}` : undefined),
+        courseName: row.course_name_fr || row.course_name_ar,
         sessionDate: row.session_date,
         plannedStartTime: row.planned_start_time,
         endTime: row.end_time,

@@ -531,35 +531,35 @@ export default function StudentCard() {
 
       {/* Preview Modal */}
       {showPreview && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setShowPreview(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto animate-fade-in" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between p-4 border-b border-border">
-              <h3 className="font-bold text-[#0F172A]">Aperçu du ticket 80mm</h3>
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-3 sm:p-6" onClick={() => setShowPreview(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-h-[90vh] max-w-lg w-full flex flex-col overflow-hidden animate-fade-in" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-border bg-slate-50 shrink-0">
+              <h3 className="font-bold text-[#0F172A] text-sm">Aperçu du ticket 80mm</h3>
               <div className="flex gap-2">
                 <button
                   onClick={handleSavePDF}
                   disabled={printing}
-                  className="flex items-center gap-1.5 text-sm border border-[#2563EB] text-[#2563EB] px-3 py-1.5 rounded-lg hover:bg-[#EFF6FF] transition-colors disabled:opacity-50"
+                  className="flex items-center gap-1.5 text-xs border border-[#2563EB] text-[#2563EB] px-3 py-1.5 rounded-lg hover:bg-[#EFF6FF] transition-colors disabled:opacity-50 font-semibold"
                 >
                   <Download size={13} /> {t('common.export')} PDF
                 </button>
                 <button
                   onClick={handlePrint}
                   disabled={printing}
-                  className="flex items-center gap-1.5 text-sm bg-[#2563EB] text-white px-3 py-1.5 rounded-lg hover:bg-[#1D4ED8] transition-colors disabled:opacity-50"
+                  className="flex items-center gap-1.5 text-xs bg-[#2563EB] text-white px-3 py-1.5 rounded-lg hover:bg-[#1D4ED8] transition-colors disabled:opacity-50 font-semibold"
                 >
                   <Printer size={13} /> {t('common.print')}
                 </button>
                 <button
                   onClick={() => setShowPreview(false)}
-                  className="text-slate-400 hover:text-slate-600 transition-colors w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-100"
+                  className="text-slate-400 hover:text-slate-600 transition-colors w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-200"
                 >
                   ✕
                 </button>
               </div>
             </div>
-            <div className="p-6 flex justify-center bg-slate-100">
-              <div className="shadow-lg bg-white">
+            <div className="p-4 sm:p-6 flex justify-center bg-slate-100 overflow-y-auto flex-1">
+              <div className="shadow-lg bg-white rounded-xs">
                 <TicketContent />
               </div>
             </div>

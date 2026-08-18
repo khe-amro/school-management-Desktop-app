@@ -257,9 +257,9 @@ export default function Reports() {
       </div>
 
       {/* Main Data Table */}
-      <div className="border border-slate-300 rounded-lg overflow-hidden mb-8">
+      <div className="border border-slate-300 rounded-lg overflow-x-auto mb-8">
         {reportType === 'students' && (
-          <table className="w-full text-xs text-start">
+          <table className="w-full text-xs text-start min-w-150">
             <thead className="bg-slate-100 border-b border-slate-300 text-slate-700 font-bold">
               <tr>
                 <th className="p-2.5 text-start">{t('students.studentNumber')}</th>
@@ -292,7 +292,7 @@ export default function Reports() {
         )}
 
         {reportType === 'payments' && (
-          <table className="w-full text-xs text-start">
+          <table className="w-full text-xs text-start min-w-150">
             <thead className="bg-slate-100 border-b border-slate-300 text-slate-700 font-bold">
               <tr>
                 <th className="p-2.5 text-start">{t('payments.receiptNumber')}</th>
@@ -323,7 +323,7 @@ export default function Reports() {
         )}
 
         {reportType === 'revenue' && (
-          <table className="w-full text-xs text-start">
+          <table className="w-full text-xs text-start min-w-125">
             <thead className="bg-slate-100 border-b border-slate-300 text-slate-700 font-bold">
               <tr>
                 <th className="p-2.5 text-start">{t('payments.billingPeriod')}</th>
@@ -351,7 +351,7 @@ export default function Reports() {
         )}
 
         {reportType === 'attendance' && (
-          <table className="w-full text-xs text-start">
+          <table className="w-full text-xs text-start min-w-125">
             <thead className="bg-slate-100 border-b border-slate-300 text-slate-700 font-bold">
               <tr>
                 <th className="p-2.5 text-start">{t('attendance.sessionId')}</th>
@@ -678,9 +678,10 @@ export default function Reports() {
 
       {/* ── Interactive In-app Print Preview Modal ── */}
       {showPreviewModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setShowPreviewModal(false)}>
-          <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto shadow-2xl animate-fade-in" onClick={(e) => e.stopPropagation()}>
-            <div className="flex justify-between items-center p-4 border-b border-border bg-slate-50">
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-3 sm:p-6" onClick={() => setShowPreviewModal(false)}>
+          <div className="bg-white rounded-2xl max-w-5xl w-full max-h-[90vh] flex flex-col shadow-2xl animate-fade-in overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            {/* Modal Header — Fixed on Top */}
+            <div className="flex justify-between items-center px-5 py-3.5 border-b border-border bg-slate-50 shrink-0">
               <div className="flex items-center gap-2">
                 <FileText className="text-[#2563EB]" size={18} />
                 <h3 className="font-bold text-[#0F172A] text-sm">{t('reports.previewA4')}</h3>
@@ -689,24 +690,25 @@ export default function Reports() {
                 <button
                   onClick={handleExportPdf}
                   disabled={exporting}
-                  className="flex items-center gap-1.5 text-xs border border-[#2563EB] text-[#2563EB] px-3 py-1.5 rounded-lg hover:bg-[#EFF6FF] transition-colors disabled:opacity-50"
+                  className="flex items-center gap-1.5 text-xs border border-[#2563EB] text-[#2563EB] px-3 py-1.5 rounded-lg hover:bg-[#EFF6FF] transition-colors disabled:opacity-50 font-semibold"
                 >
                   <Download size={13} /> PDF
                 </button>
                 <button
                   onClick={handlePrint}
-                  className="flex items-center gap-1.5 text-xs bg-[#2563EB] text-white px-3 py-1.5 rounded-lg hover:bg-[#1D4ED8] transition-colors"
+                  className="flex items-center gap-1.5 text-xs bg-[#2563EB] text-white px-3 py-1.5 rounded-lg hover:bg-[#1D4ED8] transition-colors font-semibold"
                 >
                   <Printer size={13} /> {t('common.print')}
                 </button>
-                <button onClick={() => setShowPreviewModal(false)} className="text-slate-400 hover:text-slate-600 p-1">
+                <button onClick={() => setShowPreviewModal(false)} className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-200 transition-colors">
                   <X size={18} />
                 </button>
               </div>
             </div>
 
-            <div className="p-6 bg-slate-200 flex justify-center">
-              <div className="bg-white shadow-xl rounded-sm w-full">
+            {/* Modal Body — Scrollable preview sheet */}
+            <div className="p-4 sm:p-8 bg-slate-200 overflow-y-auto flex-1 flex justify-center">
+              <div className="bg-white shadow-xl rounded-sm w-full max-w-4xl overflow-x-auto">
                 <ReportDocument />
               </div>
             </div>

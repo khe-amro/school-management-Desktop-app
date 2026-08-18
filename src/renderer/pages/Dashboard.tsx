@@ -21,43 +21,77 @@ interface UpcomingSession {
 }
 
 export default function Dashboard() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language as 'ar' | 'fr' | 'en'
   const navigate = useNavigate()
   const [stats, setStats] = useState<DashboardStats>({ totalActiveStudents: 0, presentToday: 0, absentToday: 0, monthRevenue: 0 })
   const [recentStudents, setRecentStudents] = useState<Student[]>([])
   const [upcomingSessions, setUpcomingSessions] = useState<UpcomingSession[]>([])
   const [loading, setLoading] = useState(true)
-  const [sessionsDismissed, setSessionsDismissed] = useState(false)
+
+  const loadData = async () => {
+    try {
+      const [studentsResult, paymentsSummary, upcomingRes] = await Promise.all([
+        window.schoolApp.students.list({ pageSize: 5, status: 'active' }),
+        window.schoolApp.payments.summary(),
+        window.schoolApp.sessions.upcoming({ limit: 10 }),
+      ])
+
+      if (studentsResult.success && studentsResult.data) {
+        setStats((s) => ({ ...s, totalActiveStudents: studentsResult.data!.total }))
+        setRecentStudents(studentsResult.data.items.slice(0, 5))
+      }
+
+      if (paymentsSummary.success && paymentsSummary.data) {
+        setStats((s) => ({ ...s, monthRevenue: paymentsSummary.data!.monthRevenue }))
+      }
+
+      if (upcomingRes.success && upcomingRes.data) {
+        setUpcomingSessions(upcomingRes.data)
+      }
+    } catch (err) {
+      console.error('Dashboard load error:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    async function loadData() {
-      try {
-        const [studentsResult, paymentsSummary, upcomingRes] = await Promise.all([
-          window.schoolApp.students.list({ pageSize: 5, status: 'active' }),
-          window.schoolApp.payments.summary(),
-          window.schoolApp.sessions.upcoming({ limit: 5 }),
-        ])
-
-        if (studentsResult.success && studentsResult.data) {
-          setStats((s) => ({ ...s, totalActiveStudents: studentsResult.data!.total }))
-          setRecentStudents(studentsResult.data.items.slice(0, 5))
-        }
-
-        if (paymentsSummary.success && paymentsSummary.data) {
-          setStats((s) => ({ ...s, monthRevenue: paymentsSummary.data!.monthRevenue }))
-        }
-
-        if (upcomingRes.success && upcomingRes.data) {
-          setUpcomingSessions(upcomingRes.data)
-        }
-      } catch (err) {
-        console.error('Dashboard load error:', err)
-      } finally {
-        setLoading(false)
-      }
-    }
     loadData()
   }, [])
+
+  const handleDeleteSession = async (sessionId: number, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation()
+    const confirmMsg = lang === 'ar'
+      ? 'هل أنت متأكد من حذف هذه الحصة نهائياً من قاعدة البيانات؟'
+      : 'Voulez-vous vraiment supprimer définitivement cette séance ?'
+    if (!window.confirm(confirmMsg)) return
+
+    try {
+      const res = await window.schoolApp.sessions.delete(sessionId)
+      if (res.success) {
+        setUpcomingSessions((prev) => prev.filter((s) => s.id !== sessionId))
+      }
+    } catch (err) {
+      console.error('Failed to delete session:', err)
+    }
+  }
+
+  const handleClearTodaySessions = async () => {
+    if (upcomingSessions.length === 0) return
+    const confirmMsg = lang === 'ar'
+      ? 'هل تريد حذف جميع حصص اليوم المعروضة نهائياً؟'
+      : 'Voulez-vous supprimer toutes les séances affichées ?'
+    if (!window.confirm(confirmMsg)) return
+
+    try {
+      await Promise.all(upcomingSessions.map((s) => window.schoolApp.sessions.delete(s.id)))
+      setUpcomingSessions([])
+    } catch (err) {
+      console.error('Failed to clear sessions:', err)
+      await loadData()
+    }
+  }
 
   const statCards = [
     {
@@ -179,21 +213,13 @@ export default function Dashboard() {
               <Calendar size={14} /> {t('dashboard.todayClasses')}
             </h3>
             <div className="flex items-center gap-2">
-              {upcomingSessions.length > 0 && !sessionsDismissed && (
+              {upcomingSessions.length > 0 && (
                 <button
-                  onClick={() => setSessionsDismissed(true)}
-                  title={t('common.delete')}
-                  className="text-slate-400 hover:text-red-500 transition-colors"
+                  onClick={handleClearTodaySessions}
+                  title={lang === 'ar' ? 'حذف جميع حصص اليوم' : 'Supprimer toutes les séances d\'aujourd\'hui'}
+                  className="text-slate-400 hover:text-red-500 transition-colors p-1 rounded hover:bg-red-50"
                 >
                   <Trash2 size={13} />
-                </button>
-              )}
-              {sessionsDismissed && (
-                <button
-                  onClick={() => setSessionsDismissed(false)}
-                  className="text-xs text-[#2563EB] hover:underline"
-                >
-                  {t('common.refresh')}
                 </button>
               )}
               <button onClick={() => navigate('/courses')} className="text-xs text-[#2563EB] hover:underline">
@@ -202,12 +228,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {sessionsDismissed ? (
-            <div className="text-center py-8 text-slate-400">
-              <Clock size={32} className="mx-auto mb-2 opacity-40" />
-              <p className="text-xs">{t('dashboard.noClassesToday')}</p>
-            </div>
-          ) : upcomingSessions.length === 0 ? (
+          {upcomingSessions.length === 0 ? (
             <div className="text-center py-8 text-slate-400">
               <Clock size={32} className="mx-auto mb-2 opacity-40" />
               <p className="text-xs">{t('dashboard.noClassesToday')}</p>
@@ -215,14 +236,23 @@ export default function Dashboard() {
           ) : (
             <div className="space-y-2">
               {upcomingSessions.map((sess) => (
-                <div key={sess.id} className="p-3 bg-slate-50 rounded-lg flex items-center justify-between text-xs">
+                <div key={sess.id} className="group p-3 bg-slate-50 hover:bg-slate-100/80 rounded-lg flex items-center justify-between text-xs transition-colors">
                   <div>
                     <p className="font-bold text-[#0F172A]">{sess.groupName ?? `Groupe #${sess.groupId}`}</p>
-                    <p className="text-slate-400">{sess.plannedStartTime ?? '10:00'}</p>
+                    <p className="text-slate-400 text-[11px]">{sess.plannedStartTime ?? '10:00'}</p>
                   </div>
-                  <span className="px-2 py-0.5 rounded bg-blue-100 text-[#2563EB] font-semibold text-[10px]">
-                    {sess.status}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded bg-blue-100 text-[#2563EB] font-semibold text-[10px]">
+                      {sess.status}
+                    </span>
+                    <button
+                      onClick={(e) => handleDeleteSession(sess.id, e)}
+                      title={lang === 'ar' ? 'حذف هذه الحصة' : 'Supprimer cette séance'}
+                      className="opacity-60 group-hover:opacity-100 text-slate-400 hover:text-red-600 transition-all p-1 rounded hover:bg-red-100"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
