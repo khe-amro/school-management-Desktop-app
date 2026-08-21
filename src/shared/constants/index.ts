@@ -85,6 +85,12 @@ export const IPC_CHANNELS = {
   ATTENDANCE_GET_SESSION: 'attendance:getSession',
   ATTENDANCE_SESSIONS_LIST: 'attendance:sessionsList',
   ATTENDANCE_RECORDS: 'attendance:records',
+  // New smart attendance flow
+  ATTENDANCE_RESOLVE_STUDENT: 'attendance:resolveStudent',
+  ATTENDANCE_MARK_SESSION: 'attendance:markSession',
+  SESSIONS_BY_DATE: 'sessions:byDate',
+  SESSIONS_WITH_ROSTER: 'sessions:withRoster',
+  STUDENTS_SEARCH_NAME: 'students:searchByName',
 
   // Payments
   PAYMENTS_LIST: 'payments:list',

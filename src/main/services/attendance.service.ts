@@ -1,5 +1,5 @@
 import { eq, and, desc } from 'drizzle-orm'
-import { getDb, schema } from '../database/connection'
+import { getDb, getSqlite, schema } from '../database/connection'
 import { AppError, ErrorCode } from '../../shared/errors/index'
 import { requireSession } from './auth.service'
 import type { AttendanceSession, AttendanceRecord, QRScanResult } from '../../shared/types/index'
@@ -533,6 +533,267 @@ export async function getRemainingSessionsCount(enrollmentId: number): Promise<n
 
   const remaining = Math.max(0, totalSessions.length - attendedRecords.length)
   return remaining
+}
+
+// ─── Resolve student + their sessions for a given date ─────────────────────
+
+export async function resolveStudentSessions(rawToken: string, date: string): Promise<{
+  student: any
+  todaySessions: any[]
+  paymentsSummary: any
+  recentAttendance: any[]
+} | null> {
+  const db = getDb()
+  const sqlite = getSqlite()
+
+  // Parse token / name
+  let token = rawToken.trim()
+  if (token.startsWith('{') && token.endsWith('}')) {
+    try { const p = JSON.parse(token); if (p.token) token = p.token } catch {}
+  }
+  const stdMatch = token.match(/STD-[a-f0-9A-F]+/i)
+  if (stdMatch) token = stdMatch[0]
+
+  // Find student by QR token, student number, or name
+  let student = await db.query.students.findFirst({ where: eq(schema.students.qrToken, token) })
+  if (!student) {
+    student = await db.query.students.findFirst({ where: eq(schema.students.studentNumber, token.toUpperCase()) })
+  }
+  if (!student) {
+    // Name search — raw SQL for partial match
+    const rows = sqlite.prepare(`
+      SELECT * FROM students
+      WHERE status = 'active'
+        AND (first_name_ar LIKE ? OR last_name_ar LIKE ? OR first_name_fr LIKE ? OR last_name_fr LIKE ?)
+      LIMIT 1
+    `).get(`%${token}%`, `%${token}%`, `%${token}%`, `%${token}%`) as any
+    if (rows) student = await db.query.students.findFirst({ where: eq(schema.students.id, rows.id) })
+  }
+  if (!student) return null
+
+  // Get active enrollments
+  const enrollments = await db.query.enrollments.findMany({
+    where: and(eq(schema.enrollments.studentId, student.id), eq(schema.enrollments.status, 'active')),
+  })
+  const groupIds = enrollments.map(e => e.groupId)
+
+  // Find sessions on this date for enrolled groups
+  const todaySessions: any[] = []
+  for (const groupId of groupIds) {
+    // Check for existing session instances
+    const existing = sqlite.prepare(`
+      SELECT s.*, g.name as group_name, c.name_ar as course_name_ar, c.name_fr as course_name_fr
+      FROM attendance_sessions s
+      JOIN groups g ON s.group_id = g.id
+      JOIN courses c ON g.course_id = c.id
+      WHERE s.group_id = ? AND s.session_date = ? AND s.session_type != 'cancelled'
+      LIMIT 5
+    `).all(groupId, date) as any[]
+
+    if (existing.length > 0) {
+      todaySessions.push(...existing.map(r => ({
+        id: r.id,
+        groupId: r.group_id,
+        groupName: r.group_name,
+        courseNameAr: r.course_name_ar,
+        courseNameFr: r.course_name_fr,
+        sessionDate: r.session_date,
+        plannedStartTime: r.planned_start_time,
+        endTime: r.end_time,
+        room: r.room,
+        status: r.status,
+      })))
+    } else {
+      // Auto-create from schedule slots if today matches weekday
+      const jsDay = new Date(date + 'T00:00:00Z').getUTCDay()
+      const weekday = jsDay === 0 ? 6 : jsDay - 1
+      const slots = sqlite.prepare(`
+        SELECT * FROM group_schedule_slots WHERE group_id = ? AND weekday = ? AND is_active = 1
+      `).all(groupId, weekday) as any[]
+
+      for (const slot of slots) {
+        const res = sqlite.prepare(`
+          INSERT INTO attendance_sessions (group_id, session_date, planned_start_time, end_time, room, status, session_type, schedule_slot_id, created_by, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, 'open', 'regular', ?, 1, datetime('now'), datetime('now'))
+        `).run(groupId, date, slot.start_time, slot.end_time, slot.room, slot.id)
+
+        const groupRow = sqlite.prepare(`
+          SELECT g.name as group_name, c.name_ar as course_name_ar, c.name_fr as course_name_fr
+          FROM groups g JOIN courses c ON g.course_id = c.id WHERE g.id = ?
+        `).get(groupId) as any
+
+        todaySessions.push({
+          id: Number(res.lastInsertRowid),
+          groupId,
+          groupName: groupRow?.group_name,
+          courseNameAr: groupRow?.course_name_ar,
+          courseNameFr: groupRow?.course_name_fr,
+          sessionDate: date,
+          plannedStartTime: slot.start_time,
+          endTime: slot.end_time,
+          room: slot.room,
+          status: 'open',
+        })
+      }
+    }
+  }
+
+  // Payment summary
+  const payments = await db.query.payments.findMany({
+    where: eq(schema.payments.studentId, student.id),
+    orderBy: desc(schema.payments.paymentDate),
+  })
+  const totalPaid = payments.filter(p => p.status === 'paid').reduce((a, p) => a + p.amount, 0)
+
+  // Recent attendance (last 5 records)
+  const recentRecords = sqlite.prepare(`
+    SELECT ar.*, s.session_date, g.name as group_name, c.name_ar as course_name_ar, c.name_fr as course_name_fr
+    FROM attendance_records ar
+    JOIN attendance_sessions s ON ar.session_id = s.id
+    JOIN groups g ON s.group_id = g.id
+    JOIN courses c ON g.course_id = c.id
+    WHERE ar.student_id = ?
+    ORDER BY s.session_date DESC, ar.created_at DESC
+    LIMIT 5
+  `).all(student.id) as any[]
+
+  return {
+    student: {
+      id: student.id,
+      studentNumber: student.studentNumber,
+      firstNameAr: student.firstNameAr,
+      lastNameAr: student.lastNameAr,
+      firstNameFr: student.firstNameFr,
+      lastNameFr: student.lastNameFr,
+      status: student.status,
+      phone: student.phone,
+    },
+    todaySessions,
+    paymentsSummary: {
+      totalPaid,
+      lastPaymentDate: payments[0]?.paymentDate,
+      status: payments.some(p => p.status === 'paid') ? 'paid' : 'pending',
+    },
+    recentAttendance: recentRecords.map(r => ({
+      date: r.session_date,
+      status: r.attendance_status,
+      groupName: r.group_name,
+      courseNameAr: r.course_name_ar,
+      courseNameFr: r.course_name_fr,
+    })),
+  }
+}
+
+// ─── Mark student in session (works for any date, upserts) ─────────────────
+
+export async function markStudentInSession(
+  sessionId: number,
+  studentId: number,
+  status: 'present' | 'absent' | 'late',
+): Promise<{ success: boolean; studentName: string; status: string }> {
+  const authSession = requireSession()
+  const db = getDb()
+  const sqlite = getSqlite()
+  const now = new Date().toISOString()
+
+  const session = await db.query.attendanceSessions.findFirst({
+    where: eq(schema.attendanceSessions.id, sessionId),
+  })
+  if (!session) throw new AppError(ErrorCode.SESSION_NOT_FOUND, 'Session not found')
+
+  const student = await db.query.students.findFirst({ where: eq(schema.students.id, studentId) })
+  if (!student) throw new AppError(ErrorCode.NOT_FOUND, 'Student not found')
+
+  // Auto-determine late status if not overridden and session has a start time
+  let finalStatus = status
+  if (status === 'present' && session.plannedStartTime) {
+    const n = new Date()
+    const nowTime = `${String(n.getHours()).padStart(2, '0')}:${String(n.getMinutes()).padStart(2, '0')}`
+    const [ph, pm] = session.plannedStartTime.split(':').map(Number)
+    const [nh, nm] = nowTime.split(':').map(Number)
+    const diff = (nh! * 60 + nm!) - (ph! * 60 + pm!)
+    if (diff > (session.lateThresholdMinutes ?? 10)) finalStatus = 'late'
+  }
+
+  // Upsert attendance record (allows editing from any day)
+  sqlite.prepare(`
+    INSERT INTO attendance_records (session_id, student_id, attendance_status, source, scanned_at, created_by, created_at, updated_at)
+    VALUES (?, ?, ?, 'manual', ?, ?, datetime('now'), datetime('now'))
+    ON CONFLICT(session_id, student_id) DO UPDATE SET
+      attendance_status = excluded.attendance_status,
+      source = 'manual',
+      updated_at = datetime('now')
+  `).run(sessionId, studentId, finalStatus, now, authSession.adminId)
+
+  return {
+    success: true,
+    studentName: `${student.lastNameAr ?? ''} ${student.firstNameAr ?? ''}`.trim(),
+    status: finalStatus,
+  }
+}
+
+// ─── Get session with full roster (enrolled students + their attendance) ────
+
+export async function getSessionWithRoster(sessionId: number): Promise<{
+  session: any
+  students: any[]
+}> {
+  const sqlite = getSqlite()
+
+  const session = sqlite.prepare(`
+    SELECT s.*, g.name as group_name, g.course_id,
+           c.name_ar as course_name_ar, c.name_fr as course_name_fr
+    FROM attendance_sessions s
+    JOIN groups g ON s.group_id = g.id
+    JOIN courses c ON g.course_id = c.id
+    WHERE s.id = ?
+  `).get(sessionId) as any
+  if (!session) throw new Error('Session not found')
+
+  const enrolled = sqlite.prepare(`
+    SELECT st.id, st.student_number, st.first_name_ar, st.last_name_ar, st.first_name_fr, st.last_name_fr,
+           st.status as student_status,
+           ar.attendance_status, ar.source, ar.scanned_at, ar.id as record_id
+    FROM enrollments e
+    JOIN students st ON e.student_id = st.id
+    LEFT JOIN attendance_records ar ON ar.session_id = ? AND ar.student_id = st.id
+    WHERE e.group_id = ? AND e.status = 'active'
+    ORDER BY st.last_name_ar, st.first_name_ar
+  `).all(sessionId, session.group_id) as any[]
+
+  const presentCount = enrolled.filter(s => s.attendance_status === 'present').length
+  const lateCount = enrolled.filter(s => s.attendance_status === 'late').length
+  const absentCount = enrolled.filter(s => s.attendance_status === 'absent').length
+
+  return {
+    session: {
+      id: session.id,
+      groupId: session.group_id,
+      groupName: session.group_name,
+      courseNameAr: session.course_name_ar,
+      courseNameFr: session.course_name_fr,
+      sessionDate: session.session_date,
+      plannedStartTime: session.planned_start_time,
+      endTime: session.end_time,
+      room: session.room,
+      status: session.status,
+      sessionType: session.session_type,
+      stats: { present: presentCount, late: lateCount, absent: absentCount, total: enrolled.length },
+    },
+    students: enrolled.map(s => ({
+      id: s.id,
+      studentNumber: s.student_number,
+      firstNameAr: s.first_name_ar,
+      lastNameAr: s.last_name_ar,
+      firstNameFr: s.first_name_fr,
+      lastNameFr: s.last_name_fr,
+      status: s.student_status,
+      attendanceStatus: s.attendance_status ?? null,
+      recordId: s.record_id ?? null,
+      source: s.source ?? null,
+      scannedAt: s.scanned_at ?? null,
+    })),
+  }
 }
 
 // ─── Row mappers ──────────────────────────────────────────────────────────────

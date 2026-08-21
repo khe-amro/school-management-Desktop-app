@@ -357,4 +357,51 @@ export function registerSessionsHandlers(): void {
       throw new Error(`Unable to get upcoming sessions: ${err instanceof Error ? err.message : String(err)}`)
     }
   })
+
+  // ─── Get all sessions for a date range (calendar view) ───────────────────
+
+  handle(IPC_CHANNELS.SESSIONS_BY_DATE, async (payload) => {
+    const { startDate, endDate } = z.object({
+      startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    }).parse(payload)
+
+    const sqlite = getSqlite()
+
+    try {
+      const rows = sqlite.prepare(`
+        SELECT s.id, s.group_id, s.session_date, s.planned_start_time, s.end_time,
+               s.room, s.status, s.session_type,
+               g.name as group_name,
+               c.name_ar as course_name_ar, c.name_fr as course_name_fr,
+               (SELECT COUNT(*) FROM attendance_records ar WHERE ar.session_id = s.id AND ar.attendance_status IN ('present','late')) as present_count,
+               (SELECT COUNT(*) FROM enrollments e WHERE e.group_id = s.group_id AND e.status = 'active') as enrolled_count
+        FROM attendance_sessions s
+        LEFT JOIN groups g ON s.group_id = g.id
+        LEFT JOIN courses c ON g.course_id = c.id
+        WHERE s.session_date >= ? AND s.session_date <= ?
+          AND s.session_type != 'cancelled'
+        ORDER BY s.session_date ASC, s.planned_start_time ASC
+      `).all(startDate, endDate) as any[]
+
+      return rows.map(row => ({
+        id: row.id,
+        groupId: row.group_id,
+        groupName: row.group_name,
+        courseNameAr: row.course_name_ar,
+        courseNameFr: row.course_name_fr,
+        sessionDate: row.session_date,
+        plannedStartTime: row.planned_start_time,
+        endTime: row.end_time,
+        room: row.room,
+        status: row.status,
+        sessionType: row.session_type,
+        presentCount: row.present_count ?? 0,
+        enrolledCount: row.enrolled_count ?? 0,
+      }))
+    } catch (err) {
+      log.error('Failed to get sessions by date:', err)
+      throw new Error(`Unable to get sessions by date: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  })
 }

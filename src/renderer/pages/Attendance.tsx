@@ -1,521 +1,472 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import {
-  ScanLine, CheckCircle2, XCircle, Clock, UserCheck,
-  Square, Search, Volume2, VolumeX, User, ArrowRight,
-  Calendar, BookOpen, AlertTriangle
-} from 'lucide-react'
-import type { AttendanceSession, Course, Group, QRScanResult } from '@shared/types/index'
+import { ScanLine, Search, Calendar, CheckCircle2, Clock, XCircle, Volume2, VolumeX, ChevronLeft, ChevronRight } from 'lucide-react'
 
-type QRMode = 'attendance' | 'lookup'
-type ScanFeedback = { type: 'success' | 'late' | 'error' | 'warn'; message: string } | null
+type Tab = 'scanner' | 'roster' | 'calendar'
+type StatusType = 'present' | 'absent' | 'late' | null
 
-interface StudentLookupResult {
-  student: {
-    id: number
-    studentNumber: string
-    firstNameAr: string
-    lastNameAr: string
-    firstNameFr: string
-    lastNameFr: string
-    status: string
-    phone?: string
-    photoPath?: string
-  }
-  enrollments: any[]
-  attendanceSummary: {
-    totalSessions: number
-    present: number
-    absent: number
-    late: number
-    attendanceRate: number
-  }
-  paymentsSummary: {
-    totalPaid: number
-    lastPaymentDate?: string
-    status: string
-  }
+const STATUS_CLS: Record<string, string> = {
+  present: 'bg-green-100 text-green-700',
+  late: 'bg-amber-100 text-amber-700',
+  absent: 'bg-red-100 text-red-700',
 }
 
-export default function Attendance() {
-  const { t, i18n } = useTranslation()
+function today() {
+  return new Date().toISOString().slice(0, 10)
+}
 
-  // Mode selection: attendance vs lookup
-  const [mode, setMode] = useState<QRMode>('attendance')
+function monthRange(year: number, month: number) {
+  const first = `${year}-${String(month + 1).padStart(2, '0')}-01`
+  const last = new Date(year, month + 1, 0)
+  return { first, last: `${year}-${String(month + 1).padStart(2, '0')}-${String(last.getDate()).padStart(2, '0')}` }
+}
 
-  // Selection state
-  const [courses, setCourses] = useState<Course[]>([])
-  const [groups, setGroups] = useState<Group[]>([])
-  const [sessions, setSessions] = useState<any[]>([])
-  const [selectedGroup, setSelectedGroup] = useState<number | null>(null)
-  const [selectedSessionId, setSelectedSessionId] = useState<number | null>(null)
+// ── Smart Scanner Tab ──────────────────────────────────────────────────────────
+function SmartScanner({ lang }: { lang: string }) {
+  const { t } = useTranslation()
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [input, setInput] = useState('')
+  const [sound, setSound] = useState(true)
+  const [loading, setLoading] = useState(false)
+  const [resolved, setResolved] = useState<any>(null)
+  const [selectedIdx, setSelectedIdx] = useState(0)
+  const [marking, setMarking] = useState(false)
+  const [feedback, setFeedback] = useState<{ type: 'ok' | 'late' | 'err'; msg: string } | null>(null)
 
-  // Active attendance session
-  const [activeSession, setActiveSession] = useState<AttendanceSession | null>(null)
-  const [sessionStats, setSessionStats] = useState({ present: 0, absent: 0, late: 0, total: 0 })
-  const [scanInput, setScanInput] = useState('')
-  const [feedback, setFeedback] = useState<ScanFeedback>(null)
-  const [starting, setStarting] = useState(false)
-  const [soundEnabled, setSoundEnabled] = useState(true)
+  useEffect(() => { inputRef.current?.focus() }, [])
 
-  // Student Lookup result
-  const [lookupResult, setLookupResult] = useState<StudentLookupResult | null>(null)
-  const [lookupLoading, setLookupLoading] = useState(false)
-
-  const scanInputRef = useRef<HTMLInputElement>(null)
-  const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const loadData = useCallback(async () => {
-    // Clear any old localStorage keys from previous versions
-    try { localStorage.removeItem('edupilot_active_attendance_session_id') } catch {}
-
-    const [cr, gr] = await Promise.all([
-      window.schoolApp.courses.list(),
-      window.schoolApp.groups.list(),
-    ])
-    if (cr.success && cr.data) setCourses(cr.data)
-    if (gr.success && gr.data) setGroups(gr.data)
-
-    // Only restore if the user actively started a session in this browser/app session
-    const activeSessionId = sessionStorage.getItem('edupilot_active_session_id')
-    if (activeSessionId) {
-      try {
-        const sessRes = await window.schoolApp.attendance.getSession(Number(activeSessionId))
-        if (sessRes.success && sessRes.data && sessRes.data.status === 'open') {
-          setActiveSession(sessRes.data)
-          setSelectedGroup(sessRes.data.groupId)
-          await refreshStats(sessRes.data.id)
-        } else {
-          sessionStorage.removeItem('edupilot_active_session_id')
-        }
-      } catch {
-        sessionStorage.removeItem('edupilot_active_session_id')
-      }
-    }
-  }, [])
-
-  useEffect(() => { loadData() }, [loadData])
-
-  // Load upcoming sessions when group changes
-  useEffect(() => {
-    if (selectedGroup) {
-      window.schoolApp.sessions.list({ groupId: selectedGroup }).then((res) => {
-        if (res.success && res.data) setSessions(res.data)
-      })
-    } else {
-      setSessions([])
-    }
-  }, [selectedGroup])
-
-  // Auto focus scanner input
-  useEffect(() => {
-    scanInputRef.current?.focus()
-  }, [mode, activeSession])
-
-  const showFeedback = (f: NonNullable<ScanFeedback>) => {
-    setFeedback(f)
-    if (feedbackTimer.current) clearTimeout(feedbackTimer.current)
-    feedbackTimer.current = setTimeout(() => setFeedback(null), 3500)
-
-    if (soundEnabled) {
-      try {
-        const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
-        const osc = ctx.createOscillator()
-        osc.type = f.type === 'success' ? 'sine' : f.type === 'late' ? 'triangle' : 'sawtooth'
-        osc.frequency.setValueAtTime(f.type === 'success' ? 880 : f.type === 'late' ? 587 : 220, ctx.currentTime)
-        osc.connect(ctx.destination)
-        osc.start()
-        osc.stop(ctx.currentTime + 0.2)
-      } catch { /* ignore */ }
-    }
-  }
-
-  const refreshStats = async (sessionId: number) => {
-    const res = await window.schoolApp.attendance.getSession(sessionId)
-    if (res.success && res.data) {
-      const records = res.data.records ?? []
-      setSessionStats({
-        present: records.filter((r) => r.attendanceStatus === 'present').length,
-        late: records.filter((r) => r.attendanceStatus === 'late').length,
-        absent: records.filter((r) => r.attendanceStatus === 'absent').length,
-        total: records.length,
-      })
-    }
-  }
-
-  const handleStartSession = async (overrideGroupId?: number) => {
-    const targetGroupId = overrideGroupId ?? selectedGroup
-    if (!targetGroupId) return
-    setStarting(true)
+  const beep = (ok: boolean) => {
+    if (!sound) return
     try {
-      const res = await window.schoolApp.attendance.startSession({
-        groupId: targetGroupId,
-        sessionDate: new Date().toISOString().slice(0, 10),
-      })
-      if (res.success) {
-        setActiveSession(res.data)
-        setSelectedGroup(res.data.groupId)
-        sessionStorage.setItem('edupilot_active_session_id', String(res.data.id))
-        await refreshStats(res.data.id)
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const o = ctx.createOscillator()
+      o.type = ok ? 'sine' : 'sawtooth'
+      o.frequency.setValueAtTime(ok ? 880 : 220, ctx.currentTime)
+      o.connect(ctx.destination); o.start(); o.stop(ctx.currentTime + 0.18)
+    } catch {}
+  }
+
+  const showFeedback = (type: 'ok' | 'late' | 'err', msg: string) => {
+    setFeedback({ type, msg })
+    setTimeout(() => setFeedback(null), 3000)
+  }
+
+  const resolve = async (token: string) => {
+    if (!token.trim()) return
+    setLoading(true)
+    setResolved(null)
+    try {
+      const res = await window.schoolApp.attendance.resolveStudent(token.trim(), today())
+      if (res.success && res.data && !res.data.error) {
+        setResolved(res.data)
+        setSelectedIdx(0)
       } else {
-        showFeedback({ type: 'error', message: res.error ?? t('common.error') })
+        showFeedback('err', t('attendance.studentNotFound'))
+        beep(false)
       }
-    } finally {
-      setStarting(false)
-    }
+    } finally { setLoading(false) }
   }
 
-  const handleEndSession = async () => {
-    if (!activeSession) return
-    if (!window.confirm(t('attendance.closeSessionConfirm'))) return
-    await window.schoolApp.attendance.endSession(activeSession.id)
-    sessionStorage.removeItem('edupilot_active_session_id')
-    setActiveSession(null)
-    setScanInput('')
-    await loadData()
+  const confirm = async (idx: number) => {
+    if (!resolved || !resolved.todaySessions?.length) return
+    const session = resolved.todaySessions[idx]
+    if (!session) return
+    setMarking(true)
+    try {
+      const res = await window.schoolApp.attendance.markSession(session.id, resolved.student.id, 'present')
+      if (res.success) {
+        const status = res.data?.status ?? 'present'
+        showFeedback(status === 'late' ? 'late' : 'ok', `${resolved.student.lastNameAr} ${resolved.student.firstNameAr} — ${t(`attendance.${status}`)}`)
+        beep(true)
+        setResolved(null)
+        setInput('')
+        setTimeout(() => inputRef.current?.focus(), 100)
+      } else {
+        showFeedback('err', res.error ?? t('common.error'))
+        beep(false)
+      }
+    } finally { setMarking(false) }
   }
 
-  const handleAttendanceScan = async (token: string) => {
-    if (!activeSession) return
-    const res = await window.schoolApp.attendance.scan(activeSession.id, token)
-    if (!res.success) {
-      showFeedback({ type: 'error', message: res.error ?? t('errors.INTERNAL_ERROR') })
+  const onKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      if (resolved) {
+        await confirm(selectedIdx)
+      } else {
+        await resolve(input)
+      }
       return
     }
-
-    const data = res.data as QRScanResult
-    switch (data.code) {
-      case 'recorded':
-        showFeedback({
-          type: data.attendanceStatus === 'late' ? 'late' : 'success',
-          message: `${data.studentName} — ${data.attendanceStatus === 'late' ? t('attendance.late') : t('attendance.present')}`,
-        })
-        await refreshStats(activeSession.id)
-        break
-      case 'already_scanned':
-        showFeedback({ type: 'warn', message: `${data.studentName} — ${t('attendance.alreadyScanned')}` })
-        break
-      case 'unknown_card':
-        showFeedback({ type: 'error', message: t('attendance.unknownCard') })
-        break
-      case 'disabled_card':
-        showFeedback({ type: 'error', message: t('attendance.disabledCard') })
-        break
-      case 'student_inactive':
-        showFeedback({ type: 'error', message: `${data.studentName} — ${t('attendance.studentInactive')}` })
-        break
-      case 'not_enrolled':
-        showFeedback({ type: 'error', message: `${data.studentName} — ${t('attendance.notEnrolled')}` })
-        break
-      case 'session_closed':
-        showFeedback({ type: 'error', message: t('attendance.sessionClosed') })
-        break
+    if (resolved && resolved.todaySessions?.length > 1) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setSelectedIdx(i => Math.min(i + 1, resolved.todaySessions.length - 1)) }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setSelectedIdx(i => Math.max(i - 1, 0)) }
+      const n = parseInt(e.key)
+      if (!isNaN(n) && n >= 1 && n <= resolved.todaySessions.length) setSelectedIdx(n - 1)
     }
+    if (e.key === 'Escape') { setResolved(null); setInput('') }
   }
 
-  const handleLookupScan = async (token: string) => {
-    setLookupLoading(true)
-    try {
-      const res = await window.schoolApp.attendance.lookup(token)
-      if (res.success) {
-        setLookupResult(res.data)
-      } else {
-        showFeedback({ type: 'error', message: res.error ?? t('attendance.cardNotFound') })
-      }
-    } finally {
-      setLookupLoading(false)
-    }
+  const feedbackCls = feedback?.type === 'ok' ? 'bg-green-50 border-green-300 text-green-800'
+    : feedback?.type === 'late' ? 'bg-amber-50 border-amber-300 text-amber-800'
+    : 'bg-red-50 border-red-300 text-red-800'
+
+  return (
+    <div className="max-w-2xl mx-auto space-y-4">
+      <div className="bg-white rounded-2xl border border-border p-6 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <div className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse" />
+            <span className="font-bold text-sm text-[#0F172A]">{t('attendance.readyToScan')}</span>
+          </div>
+          <button onClick={() => setSound(s => !s)} className="text-slate-400 hover:text-slate-600">
+            {sound ? <Volume2 size={16} /> : <VolumeX size={16} />}
+          </button>
+        </div>
+        <input
+          ref={inputRef}
+          value={input}
+          onChange={e => { setInput(e.target.value); if (resolved) setResolved(null) }}
+          onKeyDown={onKeyDown}
+          placeholder={t('attendance.scanOrType')}
+          className="w-full px-4 py-3.5 border-2 border-[#2563EB]/30 rounded-xl text-sm focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 bg-slate-50 font-mono"
+          dir="ltr"
+          autoFocus
+        />
+        {loading && <div className="mt-3 flex justify-center"><div className="w-5 h-5 border-2 border-[#2563EB] border-t-transparent rounded-full animate-spin" /></div>}
+        {feedback && (
+          <div className={`mt-3 flex items-center gap-2 px-4 py-3 rounded-xl border text-sm font-bold animate-fade-in ${feedbackCls}`}>
+            {feedback.type === 'ok' ? <CheckCircle2 size={18} /> : feedback.type === 'late' ? <Clock size={18} /> : <XCircle size={18} />}
+            {feedback.msg}
+          </div>
+        )}
+      </div>
+
+      {resolved && (
+        <div className="bg-white rounded-2xl border border-border p-5 shadow-lg animate-fade-in space-y-4">
+          {/* Student info */}
+          <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
+            <div className="w-12 h-12 rounded-full bg-blue-50 border-2 border-blue-200 flex items-center justify-center text-blue-700 font-bold text-lg shrink-0">
+              {(resolved.student.firstNameAr || resolved.student.firstNameFr || '?').charAt(0)}
+            </div>
+            <div className="flex-1">
+              <p className="font-bold text-[#0F172A]" dir="rtl">{resolved.student.lastNameAr} {resolved.student.firstNameAr}</p>
+              <p className="text-xs text-slate-400">{resolved.student.studentNumber}</p>
+            </div>
+            <div className="text-right space-y-1">
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${resolved.paymentsSummary?.status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                {resolved.paymentsSummary?.status === 'paid' ? t('attendance.upToDate') : t('attendance.pending')}
+              </span>
+            </div>
+          </div>
+
+          {/* Recent attendance */}
+          {resolved.recentAttendance?.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-slate-500 mb-1.5">{t('attendance.recentAttendance')}</p>
+              <div className="flex gap-1.5 flex-wrap">
+                {resolved.recentAttendance.map((r: any, i: number) => (
+                  <span key={i} className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_CLS[r.status] ?? 'bg-slate-100 text-slate-500'}`}>
+                    {r.date} {r.status === 'present' ? '✓' : r.status === 'late' ? '⏱' : '✗'}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Sessions chooser */}
+          <div>
+            <p className="text-xs font-semibold text-slate-500 mb-2">
+              {resolved.todaySessions?.length === 0 ? t('attendance.noSessionsToday')
+                : resolved.todaySessions?.length === 1 ? t('attendance.oneSessionToday')
+                : t('attendance.multipleSessionsToday')}
+            </p>
+            {resolved.todaySessions?.length === 0 ? (
+              <p className="text-sm text-slate-400 text-center py-4">{t('attendance.noSessionsToday')}</p>
+            ) : (
+              <div className="space-y-2">
+                {resolved.todaySessions.map((s: any, i: number) => (
+                  <button
+                    key={s.id}
+                    onClick={() => { setSelectedIdx(i); confirm(i) }}
+                    className={`w-full text-left px-4 py-3 rounded-xl border-2 transition-all ${selectedIdx === i ? 'border-[#2563EB] bg-blue-50' : 'border-border hover:border-blue-300'}`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-semibold text-sm text-[#0F172A]">
+                          {lang === 'ar' ? (s.courseNameAr || s.courseNameFr) : (s.courseNameFr || s.courseNameAr)} — {s.groupName}
+                        </p>
+                        <p className="text-xs text-slate-400">{s.plannedStartTime} – {s.endTime} {s.room ? `· ${s.room}` : ''}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-slate-400 font-mono">#{i + 1}</span>
+                        {selectedIdx === i && <span className="text-xs text-[#2563EB] font-bold">↵ Enter</span>}
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {resolved.todaySessions?.length > 0 && (
+            <p className="text-xs text-slate-400 text-center">{t('attendance.pressEnterToConfirm')} · Esc {t('common.cancel')} · ↑↓ {t('common.filter')}</p>
+          )}
+
+          {marking && (
+            <div className="flex justify-center py-2">
+              <div className="w-5 h-5 border-2 border-[#2563EB] border-t-transparent rounded-full animate-spin" />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Roster Tab ─────────────────────────────────────────────────────────────────
+function RosterView({ lang }: { lang: string }) {
+  const { t } = useTranslation()
+  const [date, setDate] = useState(today())
+  const [sessions, setSessions] = useState<any[]>([])
+  const [selectedSession, setSelectedSession] = useState<number | null>(null)
+  const [roster, setRoster] = useState<any>(null)
+  const [loadingSessions, setLoadingSessions] = useState(false)
+  const [loadingRoster, setLoadingRoster] = useState(false)
+
+  const loadSessions = useCallback(async () => {
+    setLoadingSessions(true)
+    const res = await window.schoolApp.sessions.byDate(date, date)
+    if (res.success && res.data) setSessions(res.data)
+    else setSessions([])
+    setLoadingSessions(false)
+  }, [date])
+
+  useEffect(() => { loadSessions() }, [loadSessions])
+
+  const loadRoster = async (sessionId: number) => {
+    setSelectedSession(sessionId)
+    setLoadingRoster(true)
+    const res = await window.schoolApp.attendance.withRoster(sessionId)
+    if (res.success && res.data) setRoster(res.data)
+    setLoadingRoster(false)
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key !== 'Enter') return
-    const token = scanInput.trim()
-    setScanInput('')
-    if (!token) return
-
-    if (mode === 'attendance') {
-      handleAttendanceScan(token)
-    } else {
-      handleLookupScan(token)
-    }
-  }
-
-  const feedbackColor = {
-    success: 'bg-green-50 border-green-300 text-green-800',
-    late: 'bg-amber-50 border-amber-300 text-amber-800',
-    warn: 'bg-blue-50 border-blue-300 text-blue-800',
-    error: 'bg-red-50 border-red-300 text-red-800',
+  const markStudent = async (studentId: number, status: 'present' | 'absent' | 'late') => {
+    if (!selectedSession) return
+    await window.schoolApp.attendance.markSession(selectedSession, studentId, status)
+    await loadRoster(selectedSession)
   }
 
   return (
-    <div className="animate-fade-in space-y-6">
-      {/* Top Mode Switcher Bar */}
+    <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+      {/* Sessions list */}
+      <div className="lg:col-span-2 space-y-3">
+        <div className="bg-white rounded-xl border border-border p-4">
+          <label className="block text-xs font-medium text-slate-500 mb-1">{t('attendance.date')}</label>
+          <input type="date" value={date} onChange={e => { setDate(e.target.value); setSelectedSession(null); setRoster(null) }}
+            className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20" />
+        </div>
+        {loadingSessions ? (
+          <div className="flex justify-center py-8"><div className="w-5 h-5 border-2 border-[#2563EB] border-t-transparent rounded-full animate-spin" /></div>
+        ) : sessions.length === 0 ? (
+          <p className="text-center text-slate-400 text-sm py-8">{t('attendance.noSessionsThisDay')}</p>
+        ) : (
+          sessions.map(s => (
+            <button key={s.id} onClick={() => loadRoster(s.id)}
+              className={`w-full text-left bg-white rounded-xl border-2 p-4 transition-all hover:shadow-sm ${selectedSession === s.id ? 'border-[#2563EB] bg-blue-50' : 'border-border'}`}>
+              <p className="font-semibold text-sm text-[#0F172A]">
+                {lang === 'ar' ? (s.courseNameAr || s.courseNameFr) : (s.courseNameFr || s.courseNameAr)}
+              </p>
+              <p className="text-xs text-slate-500">{s.groupName} · {s.plannedStartTime}{s.endTime ? `–${s.endTime}` : ''}</p>
+              <div className="flex items-center gap-2 mt-2">
+                <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">{s.presentCount}/{s.enrolledCount}</span>
+                <span className={`text-xs px-2 py-0.5 rounded-full ${s.status === 'open' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>{s.status}</span>
+              </div>
+            </button>
+          ))
+        )}
+      </div>
+
+      {/* Roster */}
+      <div className="lg:col-span-3">
+        {!selectedSession ? (
+          <div className="bg-white rounded-xl border border-border p-8 text-center text-slate-400">
+            <p className="text-sm">{t('attendance.selectSessionToView')}</p>
+          </div>
+        ) : loadingRoster ? (
+          <div className="flex justify-center py-16"><div className="w-6 h-6 border-2 border-[#2563EB] border-t-transparent rounded-full animate-spin" /></div>
+        ) : roster ? (
+          <div className="bg-white rounded-xl border border-border overflow-hidden">
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <p className="font-bold text-sm text-[#0F172A]">{roster.session.groupName}</p>
+                <p className="text-xs text-slate-400">{roster.session.sessionDate} · {roster.session.plannedStartTime}</p>
+              </div>
+              <div className="flex gap-3 text-xs font-medium">
+                <span className="text-green-600">{roster.session.stats.present} ✓</span>
+                <span className="text-amber-600">{roster.session.stats.late} ⏱</span>
+                <span className="text-red-500">{roster.session.stats.absent} ✗</span>
+                <span className="text-slate-400">{roster.session.stats.total - roster.session.stats.present - roster.session.stats.late - roster.session.stats.absent} —</span>
+              </div>
+            </div>
+            <div className="divide-y divide-slate-50 max-h-[60vh] overflow-y-auto">
+              {roster.students.map((s: any) => (
+                <div key={s.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 transition-colors">
+                  <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 text-xs font-bold shrink-0">
+                    {(s.firstNameAr || s.firstNameFr || '?').charAt(0)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-[#0F172A] truncate" dir="rtl">{s.lastNameAr} {s.firstNameAr}</p>
+                    <p className="text-xs text-slate-400">{s.studentNumber}</p>
+                  </div>
+                  <div className="flex gap-1.5 shrink-0">
+                    {(['present', 'late', 'absent'] as const).map(st => (
+                      <button key={st} onClick={() => markStudent(s.id, st)}
+                        className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-all ${s.attendanceStatus === st ? STATUS_CLS[st] + ' ring-2 ring-offset-1 ring-current' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
+                        {st === 'present' ? '✓' : st === 'late' ? '⏱' : '✗'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+// ── Calendar Tab ───────────────────────────────────────────────────────────────
+function CalendarView({ lang, onSessionClick }: { lang: string; onSessionClick: (id: number) => void }) {
+  const { t } = useTranslation()
+  const now = new Date()
+  const [year, setYear] = useState(now.getFullYear())
+  const [month, setMonth] = useState(now.getMonth())
+  const [sessions, setSessions] = useState<any[]>([])
+  const [selectedDay, setSelectedDay] = useState<string | null>(today())
+
+  const loadMonth = useCallback(async () => {
+    const { first, last } = monthRange(year, month)
+    const res = await window.schoolApp.sessions.byDate(first, last)
+    if (res.success && res.data) setSessions(res.data)
+    else setSessions([])
+  }, [year, month])
+
+  useEffect(() => { loadMonth() }, [loadMonth])
+
+  const prev = () => { if (month === 0) { setYear(y => y - 1); setMonth(11) } else setMonth(m => m - 1) }
+  const next = () => { if (month === 11) { setYear(y => y + 1); setMonth(0) } else setMonth(m => m + 1) }
+
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+  const firstDow = (new Date(year, month, 1).getDay() + 6) % 7 // Mon=0
+  const sessionsByDay: Record<string, any[]> = {}
+  sessions.forEach(s => { if (!sessionsByDay[s.sessionDate]) sessionsByDay[s.sessionDate] = []; sessionsByDay[s.sessionDate].push(s) })
+
+  const dayLabel = `${year}-${String(month + 1).padStart(2, '0')}`
+  const daySessions = selectedDay ? (sessionsByDay[selectedDay] ?? []) : []
+  const monthNames = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc']
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div className="lg:col-span-2 bg-white rounded-xl border border-border p-4">
+        <div className="flex items-center justify-between mb-4">
+          <button onClick={prev} className="p-1.5 hover:bg-slate-100 rounded-lg"><ChevronLeft size={18} /></button>
+          <span className="font-bold text-sm text-[#0F172A]">{monthNames[month]} {year}</span>
+          <button onClick={next} className="p-1.5 hover:bg-slate-100 rounded-lg"><ChevronRight size={18} /></button>
+        </div>
+        <div className="grid grid-cols-7 gap-1 mb-1">
+          {['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((d, i) => (
+            <div key={i} className="text-center text-xs text-slate-400 font-medium py-1">{d}</div>
+          ))}
+        </div>
+        <div className="grid grid-cols-7 gap-1">
+          {Array.from({ length: firstDow }).map((_, i) => <div key={`e${i}`} />)}
+          {Array.from({ length: daysInMonth }).map((_, i) => {
+            const d = i + 1
+            const dateStr = `${dayLabel}-${String(d).padStart(2, '0')}`
+            const daySess = sessionsByDay[dateStr] ?? []
+            const isToday = dateStr === today()
+            const isSelected = dateStr === selectedDay
+            return (
+              <button key={d} onClick={() => setSelectedDay(dateStr)}
+                className={`aspect-square rounded-xl text-xs font-medium transition-all relative flex flex-col items-center justify-center p-1 ${isSelected ? 'bg-[#2563EB] text-white' : isToday ? 'bg-blue-50 text-[#2563EB] ring-2 ring-[#2563EB]' : daySess.length > 0 ? 'hover:bg-slate-50 text-[#0F172A]' : 'text-slate-300'}`}>
+                <span>{d}</span>
+                {daySess.length > 0 && (
+                  <span className={`text-[9px] font-bold leading-none ${isSelected ? 'text-blue-200' : 'text-[#2563EB]'}`}>
+                    {daySess.length}
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <div className="bg-white rounded-xl border border-border p-4">
+          <p className="font-bold text-sm text-[#0F172A] mb-3">{selectedDay ?? '—'}</p>
+          {daySessions.length === 0 ? (
+            <p className="text-xs text-slate-400 text-center py-4">{t('attendance.noSessionsThisDay')}</p>
+          ) : (
+            daySessions.map(s => (
+              <button key={s.id} onClick={() => onSessionClick(s.id)}
+                className="w-full text-left mb-2 p-3 rounded-xl bg-slate-50 hover:bg-blue-50 hover:border-blue-200 border border-transparent transition-all">
+                <p className="font-semibold text-xs text-[#0F172A]">
+                  {lang === 'ar' ? (s.courseNameAr || s.courseNameFr) : (s.courseNameFr || s.courseNameAr)}
+                </p>
+                <p className="text-[11px] text-slate-400">{s.groupName} · {s.plannedStartTime}</p>
+                <div className="flex gap-1.5 mt-1">
+                  <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">{s.presentCount}/{s.enrolledCount}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${s.status === 'open' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>{s.status}</span>
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+        <p className="text-xs text-slate-400 text-center">{t('attendance.clickDayToView')}</p>
+      </div>
+    </div>
+  )
+}
+
+// ── Main Page ──────────────────────────────────────────────────────────────────
+export default function Attendance() {
+  const { t, i18n } = useTranslation()
+  const [tab, setTab] = useState<Tab>('scanner')
+  const [rosterSession, setRosterSession] = useState<number | null>(null)
+
+  const handleCalendarSessionClick = (sessionId: number) => {
+    setRosterSession(sessionId)
+    setTab('roster')
+  }
+
+  const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
+    { key: 'scanner', label: t('attendance.smartScanner'), icon: <ScanLine size={14} /> },
+    { key: 'roster', label: t('attendance.rosterView'), icon: <Search size={14} /> },
+    { key: 'calendar', label: t('attendance.calendar'), icon: <Calendar size={14} /> },
+  ]
+
+  return (
+    <div className="animate-fade-in space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-4 rounded-xl border border-border">
         <div>
           <h2 className="text-lg font-bold text-[#0F172A]">{t('nav.attendance')}</h2>
           <p className="text-xs text-slate-400">{t('attendance.subtitle')}</p>
         </div>
-
-        {/* Mode Toggle Buttons */}
-        <div className="flex bg-slate-100 p-1 rounded-xl">
-          <button
-            onClick={() => setMode('attendance')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
-              mode === 'attendance'
-                ? 'bg-[#2563EB] text-white shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <ScanLine size={14} /> {t('attendance.modeAttendance')}
-          </button>
-          <button
-            onClick={() => setMode('lookup')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
-              mode === 'lookup'
-                ? 'bg-[#2563EB] text-white shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Search size={14} /> {t('attendance.modeLookup')}
-          </button>
+        <div className="flex bg-slate-100 p-1 rounded-xl gap-1">
+          {tabs.map(tb => (
+            <button key={tb.key} onClick={() => setTab(tb.key)}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all ${tab === tb.key ? 'bg-[#2563EB] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>
+              {tb.icon} {tb.label}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* ── MODE 1: ATTENDANCE MODE ── */}
-      {mode === 'attendance' && (
-        <>
-          {!activeSession ? (
-            /* Session Picker Setup */
-            <div className="max-w-xl mx-auto bg-white rounded-2xl border border-border p-8 text-center space-y-5 shadow-xs">
-              <div className="w-16 h-16 rounded-2xl bg-[#EFF6FF] flex items-center justify-center mx-auto text-[#2563EB]">
-                <ScanLine size={32} />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-[#0F172A]">{t('attendance.startSession')}</h3>
-                <p className="text-slate-400 text-xs mt-1">{t('attendance.startPrompt')}</p>
-              </div>
-
-              {/* Group Selector */}
-              <div className="space-y-3 text-start">
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">{t('attendance.groupCourse')} *</label>
-                  <select
-                    value={selectedGroup ?? ''}
-                    onChange={(e) => setSelectedGroup(Number(e.target.value) || null)}
-                    className="w-full px-3 py-2.5 border border-border rounded-lg text-sm bg-white focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20"
-                  >
-                    <option value="">{t('attendance.chooseGroup')}</option>
-                    {courses.map((course) => {
-                      const cg = groups.filter((g) => g.courseId === course.id && g.status === 'active')
-                      if (!cg.length) return null
-                      const courseName = i18n.language === 'ar' ? (course.nameAr || course.nameFr) : (course.nameFr || course.nameAr)
-                      return (
-                        <optgroup key={course.id} label={courseName}>
-                          {cg.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-                        </optgroup>
-                      )
-                    })}
-                  </select>
-                </div>
-              </div>
-
-              <button
-                onClick={() => handleStartSession()}
-                disabled={!selectedGroup || starting}
-                className="w-full bg-[#2563EB] text-white py-3 rounded-xl font-semibold text-sm hover:bg-[#1D4ED8] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                {starting && <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />}
-                {t('attendance.startSession')}
-              </button>
-            </div>
-          ) : (
-            /* Active Scanner UI */
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              {/* Left 8 cols: Scanner & Feedback */}
-              <div className="lg:col-span-8 space-y-4">
-                {/* Stats Header Bar */}
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
-                    <p className="text-3xl font-bold text-green-600">{sessionStats.present}</p>
-                    <p className="text-xs text-green-700 font-medium mt-1">{t('attendance.presentCount')}</p>
-                  </div>
-                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-center">
-                    <p className="text-3xl font-bold text-amber-600">{sessionStats.late}</p>
-                    <p className="text-xs text-amber-700 font-medium mt-1">{t('attendance.lateCount')}</p>
-                  </div>
-                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-center">
-                    <p className="text-3xl font-bold text-[#2563EB]">{sessionStats.total}</p>
-                    <p className="text-xs text-blue-700 font-medium mt-1">{t('attendance.totalScanned')}</p>
-                  </div>
-                </div>
-
-                {/* Main Scanner Box */}
-                <div className="bg-white rounded-2xl border border-border p-6 shadow-sm">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse" />
-                      <div>
-                        <span className="text-sm font-bold text-[#0F172A]">{t('attendance.readyToScan')}</span>
-                        {activeSession && (
-                          <span className="text-xs text-slate-500 ms-2 font-medium">
-                            ({groups.find((g) => g.id === activeSession.groupId)?.name ?? `#${activeSession.groupId}`})
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => setSoundEnabled(!soundEnabled)}
-                      className="text-slate-400 hover:text-slate-600 p-1"
-                      title={soundEnabled ? t('attendance.disableSound') : t('attendance.enableSound')}
-                    >
-                      {soundEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
-                    </button>
-                  </div>
-
-                  <input
-                    ref={scanInputRef}
-                    type="text"
-                    value={scanInput}
-                    onChange={(e) => setScanInput(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    placeholder={t('attendance.scanOrType')}
-                    className="w-full px-4 py-3.5 border-2 border-[#2563EB]/30 rounded-xl text-sm focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 transition-all bg-background font-mono"
-                    dir="ltr"
-                    autoFocus
-                  />
-
-                  {/* Dynamic Feedback Box */}
-                  {feedback && (
-                    <div className={`mt-4 flex items-center gap-3 px-4 py-3.5 rounded-xl border text-sm font-bold animate-fade-in ${feedbackColor[feedback.type]}`}>
-                      {feedback.type === 'success' && <CheckCircle2 size={20} />}
-                      {feedback.type === 'late' && <Clock size={20} />}
-                      {feedback.type === 'warn' && <UserCheck size={20} />}
-                      {feedback.type === 'error' && <XCircle size={20} />}
-                      {feedback.message}
-                    </div>
-                  )}
-
-                  <button
-                    onClick={handleEndSession}
-                    className="mt-6 w-full flex items-center justify-center gap-2 py-3 border border-red-300 text-red-600 rounded-xl text-sm font-semibold hover:bg-red-50 transition-colors"
-                  >
-                    <Square size={14} /> {t('attendance.closeSession')}
-                  </button>
-                </div>
-              </div>
-
-              {/* Right 4 cols: Session details */}
-              <div className="lg:col-span-4 space-y-4">
-                <div className="bg-white rounded-xl border border-border p-5">
-                  <h4 className="font-bold text-sm text-[#0F172A] mb-3">{t('attendance.sessionDetails')}</h4>
-                  <div className="space-y-2 text-xs">
-                    <div className="flex justify-between py-1 border-b border-slate-100">
-                      <span className="text-slate-400">{t('attendance.group')}:</span>
-                      <span className="font-bold text-[#0F172A]">
-                        {groups.find((g) => g.id === activeSession.groupId)?.name ?? `#${activeSession.groupId}`}
-                      </span>
-                    </div>
-                    <div className="flex justify-between py-1 border-b border-slate-100">
-                      <span className="text-slate-400">{t('attendance.sessionId')}:</span>
-                      <span className="font-mono font-bold">#{activeSession.id}</span>
-                    </div>
-                    <div className="flex justify-between py-1 border-b border-slate-100">
-                      <span className="text-slate-400">{t('attendance.date')}:</span>
-                      <span className="font-medium">{activeSession.sessionDate}</span>
-                    </div>
-                    <div className="flex justify-between py-1 border-b border-slate-100">
-                      <span className="text-slate-400">{t('common.status')}:</span>
-                      <span className="text-green-600 font-bold">{t('attendance.inProgress')}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </>
-      )}
-
-      {/* ── MODE 2: STUDENT LOOKUP MODE (No attendance record created) ── */}
-      {mode === 'lookup' && (
-        <div className="space-y-6">
-          <div className="max-w-2xl mx-auto bg-white rounded-2xl border border-border p-6 shadow-sm">
-            <h3 className="font-bold text-sm text-[#0F172A] mb-3 flex items-center gap-2">
-              <Search size={16} className="text-[#2563EB]" /> {t('attendance.quickLookup')}
-            </h3>
-            <p className="text-xs text-slate-400 mb-4">
-              {t('attendance.quickLookupDesc')}
-            </p>
-            <input
-              ref={scanInputRef}
-              type="text"
-              value={scanInput}
-              onChange={(e) => setScanInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={t('attendance.scanPlaceholder')}
-              className="w-full px-4 py-3 border-2 border-[#2563EB]/30 rounded-xl text-sm focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 bg-background font-mono"
-              dir="ltr"
-              autoFocus
-            />
-          </div>
-
-          {lookupLoading && (
-            <div className="flex justify-center py-10">
-              <div className="w-6 h-6 border-2 border-[#2563EB] border-t-transparent rounded-full animate-spin" />
-            </div>
-          )}
-
-          {/* Lookup Result Card */}
-          {lookupResult?.student && !lookupLoading && (
-            <div className="max-w-2xl mx-auto bg-white rounded-2xl border border-border p-6 shadow-lg space-y-5 animate-fade-in">
-              <div className="flex items-center gap-4 pb-4 border-b border-slate-100">
-                <div className="w-16 h-16 rounded-full bg-[#EFF6FF] border-2 border-[#2563EB] flex items-center justify-center text-[#2563EB] font-bold text-xl overflow-hidden shrink-0">
-                  {lookupResult.student.firstNameAr ? lookupResult.student.firstNameAr.charAt(0) : (lookupResult.student.firstNameFr ? lookupResult.student.firstNameFr.charAt(0) : 'S')}
-                </div>
-                <div>
-                  <h3 className="font-bold text-base text-[#0F172A]" dir="rtl">
-                    {lookupResult.student.lastNameAr || ''} {lookupResult.student.firstNameAr || ''}
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    {lookupResult.student.lastNameFr || ''} {lookupResult.student.firstNameFr || ''}
-                  </p>
-                  <p className="text-xs font-mono text-[#2563EB] font-bold mt-0.5">{lookupResult.student.studentNumber || ''}</p>
-                </div>
-                <span className={`ms-auto text-xs px-3 py-1 rounded-full font-bold ${
-                  lookupResult.student.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600'
-                }`}>
-                  {lookupResult.student.status === 'active' ? t('students.active') : t('students.inactive')}
-                </span>
-              </div>
-
-              {/* Quick stats grid */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="bg-slate-50 p-4 rounded-xl">
-                  <p className="text-xs text-slate-400 mb-1">{t('attendance.totalAttendance')}</p>
-                  <p className="text-lg font-bold text-green-600">
-                    {lookupResult.attendanceSummary?.present ?? 0} / {lookupResult.attendanceSummary?.totalSessions ?? 0}
-                  </p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    {t('attendance.rate') ?? 'Taux'}: {lookupResult.attendanceSummary?.attendanceRate ?? 100}%
-                  </p>
-                </div>
-                <div className="bg-slate-50 p-4 rounded-xl">
-                  <p className="text-xs text-slate-400 mb-1">{t('attendance.financialStatus')}</p>
-                  <p className={`text-lg font-bold ${
-                    lookupResult.paymentsSummary?.status === 'paid' ? 'text-green-600' : 'text-amber-600'
-                  }`}>
-                    {lookupResult.paymentsSummary?.status === 'paid' ? t('attendance.upToDate') : t('attendance.pending')}
-                  </p>
-                  {lookupResult.paymentsSummary?.lastPaymentDate && (
-                    <p className="text-[11px] text-slate-400 mt-0.5">
-                      {lookupResult.paymentsSummary.lastPaymentDate}
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+      {tab === 'scanner' && <SmartScanner lang={i18n.language} />}
+      {tab === 'roster' && <RosterView lang={i18n.language} />}
+      {tab === 'calendar' && <CalendarView lang={i18n.language} onSessionClick={handleCalendarSessionClick} />}
     </div>
   )
 }

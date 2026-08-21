@@ -6,7 +6,8 @@ import {
 import {
   startAttendanceSession, endAttendanceSession, scanQRToken,
   markManually, getSession, listSessions, lookupStudentByToken,
-  getStudentSummary, getRemainingSessionsCount
+  getStudentSummary, getRemainingSessionsCount,
+  resolveStudentSessions, markStudentInSession, getSessionWithRoster,
 } from '../services/attendance.service'
 import { z } from 'zod'
 
@@ -71,6 +72,36 @@ export function registerAttendanceHandlers(): void {
     const { enrollmentId } = z.object({ enrollmentId: z.number().int().positive() }).parse(payload)
     const count = await getRemainingSessionsCount(enrollmentId)
     return { count }
+  })
+
+  // ─── Smart scan: resolve student + today's sessions ──────────────────────
+
+  handle(IPC_CHANNELS.ATTENDANCE_RESOLVE_STUDENT, async (payload) => {
+    const { token, date } = z.object({
+      token: z.string().min(1),
+      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    }).parse(payload)
+    const result = await resolveStudentSessions(token, date)
+    if (!result) return { error: 'Student not found' }
+    return result
+  })
+
+  // ─── Mark student in session (works past dates too) ───────────────────────
+
+  handle(IPC_CHANNELS.ATTENDANCE_MARK_SESSION, async (payload) => {
+    const { sessionId, studentId, status } = z.object({
+      sessionId: z.number().int().positive(),
+      studentId: z.number().int().positive(),
+      status: z.enum(['present', 'absent', 'late']),
+    }).parse(payload)
+    return markStudentInSession(sessionId, studentId, status)
+  })
+
+  // ─── Get session with full enrolled roster ────────────────────────────────
+
+  handle(IPC_CHANNELS.SESSIONS_WITH_ROSTER, async (payload) => {
+    const { sessionId } = z.object({ sessionId: z.number().int().positive() }).parse(payload)
+    return getSessionWithRoster(sessionId)
   })
 }
 

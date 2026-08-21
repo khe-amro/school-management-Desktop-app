@@ -139,6 +139,12 @@ const api = {
       invoke<any>(IPC_CHANNELS.ATTENDANCE_STUDENT_SUMMARY, { studentId, sessionId }),
     getRemainingSessionsCount: (enrollmentId: number) =>
       invoke<{ count: number }>(IPC_CHANNELS.ATTENDANCE_REMAINING_SESSIONS, { enrollmentId }),
+    resolveStudent: (token: string, date: string) =>
+      invoke<any>(IPC_CHANNELS.ATTENDANCE_RESOLVE_STUDENT, { token, date }),
+    markSession: (sessionId: number, studentId: number, status: 'present' | 'absent' | 'late') =>
+      invoke<any>(IPC_CHANNELS.ATTENDANCE_MARK_SESSION, { sessionId, studentId, status }),
+    withRoster: (sessionId: number) =>
+      invoke<any>(IPC_CHANNELS.SESSIONS_WITH_ROSTER, { sessionId }),
   },
 
   schedules: {
@@ -169,6 +175,8 @@ const api = {
       invoke<boolean>(IPC_CHANNELS.SESSIONS_DELETE, { sessionId }),
     upcoming: (opts?: { groupId?: number; limit?: number }) =>
       invoke<any[]>(IPC_CHANNELS.SESSIONS_UPCOMING, opts),
+    byDate: (startDate: string, endDate: string) =>
+      invoke<any[]>(IPC_CHANNELS.SESSIONS_BY_DATE, { startDate, endDate }),
   },
 
   payments: {
