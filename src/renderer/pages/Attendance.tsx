@@ -33,7 +33,41 @@ function SmartScanner({ lang }: { lang: string }) {
   const [marking, setMarking] = useState(false)
   const [feedback, setFeedback] = useState<{ type: 'ok' | 'late' | 'err'; msg: string } | null>(null)
 
+  // Autocomplete state
+  const [suggestions, setSuggestions] = useState<any[]>([])
+  const [activeSugIdx, setActiveSugIdx] = useState(0)
+  const [showDropdown, setShowDropdown] = useState(false)
+
   useEffect(() => { inputRef.current?.focus() }, [])
+
+  // Live autocomplete search effect
+  useEffect(() => {
+    const trimmed = input.trim()
+    if (!trimmed || trimmed.toUpperCase().startsWith('STD-') || resolved) {
+      setSuggestions([])
+      setShowDropdown(false)
+      return
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await window.schoolApp.students.searchByName(trimmed)
+        if (res.success && Array.isArray(res.data) && res.data.length > 0) {
+          setSuggestions(res.data.slice(0, 7))
+          setActiveSugIdx(0)
+          setShowDropdown(true)
+        } else {
+          setSuggestions([])
+          setShowDropdown(false)
+        }
+      } catch {
+        setSuggestions([])
+        setShowDropdown(false)
+      }
+    }, 150)
+
+    return () => clearTimeout(timer)
+  }, [input, resolved])
 
   const beep = (ok: boolean) => {
     if (!sound) return
@@ -55,6 +89,8 @@ function SmartScanner({ lang }: { lang: string }) {
     if (!token.trim()) return
     setLoading(true)
     setResolved(null)
+    setSuggestions([])
+    setShowDropdown(false)
     try {
       const res = await window.schoolApp.attendance.resolveStudent(token.trim(), today())
       if (res.success && res.data && !res.data.error) {
@@ -65,6 +101,12 @@ function SmartScanner({ lang }: { lang: string }) {
         beep(false)
       }
     } finally { setLoading(false) }
+  }
+
+  const selectSuggestion = (s: any) => {
+    const term = s.studentNumber || `${s.lastNameAr} ${s.firstNameAr}`
+    setInput(term)
+    resolve(s.studentNumber || String(s.id))
   }
 
   const confirm = async (idx: number) => {
@@ -89,6 +131,29 @@ function SmartScanner({ lang }: { lang: string }) {
   }
 
   const onKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // If autocomplete dropdown is open
+    if (showDropdown && suggestions.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setActiveSugIdx(i => Math.min(i + 1, suggestions.length - 1))
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setActiveSugIdx(i => Math.max(i - 1, 0))
+        return
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        selectSuggestion(suggestions[activeSugIdx])
+        return
+      }
+      if (e.key === 'Escape') {
+        setShowDropdown(false)
+        return
+      }
+    }
+
     if (e.key === 'Enter') {
       if (resolved) {
         await confirm(selectedIdx)
@@ -97,6 +162,7 @@ function SmartScanner({ lang }: { lang: string }) {
       }
       return
     }
+
     if (resolved && resolved.todaySessions?.length > 1) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setSelectedIdx(i => Math.min(i + 1, resolved.todaySessions.length - 1)) }
       if (e.key === 'ArrowUp') { e.preventDefault(); setSelectedIdx(i => Math.max(i - 1, 0)) }
@@ -112,7 +178,7 @@ function SmartScanner({ lang }: { lang: string }) {
 
   return (
     <div className="max-w-2xl mx-auto space-y-4">
-      <div className="bg-white rounded-2xl border border-border p-6 shadow-sm">
+      <div className="bg-white rounded-2xl border border-border p-6 shadow-sm relative">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <div className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse" />
@@ -122,16 +188,51 @@ function SmartScanner({ lang }: { lang: string }) {
             {sound ? <Volume2 size={16} /> : <VolumeX size={16} />}
           </button>
         </div>
-        <input
-          ref={inputRef}
-          value={input}
-          onChange={e => { setInput(e.target.value); if (resolved) setResolved(null) }}
-          onKeyDown={onKeyDown}
-          placeholder={t('attendance.scanOrType')}
-          className="w-full px-4 py-3.5 border-2 border-[#2563EB]/30 rounded-xl text-sm focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 bg-slate-50 font-mono"
-          dir="ltr"
-          autoFocus
-        />
+
+        <div className="relative">
+          <input
+            ref={inputRef}
+            value={input}
+            onChange={e => { setInput(e.target.value); if (resolved) setResolved(null) }}
+            onKeyDown={onKeyDown}
+            placeholder={t('attendance.scanOrType')}
+            className="w-full px-4 py-3.5 border-2 border-[#2563EB]/30 rounded-xl text-sm focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 bg-slate-50 font-mono"
+            dir="auto"
+            autoFocus
+          />
+
+          {/* Autocomplete Dropdown (Google style, max 7 results) */}
+          {showDropdown && suggestions.length > 0 && (
+            <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden divide-y divide-slate-100 animate-fade-in">
+              {suggestions.map((s, idx) => (
+                <div
+                  key={s.id}
+                  onClick={() => selectSuggestion(s)}
+                  onMouseEnter={() => setActiveSugIdx(idx)}
+                  className={`px-4 py-2.5 flex items-center justify-between cursor-pointer transition-colors ${
+                    activeSugIdx === idx ? 'bg-blue-50 text-[#2563EB]' : 'hover:bg-slate-50 text-[#0F172A]'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Search size={14} className="text-slate-400 shrink-0" />
+                    <div>
+                      <span className="font-semibold text-sm" dir="rtl">
+                        {s.lastNameAr} {s.firstNameAr}
+                      </span>
+                      {(s.firstNameFr || s.lastNameFr) && (
+                        <span className="text-xs text-slate-400 ml-2 font-sans">
+                          ({s.lastNameFr} {s.firstNameFr})
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <span className="text-xs font-mono text-slate-400">{s.studentNumber}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         {loading && <div className="mt-3 flex justify-center"><div className="w-5 h-5 border-2 border-[#2563EB] border-t-transparent rounded-full animate-spin" /></div>}
         {feedback && (
           <div className={`mt-3 flex items-center gap-2 px-4 py-3 rounded-xl border text-sm font-bold animate-fade-in ${feedbackCls}`}>
@@ -140,6 +241,7 @@ function SmartScanner({ lang }: { lang: string }) {
           </div>
         )}
       </div>
+
 
       {resolved && (
         <div className="bg-white rounded-2xl border border-border p-5 shadow-lg animate-fade-in space-y-4">

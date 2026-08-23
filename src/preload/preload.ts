@@ -72,6 +72,8 @@ const api = {
       invoke<{ token: string }>(IPC_CHANNELS.STUDENTS_REGEN_QR, { id }),
     getPhotoUrl: (filename: string, entityType: 'student' | 'teacher') =>
       invoke<{ dataUrl: string | null }>(IPC_CHANNELS.STUDENTS_GET_PHOTO_URL, { filename, entityType }),
+    searchByName: (query: string) =>
+      invoke<any[]>(IPC_CHANNELS.STUDENTS_SEARCH_NAME, { query }),
   },
 
   teachers: {

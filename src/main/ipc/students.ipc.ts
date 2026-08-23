@@ -9,6 +9,7 @@ import {
   updateStudent, archiveStudent, regenerateQRToken
 } from '../services/student.service'
 import { getPhotoAsDataUrl } from '../services/media.service'
+import { getSqlite } from '../database/connection'
 import { z } from 'zod'
 
 export function registerStudentHandlers(): void {
@@ -52,5 +53,39 @@ export function registerStudentHandlers(): void {
     }).parse(payload)
     const dataUrl = getPhotoAsDataUrl(filename, entityType)
     return { dataUrl }
+  })
+
+  // ─── Live name search (autocomplete, max 7 results) ─────────────────────
+
+  handle(IPC_CHANNELS.STUDENTS_SEARCH_NAME, async (payload) => {
+    const { query } = z.object({ query: z.string().min(1).max(100) }).parse(payload)
+    const sqlite = getSqlite()
+    const q = `%${query.trim()}%`
+    const rows = sqlite.prepare(`
+      SELECT id, student_number, first_name_ar, last_name_ar, first_name_fr, last_name_fr, status
+      FROM students
+      WHERE status != 'archived'
+        AND (
+          first_name_ar  LIKE ? OR last_name_ar  LIKE ?
+          OR first_name_fr LIKE ? OR last_name_fr LIKE ?
+          OR (last_name_ar || ' ' || first_name_ar) LIKE ?
+          OR (first_name_ar || ' ' || last_name_ar) LIKE ?
+          OR (last_name_fr || ' ' || first_name_fr) LIKE ?
+          OR (first_name_fr || ' ' || last_name_fr) LIKE ?
+          OR student_number LIKE ?
+        )
+      ORDER BY last_name_ar, first_name_ar
+      LIMIT 7
+    `).all(q, q, q, q, q, q, q, q, q) as any[]
+
+    return rows.map(r => ({
+      id: r.id,
+      studentNumber: r.student_number,
+      firstNameAr: r.first_name_ar,
+      lastNameAr: r.last_name_ar,
+      firstNameFr: r.first_name_fr,
+      lastNameFr: r.last_name_fr,
+      status: r.status,
+    }))
   })
 }
