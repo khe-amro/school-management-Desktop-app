@@ -4,8 +4,9 @@ import crypto from 'node:crypto'
 import { app } from 'electron'
 import archiver from 'archiver'
 import extract from 'extract-zip'
-import { getSqlite, getDatabasePath_ } from '../database/connection'
-import { requireSession } from './auth.service'
+import { initializeDatabase, closeDatabase, getDatabasePath_ } from '../database/connection'
+import { runMigrations } from '../database/migrator'
+import { requireSession, clearSession } from './auth.service'
 import { getSettings } from './settings.service'
 import { AppError, ErrorCode } from '../../shared/errors/index'
 import { BACKUP_DIR_DEFAULT } from '../../shared/constants/index'
@@ -155,8 +156,6 @@ export async function restoreBackup(backupPath: string): Promise<void> {
   const tmpDir = path.join(app.getPath('temp'), `edupilot-restore-${Date.now()}`)
   fs.mkdirSync(tmpDir, { recursive: true })
 
-  let dbClosed = false
-
   try {
     await extract(backupPath, { dir: tmpDir })
 
@@ -185,13 +184,17 @@ export async function restoreBackup(backupPath: string): Promise<void> {
     }
 
     // 3. Close DB — only after all validation passes
-    const sqlite = getSqlite()
-    sqlite.close()
-    dbClosed = true
+    closeDatabase()
 
     // 4. Replace database
     const dbPath = getDatabasePath_()
     fs.copyFileSync(dbInBackup, dbPath)
+
+    // Remove any leftover WAL/SHM files to ensure clean connection
+    try {
+      if (fs.existsSync(`${dbPath}-wal`)) fs.unlinkSync(`${dbPath}-wal`)
+      if (fs.existsSync(`${dbPath}-shm`)) fs.unlinkSync(`${dbPath}-shm`)
+    } catch { /* ignore */ }
 
     // 5. Restore all media (students, teachers, administrators)
     const userData = app.getPath('userData')
@@ -202,26 +205,15 @@ export async function restoreBackup(backupPath: string): Promise<void> {
       fs.cpSync(mediaInBackup, targetMedia, { recursive: true })
     }
 
-    log.info(`Restore completed by admin ${session.adminId}. Relaunching...`)
+    // 6. Re-open database with restored data & apply migrations if needed
+    await initializeDatabase()
+    await runMigrations()
 
-    // 6. Relaunch to re-initialize DB with restored data
-    setTimeout(() => {
-      const { app: electronApp } = require('electron')
-      electronApp.relaunch()
-      electronApp.exit(0)
-    }, 800)
+    // 7. Clear authentication session so user logs in with restored credentials
+    clearSession()
 
-  } catch (err) {
-    // If DB was closed before the error, we're in a bad state — still try to relaunch
-    if (dbClosed) {
-      log.error('Error after DB close during restore — forcing relaunch:', err)
-      setTimeout(() => {
-        const { app: electronApp } = require('electron')
-        electronApp.relaunch()
-        electronApp.exit(0)
-      }, 800)
-    }
-    throw err
+    log.info(`Restore completed by admin ${session.adminId}. Database re-initialized cleanly.`)
+
   } finally {
     // Clean up temp dir
     try { fs.rmSync(tmpDir, { recursive: true }) } catch { /* ignore */ }

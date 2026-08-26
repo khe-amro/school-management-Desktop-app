@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Archive, HardDrive, CheckCircle2, XCircle, RefreshCw } from 'lucide-react'
+import { useAuth } from '../features/auth/AuthContext'
 import type { BackupInfo } from '@shared/types/index'
 
 function formatBytes(bytes: number): string {
@@ -11,6 +13,9 @@ function formatBytes(bytes: number): string {
 
 export default function Backups() {
   const { t } = useTranslation()
+  const { logout } = useAuth()
+  const navigate = useNavigate()
+
   const [backups, setBackups] = useState<BackupInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
@@ -51,12 +56,13 @@ export default function Backups() {
   const handleRestore = async () => {
     if (!selectedBackup || !confirmPassword) return
     setRestoring(true)
+    setMessage(null)
     const res = await window.schoolApp.backups.restore(selectedBackup.path, confirmPassword)
     setRestoring(false)
     if (res.success) {
-      setMessage({ type: 'success', text: t('backups.restoreComplete') })
-      setSelectedBackup(null)
-      setConfirmPassword('')
+      // Clear current session and redirect cleanly to /login
+      await logout()
+      navigate('/login', { replace: true })
     } else {
       setMessage({ type: 'error', text: res.error ?? t('errors.RESTORE_FAILED') })
     }
