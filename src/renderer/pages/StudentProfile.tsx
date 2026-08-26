@@ -548,10 +548,10 @@ export default function StudentProfile() {
                     <div className="flex justify-between items-center mb-4">
                       <h4 className="font-bold text-sm text-[#0F172A]">{t('nav.payments')}</h4>
                       <button
-                        onClick={() => navigate('/payments')}
-                        className="text-xs text-[#2563EB] hover:underline font-semibold"
+                        onClick={() => navigate(`/payments?studentId=${student.id}`)}
+                        className="text-xs text-[#2563EB] hover:underline font-semibold flex items-center gap-1"
                       >
-                        {t('payments.add')} →
+                        + {t('payments.add')}
                       </button>
                     </div>
 

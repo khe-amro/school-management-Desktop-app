@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { CheckCircle2, Building2, User, Globe } from 'lucide-react'
+import { CheckCircle2, Building2, User, Globe, Eye, EyeOff } from 'lucide-react'
 import { useAuth } from '../features/auth/AuthContext'
 import { switchLanguage, type SupportedLanguage } from '../i18n/i18n'
 
@@ -12,6 +12,8 @@ export default function Setup() {
   const [step, setStep] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
 
   const [form, setForm] = useState({
     schoolNameAr: '',
@@ -19,7 +21,7 @@ export default function Setup() {
     phone: '',
     email: '',
     address: '',
-    academicYear: '2025-2026',
+    academicYear: `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`,
     adminFullName: '',
     adminUsername: '',
     adminPassword: '',
@@ -29,6 +31,12 @@ export default function Setup() {
 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }))
+
+  // Go back without clearing form data
+  const prevStep = () => {
+    setError('')
+    setStep((s) => Math.max(0, s - 1))
+  }
 
   const nextStep = () => {
     setError('')
@@ -130,11 +138,14 @@ export default function Setup() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className={labelCls}>{t('setup.schoolPhone')}</label>
-                  <input className={inputCls} value={form.phone} onChange={set('phone')} placeholder="0550 123 456" dir="ltr" />
+                  <input className={inputCls} value={form.phone} onChange={set('phone')} placeholder="0550 123 456" dir="ltr"
+                    onKeyDown={(e) => { if (!/[\d\s+\-()]/.test(e.key) && e.key.length === 1) e.preventDefault() }} />
                 </div>
                 <div>
                   <label className={labelCls}>{t('setup.academicYear')}</label>
-                  <input className={inputCls} value={form.academicYear} onChange={set('academicYear')} dir="ltr" />
+                  <input className={inputCls} value={form.academicYear} onChange={set('academicYear')} dir="ltr"
+                    placeholder="2025-2026"
+                    onKeyDown={(e) => { if (!/[\d\-]/.test(e.key) && e.key.length === 1) e.preventDefault() }} />
                 </div>
               </div>
               <div>
@@ -165,12 +176,46 @@ export default function Setup() {
               </div>
               <div>
                 <label className={labelCls}>{t('setup.adminPassword')} *</label>
-                <input type="password" className={inputCls} value={form.adminPassword} onChange={set('adminPassword')} dir="ltr" autoComplete="new-password" />
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    className={`${inputCls} pr-10`}
+                    value={form.adminPassword}
+                    onChange={set('adminPassword')}
+                    dir="ltr"
+                    autoComplete="new-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    className="absolute inset-y-0 right-0 px-3 flex items-center text-slate-400 hover:text-slate-600"
+                    tabIndex={-1}
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
                 <p className="text-xs text-slate-400 mt-1">{t('setup.minPasswordLength')}</p>
               </div>
               <div>
                 <label className={labelCls}>{t('auth.confirmPassword')} *</label>
-                <input type="password" className={inputCls} value={form.confirmPassword} onChange={set('confirmPassword')} dir="ltr" autoComplete="new-password" />
+                <div className="relative">
+                  <input
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    className={`${inputCls} pr-10`}
+                    value={form.confirmPassword}
+                    onChange={set('confirmPassword')}
+                    dir="ltr"
+                    autoComplete="new-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword((v) => !v)}
+                    className="absolute inset-y-0 right-0 px-3 flex items-center text-slate-400 hover:text-slate-600"
+                    tabIndex={-1}
+                  >
+                    {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -224,7 +269,7 @@ export default function Setup() {
           {/* Actions */}
           <div className="flex justify-between mt-8">
             {step > 0 ? (
-              <button onClick={() => setStep((s) => s - 1)} className="text-sm text-slate-500 hover:text-slate-800 transition-colors">
+              <button onClick={prevStep} className="text-sm text-slate-500 hover:text-slate-800 transition-colors">
                 ← {t('setup.back')}
               </button>
             ) : <span />}

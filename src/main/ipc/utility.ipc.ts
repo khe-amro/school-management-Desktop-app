@@ -1,5 +1,6 @@
 import { handle } from './_handler'
 import { ipcMain, dialog, app, shell } from 'electron'
+import path from 'path'
 import { IPC_CHANNELS } from '../../shared/constants/index'
 import { UpdateSettingsSchema, RestoreBackupSchema, UploadPhotoSchema } from '../../shared/schemas/index'
 import { getSettings, updateSettings } from '../services/settings.service'
@@ -231,8 +232,13 @@ export function registerUtilityHandlers(): void {
 
   // File dialogs (main process only — never let renderer specify arbitrary paths)
   handle(IPC_CHANNELS.APP_OPEN_BACKUP_DIALOG, async () => {
+    // Pre-navigate to the backups folder so non-technical users can find their backups
+    const settings = await getSettings()
+    const defaultBackupDir = settings?.backupDirectory ?? path.join(app.getPath('userData'), 'backups')
+
     const result = await dialog.showOpenDialog({
       title: 'Sélectionner le fichier de sauvegarde',
+      defaultPath: defaultBackupDir,
       filters: [{ name: 'Backup Files', extensions: ['zip'] }],
       properties: ['openFile'],
     })

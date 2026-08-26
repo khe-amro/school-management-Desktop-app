@@ -276,13 +276,13 @@ const MIGRATIONS: { version: number; name: string; sql: string }[] = [
       CREATE INDEX IF NOT EXISTS idx_sessions_schedule_slot ON attendance_sessions(schedule_slot_id);
     `,
   },
-  {
-    version: 3,
-    name: 'add_room_to_attendance_sessions',
-    sql: `
-      ALTER TABLE attendance_sessions ADD COLUMN room TEXT;
-    `,
-  },
+ {
+  version: 3,
+  name: 'fix_attendance_room_duplicate',
+  sql: `
+    SELECT 1;
+  `,
+},
 ]
 
 // ─── Migration runner ─────────────────────────────────────────────────────────

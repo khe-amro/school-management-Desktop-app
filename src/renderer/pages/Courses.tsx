@@ -506,7 +506,15 @@ export default function Courses() {
           </div>
           <div>
             <label className={labelCls}>{t('courses.defaultPrice')}</label>
-            <input type="number" className={inputCls} value={courseForm.defaultPrice} onChange={(e) => setCourseForm(f => ({ ...f, defaultPrice: e.target.value }))} dir="ltr" />
+            <input
+              type="number"
+              min="0"
+              className={inputCls}
+              value={courseForm.defaultPrice}
+              onChange={(e) => setCourseForm(f => ({ ...f, defaultPrice: e.target.value }))}
+              onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault() }}
+              dir="ltr"
+            />
           </div>
           {error && <p className="text-xs text-red-600">{error}</p>}
           <div className="flex justify-end gap-2 pt-3">
@@ -535,11 +543,27 @@ export default function Courses() {
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className={labelCls}>{t('courses.monthlyPrice')}</label>
-              <input type="number" className={inputCls} value={groupForm.monthlyPrice} onChange={(e) => setGroupForm(f => ({ ...f, monthlyPrice: e.target.value }))} dir="ltr" />
+              <input
+                type="number"
+                min="0"
+                className={inputCls}
+                value={groupForm.monthlyPrice}
+                onChange={(e) => setGroupForm(f => ({ ...f, monthlyPrice: e.target.value }))}
+                onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault() }}
+                dir="ltr"
+              />
             </div>
             <div>
               <label className={labelCls}>{t('courses.capacity')}</label>
-              <input type="number" className={inputCls} value={groupForm.capacity} onChange={(e) => setGroupForm(f => ({ ...f, capacity: e.target.value }))} dir="ltr" />
+              <input
+                type="number"
+                min="1"
+                className={inputCls}
+                value={groupForm.capacity}
+                onChange={(e) => setGroupForm(f => ({ ...f, capacity: e.target.value }))}
+                onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault() }}
+                dir="ltr"
+              />
             </div>
           </div>
           <div>

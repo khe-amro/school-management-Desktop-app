@@ -135,11 +135,32 @@ export default function StudentForm() {
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className={labelCls}>{t('students.phone')}</label>
-            <input className={inputCls} value={form.phone} onChange={set('phone')} dir="ltr" placeholder="0550 123 456" />
+            <input
+              className={inputCls}
+              value={form.phone}
+              onChange={set('phone')}
+              dir="ltr"
+              placeholder="0550 123 456"
+              onKeyDown={(e) => {
+                if (!/[\d\s+\-()Backspace Delete ArrowLeft ArrowRight Tab]/.test(e.key) && e.key.length === 1) {
+                  e.preventDefault()
+                }
+              }}
+            />
           </div>
           <div>
             <label className={labelCls}>{t('students.secondaryPhone')}</label>
-            <input className={inputCls} value={form.secondaryPhone} onChange={set('secondaryPhone')} dir="ltr" />
+            <input
+              className={inputCls}
+              value={form.secondaryPhone}
+              onChange={set('secondaryPhone')}
+              dir="ltr"
+              onKeyDown={(e) => {
+                if (!/[\d\s+\-()Backspace Delete ArrowLeft ArrowRight Tab]/.test(e.key) && e.key.length === 1) {
+                  e.preventDefault()
+                }
+              }}
+            />
           </div>
         </div>
 
@@ -163,7 +184,17 @@ export default function StudentForm() {
           </div>
           <div className="mt-3">
             <label className={labelCls}>{t('students.guardianPhone')}</label>
-            <input className={inputCls} value={form.guardianPhone} onChange={set('guardianPhone')} dir="ltr" />
+            <input
+              className={inputCls}
+              value={form.guardianPhone}
+              onChange={set('guardianPhone')}
+              dir="ltr"
+              onKeyDown={(e) => {
+                if (!/[\d\s+\-()Backspace Delete ArrowLeft ArrowRight Tab]/.test(e.key) && e.key.length === 1) {
+                  e.preventDefault()
+                }
+              }}
+            />
           </div>
         </div>
 

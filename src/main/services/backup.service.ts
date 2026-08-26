@@ -8,7 +8,7 @@ import { getSqlite, getDatabasePath_ } from '../database/connection'
 import { requireSession } from './auth.service'
 import { getSettings } from './settings.service'
 import { AppError, ErrorCode } from '../../shared/errors/index'
-import { BACKUP_DIR_DEFAULT, STUDENTS_PHOTO_DIR, TEACHERS_PHOTO_DIR } from '../../shared/constants/index'
+import { BACKUP_DIR_DEFAULT } from '../../shared/constants/index'
 import type { BackupInfo } from '../../shared/types/index'
 import log from 'electron-log'
 
@@ -53,16 +53,10 @@ export async function createBackup(destinationDir?: string): Promise<BackupInfo>
     // Include database
     archive.file(dbPath, { name: 'data/school-management.sqlite' })
 
-    // Include student photos
-    const studentsPhotoDir = path.join(userData, STUDENTS_PHOTO_DIR)
-    if (fs.existsSync(studentsPhotoDir)) {
-      archive.directory(studentsPhotoDir, 'media/students')
-    }
-
-    // Include teacher photos
-    const teachersPhotoDir = path.join(userData, TEACHERS_PHOTO_DIR)
-    if (fs.existsSync(teachersPhotoDir)) {
-      archive.directory(teachersPhotoDir, 'media/teachers')
+    // Include ALL media folders (students, teachers, administrators)
+    const mediaDir = path.join(userData, 'media')
+    if (fs.existsSync(mediaDir)) {
+      archive.directory(mediaDir, 'media')
     }
 
     // Manifest
@@ -137,14 +131,6 @@ export async function listBackups(): Promise<BackupInfo[]> {
 }
 
 export async function verifyBackup(backupPath: string): Promise<boolean> {
-  // Prevent path traversal
-  const settings = await getSettings()
-  const backupDir = settings?.backupDirectory ?? getDefaultBackupDir()
-  const resolved = path.resolve(backupPath)
-  if (!resolved.startsWith(path.resolve(backupDir))) {
-    throw new AppError(ErrorCode.PATH_TRAVERSAL, 'Invalid backup path')
-  }
-
   if (!fs.existsSync(backupPath)) {
     throw new AppError(ErrorCode.BACKUP_NOT_FOUND, 'Backup file not found')
   }
@@ -160,25 +146,16 @@ export async function verifyBackup(backupPath: string): Promise<boolean> {
 export async function restoreBackup(backupPath: string): Promise<void> {
   const session = requireSession()
 
-  // Validate path
-  const settings = await getSettings()
-  const backupDir = settings?.backupDirectory ?? getDefaultBackupDir()
-  const resolved = path.resolve(backupPath)
-  if (!resolved.startsWith(path.resolve(backupDir))) {
-    throw new AppError(ErrorCode.PATH_TRAVERSAL, 'Invalid backup path')
-  }
-
+  // Basic file validation — no path restriction (user can restore from any location)
   if (!fs.existsSync(backupPath) || !backupPath.endsWith('.zip')) {
     throw new AppError(ErrorCode.BACKUP_NOT_FOUND, 'Backup file not found or invalid')
   }
 
-  // 1. Back up current data first
-  log.info('Creating pre-restore backup...')
-  await createBackup(path.join(app.getPath('userData'), 'backups', 'pre-restore'))
-
-  // 2. Extract to temp dir and validate structure
+  // 1. Extract to temp dir FIRST and validate structure — DB must stay open until we're sure
   const tmpDir = path.join(app.getPath('temp'), `edupilot-restore-${Date.now()}`)
   fs.mkdirSync(tmpDir, { recursive: true })
+
+  let dbClosed = false
 
   try {
     await extract(backupPath, { dir: tmpDir })
@@ -193,21 +170,30 @@ export async function restoreBackup(backupPath: string): Promise<void> {
       throw new AppError(ErrorCode.BACKUP_INVALID, 'Backup is from a different application')
     }
 
-    // Validate DB is present
+    // Validate DB is present in backup
     const dbInBackup = path.join(tmpDir, 'data', 'school-management.sqlite')
     if (!fs.existsSync(dbInBackup)) {
       throw new AppError(ErrorCode.BACKUP_INVALID, 'Backup does not contain a database file')
     }
 
-    // 3. Close DB connection
+    // 2. Create a safety backup of current state before overwriting
+    log.info('Creating pre-restore safety backup...')
+    try {
+      await createBackup(path.join(app.getPath('userData'), 'backups', 'pre-restore'))
+    } catch (safetyErr) {
+      log.warn('Pre-restore safety backup failed (continuing):', safetyErr)
+    }
+
+    // 3. Close DB — only after all validation passes
     const sqlite = getSqlite()
     sqlite.close()
+    dbClosed = true
 
     // 4. Replace database
     const dbPath = getDatabasePath_()
     fs.copyFileSync(dbInBackup, dbPath)
 
-    // 5. Restore media
+    // 5. Restore all media (students, teachers, administrators)
     const userData = app.getPath('userData')
     const mediaInBackup = path.join(tmpDir, 'media')
     if (fs.existsSync(mediaInBackup)) {
@@ -216,15 +202,26 @@ export async function restoreBackup(backupPath: string): Promise<void> {
       fs.cpSync(mediaInBackup, targetMedia, { recursive: true })
     }
 
-    log.info(`Restore completed by admin ${session.adminId}. Restarting...`)
+    log.info(`Restore completed by admin ${session.adminId}. Relaunching...`)
 
-    // 6. Restart app to re-initialize DB
+    // 6. Relaunch to re-initialize DB with restored data
     setTimeout(() => {
       const { app: electronApp } = require('electron')
       electronApp.relaunch()
       electronApp.exit(0)
-    }, 1000)
+    }, 800)
 
+  } catch (err) {
+    // If DB was closed before the error, we're in a bad state — still try to relaunch
+    if (dbClosed) {
+      log.error('Error after DB close during restore — forcing relaunch:', err)
+      setTimeout(() => {
+        const { app: electronApp } = require('electron')
+        electronApp.relaunch()
+        electronApp.exit(0)
+      }, 800)
+    }
+    throw err
   } finally {
     // Clean up temp dir
     try { fs.rmSync(tmpDir, { recursive: true }) } catch { /* ignore */ }

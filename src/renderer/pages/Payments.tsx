@@ -1,8 +1,9 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useLocation } from 'react-router-dom'
 import {
   Plus, Search, Printer, X, TrendingUp, AlertTriangle, CheckCircle2, Clock,
-  BookOpen, AlertCircle, CreditCard
+  BookOpen, AlertCircle, CreditCard, ChevronDown, Filter
 } from 'lucide-react'
 import type { Payment, Student, Enrollment, Group, Course } from '@shared/types/index'
 
@@ -21,14 +22,110 @@ function normalizeNumberInput(val: string): string {
   return ascii.replace(/[^0-9.]/g, '')
 }
 
+// ── Searchable Student Combobox ─────────────────────────────────────────────
+function StudentCombobox({
+  students,
+  value,
+  onChange,
+  inputCls,
+  placeholder,
+}: {
+  students: Student[]
+  value: string
+  onChange: (id: string) => void
+  inputCls: string
+  placeholder: string
+}) {
+  const [query, setQuery] = useState('')
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  // Sync display label when value changes from outside (e.g. auto-select)
+  const selectedStudent = students.find((s) => String(s.id) === value)
+  const displayLabel = selectedStudent
+    ? `${selectedStudent.lastNameAr} ${selectedStudent.firstNameAr} — ${selectedStudent.studentNumber}`
+    : ''
+
+  useEffect(() => {
+    if (!open) setQuery('')
+  }, [open])
+
+  // Close on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const q = query.toLowerCase()
+  const filtered = query
+    ? students.filter((s) =>
+        `${s.lastNameAr} ${s.firstNameAr} ${s.lastNameFr} ${s.firstNameFr} ${s.studentNumber} ${s.phone ?? ''}`
+          .toLowerCase()
+          .includes(q)
+      )
+    : students
+
+  return (
+    <div ref={ref} className="relative">
+      <div
+        className={`${inputCls} flex items-center cursor-pointer gap-2`}
+        onClick={() => setOpen((v) => !v)}
+      >
+        {open ? (
+          <input
+            autoFocus
+            className="flex-1 outline-none bg-transparent text-sm"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={placeholder}
+            onClick={(e) => e.stopPropagation()}
+          />
+        ) : (
+          <span className={`flex-1 text-sm truncate ${!displayLabel ? 'text-slate-400' : ''}`}>
+            {displayLabel || placeholder}
+          </span>
+        )}
+        <ChevronDown size={14} className="shrink-0 text-slate-400" />
+      </div>
+      {open && (
+        <div className="absolute z-50 mt-1 w-full bg-white border border-border rounded-lg shadow-lg max-h-52 overflow-y-auto">
+          {filtered.length === 0 ? (
+            <div className="px-3 py-2 text-xs text-slate-400">Aucun résultat</div>
+          ) : (
+            filtered.map((s) => (
+              <div
+                key={s.id}
+                className={`px-3 py-2 text-sm cursor-pointer hover:bg-blue-50 flex justify-between items-center ${String(s.id) === value ? 'bg-blue-50 font-semibold text-[#2563EB]' : ''}`}
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  onChange(String(s.id))
+                  setOpen(false)
+                }}
+              >
+                <span>{s.lastNameAr} {s.firstNameAr}</span>
+                <span className="text-[10px] font-mono text-slate-400">{s.studentNumber}</span>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Payments() {
   const { t, i18n } = useTranslation()
   const lang = i18n.language as 'ar' | 'fr' | 'en'
+  const location = useLocation()
 
   const [payments, setPayments] = useState<Payment[]>([])
   const [summary, setSummary] = useState<PaymentSummary>({ monthRevenue: 0, todayCollected: 0, outstanding: 0, overdue: 0 })
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [overdueFilter, setOverdueFilter] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -72,6 +169,15 @@ export default function Payments() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  // ── Auto-open form with pre-selected student when navigating from StudentProfile ──
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const preselectedStudentId = params.get('studentId')
+    if (preselectedStudentId) {
+      openForm(preselectedStudentId)
+    }
+  }, [location.search])
 
   const handleStudentChange = async (sid: string) => {
     setError('')
@@ -128,12 +234,13 @@ export default function Payments() {
     }))
   }
 
-  const openForm = async () => {
-    const sr = await window.schoolApp.students.list({ status: 'active', pageSize: 200 })
-    if (sr.success && sr.data) setStudents(sr.data.items)
-    setEnrollments([])
-    setForm({
-      studentId: '',
+  const openForm = async (preselectedStudentId?: string) => {
+    const sr = await window.schoolApp.students.list({ status: 'active', pageSize: 1000 })
+    const studentList = sr.success && sr.data ? sr.data.items : []
+    setStudents(studentList)
+
+    const defaultForm = {
+      studentId: preselectedStudentId ?? '',
       enrollmentId: '',
       newGroupId: '',
       billingPeriod: new Date().toISOString().slice(0, 7),
@@ -142,9 +249,25 @@ export default function Payments() {
       paymentDate: new Date().toISOString().slice(0, 10),
       reference: '',
       notes: '',
-    })
+    }
+    setForm(defaultForm)
+    setEnrollments([])
     setError('')
     setShowForm(true)
+
+    // If a student is pre-selected, auto-load their enrollments
+    if (preselectedStudentId) {
+      const res = await window.schoolApp.enrollments.byStudent(Number(preselectedStudentId))
+      if (res.success && res.data && res.data.length > 0) {
+        setEnrollments(res.data)
+        const first = res.data[0]
+        setForm((f) => ({
+          ...f,
+          enrollmentId: String(first.id),
+          amount: String(first.agreedPrice || ''),
+        }))
+      }
+    }
   }
 
   const handleSave = async () => {
@@ -233,18 +356,19 @@ export default function Payments() {
   const inputCls = 'w-full px-3 py-2 border border-border rounded-lg text-sm focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 bg-white'
   const labelCls = 'block text-xs font-medium text-slate-600 mb-1'
 
-  const filtered = search
-    ? payments.filter((p) => {
-        const q = search.toLowerCase()
-        return (
-          p.receiptNumber.toLowerCase().includes(q) ||
-          (p.studentName && p.studentName.toLowerCase().includes(q)) ||
-          (p.studentNumber && p.studentNumber.toLowerCase().includes(q)) ||
-          (p.courseName && p.courseName.toLowerCase().includes(q)) ||
-          (p.groupName && p.groupName.toLowerCase().includes(q))
-        )
-      })
-    : payments
+  // ── Filter: search text + overdue toggle ──
+  const filtered = payments.filter((p) => {
+    if (overdueFilter && p.status !== 'cancelled') return false
+    if (!search) return true
+    const q = search.toLowerCase()
+    return (
+      p.receiptNumber.toLowerCase().includes(q) ||
+      (p.studentName && p.studentName.toLowerCase().includes(q)) ||
+      (p.studentNumber && p.studentNumber.toLowerCase().includes(q)) ||
+      (p.courseName && p.courseName.toLowerCase().includes(q)) ||
+      (p.groupName && p.groupName.toLowerCase().includes(q))
+    )
+  })
 
   return (
     <div className="animate-fade-in space-y-6">
@@ -271,13 +395,27 @@ export default function Payments() {
           </div>
           <p className="text-2xl font-bold text-amber-600">{summary.outstanding.toLocaleString()} DA</p>
         </div>
-        <div className="bg-white p-5 rounded-xl border border-border shadow-xs">
+        {/* Overdue card — clickable to filter */}
+        <button
+          onClick={() => setOverdueFilter((v) => !v)}
+          className={`p-5 rounded-xl border shadow-xs text-start transition-colors ${
+            overdueFilter
+              ? 'bg-red-50 border-red-300 ring-2 ring-red-200'
+              : 'bg-white border-border hover:bg-red-50/50'
+          }`}
+        >
           <div className="flex items-center gap-2 mb-1">
             <AlertTriangle size={14} className="text-red-500" />
             <p className="text-xs text-slate-400 font-medium">{t('dashboard.overduePayments')}</p>
+            {overdueFilter && (
+              <span className="ml-auto text-[10px] font-semibold text-red-600 bg-red-100 px-1.5 py-0.5 rounded-full">
+                Filtre actif
+              </span>
+            )}
           </div>
           <p className="text-2xl font-bold text-red-600">{summary.overdue} {t('payments.students')}</p>
-        </div>
+          <p className="text-[10px] text-red-400 mt-1">Cliquer pour filtrer</p>
+        </button>
       </div>
 
       {/* Action Bar */}
@@ -292,8 +430,16 @@ export default function Payments() {
             className="w-full ps-9 pe-3 py-2 border border-border rounded-lg text-sm bg-white focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20"
           />
         </div>
+        {overdueFilter && (
+          <button
+            onClick={() => setOverdueFilter(false)}
+            className="flex items-center gap-1.5 text-xs text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded-lg hover:bg-red-100"
+          >
+            <X size={12} /> Effacer le filtre
+          </button>
+        )}
         <button
-          onClick={openForm}
+          onClick={() => openForm()}
           className="flex items-center gap-2 bg-[#2563EB] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#1D4ED8] transition-colors"
         >
           <Plus size={15} /> {t('payments.add')}
@@ -309,7 +455,7 @@ export default function Payments() {
         ) : filtered.length === 0 ? (
           <div className="text-center py-16 text-slate-400">
             <CreditCard size={36} className="mx-auto mb-2 opacity-30" />
-            <p className="font-medium">{t('payments.noPayments')}</p>
+            <p className="font-medium">{overdueFilter ? 'Aucun paiement en retard' : t('payments.noPayments')}</p>
           </div>
         ) : (
           <table className="w-full text-xs text-start">
@@ -377,17 +523,16 @@ export default function Payments() {
             </div>
 
             <div className="space-y-3.5">
-              {/* Student Selector */}
+              {/* Student Selector — searchable combobox */}
               <div>
                 <label className={labelCls}>{t('payments.student')} *</label>
-                <select className={inputCls} value={form.studentId} onChange={(e) => handleStudentChange(e.target.value)}>
-                  <option value="">— {t('payments.student')} —</option>
-                  {students.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.lastNameAr} {s.firstNameAr} — {s.studentNumber}
-                    </option>
-                  ))}
-                </select>
+                <StudentCombobox
+                  students={students}
+                  value={form.studentId}
+                  onChange={handleStudentChange}
+                  inputCls={inputCls}
+                  placeholder={`— ${t('payments.student')} —`}
+                />
               </div>
 
               {/* Course & Group Selector (Enrollment) */}
@@ -442,6 +587,7 @@ export default function Payments() {
                     className={inputCls}
                     value={form.amount}
                     onChange={(e) => setForm((f) => ({ ...f, amount: normalizeNumberInput(e.target.value) }))}
+                    onKeyDown={(e) => { if (!/[\d.,٠-٩۰-۹Backspace Delete ArrowLeft ArrowRight Tab]/.test(e.key) && e.key.length === 1) e.preventDefault() }}
                     placeholder="0.00"
                     dir="ltr"
                   />
@@ -527,7 +673,6 @@ export default function Payments() {
 
               <div className="border-b border-dashed border-slate-300 my-2" />
 
-              {/* Student info */}
               {receiptModal.studentName && (
                 <div className="flex justify-between">
                   <span className="text-slate-500">{t('payments.student')}:</span>
@@ -541,7 +686,6 @@ export default function Payments() {
                 </div>
               )}
 
-              {/* Course / Group */}
               {(receiptModal.courseName || receiptModal.groupName) && (
                 <div className="flex justify-between">
                   <span className="text-slate-500">{t('payments.courseAndGroup')}:</span>
@@ -576,7 +720,6 @@ export default function Payments() {
 
               <div className="border-b border-dashed border-slate-300 my-2" />
 
-              {/* Amount Total */}
               <div className="flex justify-between items-center pt-1">
                 <span className="font-bold text-sm text-[#0F172A]">{t('payments.amount')}:</span>
                 <span className="font-extrabold text-base text-[#2563EB]">{receiptModal.amount.toLocaleString()} DA</span>
