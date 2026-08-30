@@ -520,13 +520,33 @@ export default function Payments() {
                 </div>
               )}
 
-              {/* Balance info */}
-              {enrollmentBalance && (
-                <div className={`p-3 rounded-lg border text-xs flex items-center justify-between ${
+              {/* Balance info with Transfer & Refund actions */}
+              {enrollmentBalance && form.enrollmentId && (
+                <div className={`p-3 rounded-xl border text-xs flex flex-col gap-2 ${
                   enrollmentBalance.balance < 0 ? 'bg-red-50 border-red-200 text-red-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'
                 }`}>
-                  <span>{lang === 'ar' ? 'الرصيد الحالي' : 'Solde actuel'}:</span>
-                  <span className="font-bold text-base">{enrollmentBalance.balance.toLocaleString()} DA</span>
+                  <div className="flex items-center justify-between">
+                    <span>{lang === 'ar' ? 'الرصيد الحالي لهذا المادة' : 'Solde pour cette matière'}:</span>
+                    <span className="font-bold text-base">{enrollmentBalance.balance.toLocaleString()} DA</span>
+                  </div>
+                  {enrollmentBalance.balance > 0 && (
+                    <div className="flex gap-2 pt-1 border-t border-emerald-200/60 justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setShowTransfer({ enrollmentId: Number(form.enrollmentId), studentId: Number(form.studentId), balance: enrollmentBalance.balance })}
+                        className="px-2.5 py-1 bg-teal-600 text-white rounded text-[11px] font-semibold hover:bg-teal-700 transition-colors"
+                      >
+                        {lang === 'ar' ? 'تحويل الرصيد' : 'Transférer'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowRefund({ enrollmentId: Number(form.enrollmentId), studentId: Number(form.studentId), balance: enrollmentBalance.balance })}
+                        className="px-2.5 py-1 bg-red-600 text-white rounded text-[11px] font-semibold hover:bg-red-700 transition-colors"
+                      >
+                        {lang === 'ar' ? 'إلغاء واسترداد' : 'Annuler & Rembourser'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
               {/* Amount */}
@@ -683,6 +703,76 @@ export default function Payments() {
           </div>
         </div>
       )}
+
+      {/* Transfer Credit Modal */}
+      {showTransfer && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowTransfer(null)}>
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl animate-fade-in" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center pb-3 border-b border-slate-200 mb-4">
+              <h3 className="font-bold text-[#0F172A]">{lang === 'ar' ? 'تحويل الرصيد المتبقي' : 'Transférer le solde'}</h3>
+              <button onClick={() => setShowTransfer(null)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
+            </div>
+
+            <div className="space-y-3.5 text-xs">
+              <div className="p-3 bg-teal-50 border border-teal-200 rounded-xl text-teal-800">
+                <span className="block font-semibold mb-0.5">{lang === 'ar' ? 'الرصيد المتاح للتحويل' : 'Solde disponible'}</span>
+                <span className="text-lg font-bold text-teal-700">{showTransfer.balance.toLocaleString()} DA</span>
+              </div>
+
+              <div>
+                <label className={labelCls}>{lang === 'ar' ? 'التحويل إلى الفوج/المادة' : 'Transférer vers le groupe/matière'}</label>
+                <select className={inputCls} value={toEnrollmentId} onChange={(e) => setToEnrollmentId(e.target.value)}>
+                  <option value="">{lang === 'ar' ? '— اختر الفوج المستهدف —' : '— Choisir le groupe cible —'}</option>
+                  {enrollments.filter(e => e.id !== showTransfer.enrollmentId).map((e) => (
+                    <option key={e.id} value={e.id}>
+                      {e.courseName ? `${e.courseName} — ` : ''}{e.groupName ?? `Groupe #${e.groupId}`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 mt-5">
+              <button onClick={() => setShowTransfer(null)} className="px-4 py-2 border border-border rounded-lg text-xs text-slate-600">
+                {t('common.cancel')}
+              </button>
+              <button onClick={handleTransfer} disabled={saving || !toEnrollmentId} className="px-4 py-2 bg-teal-600 text-white rounded-lg text-xs font-semibold hover:bg-teal-700 disabled:opacity-50">
+                {saving ? (lang === 'ar' ? 'جاري التحويل...' : 'Transfert...') : (lang === 'ar' ? 'تأكيد التحويل' : 'Confirmer le transfert')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Refund Balance Modal */}
+      {showRefund && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowRefund(null)}>
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl animate-fade-in" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center pb-3 border-b border-slate-200 mb-4">
+              <h3 className="font-bold text-[#0F172A]">{lang === 'ar' ? 'إلغاء واسترداد الرصيد' : 'Annuler & Rembourser le solde'}</h3>
+              <button onClick={() => setShowRefund(null)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
+            </div>
+
+            <div className="space-y-3.5 text-xs">
+              <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-800">
+                <p className="font-bold mb-1">{lang === 'ar' ? 'سيتم إرجاع المبلغ المتبقي للطالب:' : 'Montant à rembourser à l\'étudiant :'}</p>
+                <p className="text-2xl font-black text-red-600">{showRefund.balance.toLocaleString()} DA</p>
+                <p className="text-[11px] text-slate-500 mt-1">{lang === 'ar' ? 'وسيتم تغيير حالة الاشتراك إلى ملغى.' : 'Le statut d\'inscription sera défini sur annulé.'}</p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 mt-5">
+              <button onClick={() => setShowRefund(null)} className="px-4 py-2 border border-border rounded-lg text-xs text-slate-600">
+                {t('common.cancel')}
+              </button>
+              <button onClick={handleRefund} disabled={saving} className="px-4 py-2 bg-red-600 text-white rounded-lg text-xs font-semibold hover:bg-red-700 disabled:opacity-50">
+                {saving ? (lang === 'ar' ? 'جاري الاسترداد...' : 'Remboursement...') : (lang === 'ar' ? 'تأكيد الاسترداد' : 'Confirmer le remboursement')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
+

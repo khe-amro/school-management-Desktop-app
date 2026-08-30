@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Plus, ChevronDown, Calendar, Clock, Edit2,
@@ -53,20 +53,27 @@ export default function Courses() {
   const [teachers, setTeachers] = useState<Teacher[]>([])
   const [schedules, setSchedules] = useState<ScheduleSlot[]>([])
   const [expandedCourse, setExpandedCourse] = useState<number | null>(null)
+  const [expandedTeacher, setExpandedTeacher] = useState<string | null>(null) // key: `${courseId}-${teacherId}`
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null)
   const [loading, setLoading] = useState(true)
 
   // Modals
   const [showCourseModal, setShowCourseModal] = useState(false)
-  const [showGroupModal, setShowGroupModal] = useState<number | null>(null)
+  const [showGroupModal, setShowGroupModal] = useState<number | null>(null) // courseId
   const [showScheduleModal, setShowScheduleModal] = useState<Group | null>(null)
   const [showExtraSessionModal, setShowExtraSessionModal] = useState<Group | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  // Slot enrollment modal
+  const [enrollSessionSlot, setEnrollSessionSlot] = useState<ScheduleSlot | null>(null)
+  const [enrollSearch, setEnrollSearch] = useState('')
+  const [enrollStudents, setEnrollStudents] = useState<any[]>([])
+  const [enrolling, setEnrolling] = useState(false)
+  const enrollSearchRef = useRef<HTMLInputElement>(null)
 
   // Forms
   const [courseForm, setCourseForm] = useState({ nameAr: '', nameFr: '', defaultPrice: '' })
-  const [groupForm, setGroupForm] = useState({ name: '', capacity: '30', monthlyPrice: '', startDate: '', endDate: '', room: '' })
+  const [groupForm, setGroupForm] = useState({ name: '', teacherId: '', capacity: '30', monthlyPrice: '', startDate: '', endDate: '', room: '' })
   const [slotForm, setSlotForm] = useState({ weekday: 0, startTime: '09:00', endTime: '11:00', room: '' })
   const [extraSessionForm, setExtraSessionForm] = useState({ date: new Date().toISOString().slice(0, 10), startTime: '14:00', endTime: '16:00', room: '' })
 
@@ -116,24 +123,15 @@ export default function Courses() {
   }
 
   const handleCreateGroup = async (courseId: number) => {
-    if (!groupForm.name.trim() || !groupForm.startDate) {
-      setError(t('courses.fillRequiredFields'))
+    if (!groupForm.name.trim() || !groupForm.startDate || !groupForm.teacherId) {
+      setError(lang === 'ar' ? 'الاسم والأستاذ وتاريخ البداية مطلوبة' : 'Nom, enseignant et date de début requis')
       return
     }
     setSaving(true)
     try {
-      // Find default teacher from course (or first available teacher)
-      const course = courses.find(c => c.id === courseId)
-      const defaultTeacherId = (course as any)?.defaultTeacherId
-        || teachers.find(Boolean)?.id
-      if (!defaultTeacherId) {
-        setError(lang === 'ar' ? 'يجب إضافة أستاذ أولاً' : 'Veuillez créer un enseignant d\'abord')
-        setSaving(false)
-        return
-      }
       const res = await window.schoolApp.groups.create({
         courseId,
-        teacherId: defaultTeacherId,
+        teacherId: Number(groupForm.teacherId),
         name: groupForm.name,
         capacity: Number(groupForm.capacity) || 30,
         monthlyPrice: Number(groupForm.monthlyPrice) || 0,
@@ -143,7 +141,7 @@ export default function Courses() {
       })
       if (res.success) {
         setShowGroupModal(null)
-        setGroupForm({ name: '', capacity: '30', monthlyPrice: '', startDate: '', endDate: '', room: '' })
+        setGroupForm({ name: '', teacherId: '', capacity: '30', monthlyPrice: '', startDate: '', endDate: '', room: '' })
         setError('')
         await loadData()
       } else {
@@ -218,6 +216,41 @@ export default function Courses() {
       }
     } finally { setSaving(false) }
   }
+
+  const handleSearchStudentsForEnroll = async (query: string) => {
+    setEnrollSearch(query)
+    if (!query.trim()) { setEnrollStudents([]); return }
+    try {
+      const res = await window.schoolApp.students.searchByName(query.trim())
+      if (res.success && res.data) setEnrollStudents(res.data)
+      else setEnrollStudents([])
+    } catch { setEnrollStudents([]) }
+  }
+
+  const handleEnrollStudentToGroup = async (studentId: number) => {
+    if (!selectedGroup) return
+    setEnrolling(true)
+    try {
+      const res = await window.schoolApp.enrollments.create({
+        studentId,
+        groupId: selectedGroup.id,
+        agreedPrice: selectedGroup.monthlyPrice,
+        enrollmentDate: new Date().toISOString().slice(0, 10),
+      })
+      if (res.success) {
+        alert(lang === 'ar' ? 'تم تسجيل الطالب في الفوج بنجاح!' : 'Étudiant inscrit au groupe avec succès !')
+        setEnrollSessionSlot(null)
+        setEnrollSearch('')
+        setEnrollStudents([])
+        await loadData()
+      } else {
+        alert(res.error ?? (lang === 'ar' ? 'فشل التسجيل (قد يكون مسجلاً بالفعل)' : 'Échec de l\'inscription'))
+      }
+    } finally {
+      setEnrolling(false)
+    }
+  }
+
 
   const handleDeleteCourse = async (courseId: number, courseName: string) => {
     const msg = lang === 'ar'
@@ -307,105 +340,103 @@ export default function Courses() {
                     </div>
                   </div>
 
-                  {/* Expanded Groups list */}
-                  {isExpanded && (
-                    <div className="border-t border-[#F1F5F9] p-4 bg-slate-50/50 space-y-3">
-                      {courseGroups.length === 0 ? (
-                        <p className="text-xs text-slate-400 text-center py-3">{t('courses.noGroups')}</p>
-                      ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {courseGroups.map((group) => {
-                            const teacher = teachers.find((tch) => tch.id === group.teacherId)
-                            const groupSlots = schedules.filter((s) => s.groupId === group.id)
-                            const isSelected = selectedGroup?.id === group.id
-
-                            return (
+                  {/* Expanded: Teacher → Groups tree */}
+                  {isExpanded && (() => {
+                    // Group by teacher
+                    const teacherIds = [...new Set(courseGroups.map(g => g.teacherId))]
+                    return (
+                      <div className="border-t border-[#F1F5F9] p-3 bg-slate-50/50 space-y-2">
+                        {teacherIds.length === 0 ? (
+                          <p className="text-xs text-slate-400 text-center py-3">{t('courses.noGroups')}</p>
+                        ) : teacherIds.map(tid => {
+                          const teacher = teachers.find(t => t.id === tid)
+                          const teacherGroups = courseGroups.filter(g => g.teacherId === tid)
+                          const tKey = `${course.id}-${tid}`
+                          const tExpanded = expandedTeacher === tKey
+                          const teacherName = teacher ? `${teacher.lastName} ${teacher.firstName}` : t('courses.noTeacher')
+                          return (
+                            <div key={tKey} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                              {/* Teacher row */}
                               <div
-                                key={group.id}
-                                onClick={() => setSelectedGroup(group)}
-                                className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
-                                  isSelected
-                                    ? 'border-[#2563EB] bg-white shadow-md ring-2 ring-[#2563EB]/10'
-                                    : 'border-border bg-white hover:border-slate-300'
-                                }`}
+                                onClick={() => setExpandedTeacher(tExpanded ? null : tKey)}
+                                className="flex items-center justify-between px-3 py-2.5 cursor-pointer hover:bg-slate-50"
                               >
-                                <div className="flex justify-between items-start mb-2">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-7 h-7 rounded-full bg-violet-100 flex items-center justify-center text-violet-600 font-bold text-xs">
+                                    {teacherName.charAt(0)}
+                                  </div>
                                   <div>
-                                    <h4 className="font-bold text-sm text-[#0F172A]">{group.name}</h4>
-                                    <p className="text-xs text-slate-500">
-                                      {teacher ? `${teacher.lastName} ${teacher.firstName}` : t('courses.noTeacher')}
-                                    </p>
-                                  </div>
-                                  <span className="text-xs font-bold text-[#2563EB]">
-                                    {group.monthlyPrice.toLocaleString()} DA
-                                  </span>
-                                </div>
-
-                                <div className="space-y-1 text-[11px] text-slate-500 mt-2 border-t border-slate-100 pt-2">
-                                  <div className="flex justify-between">
-                                    <span>{t('courses.capacity')}:</span>
-                                    <span className="font-medium text-slate-700">{group.capacity}</span>
-                                  </div>
-                                  <div className="flex justify-between">
-                                    <span>{lang === 'ar' ? 'سعر الحصة' : 'Prix / séance'}:</span>
-                                    <span className="font-medium text-emerald-600">{Math.round(group.monthlyPrice / 4).toLocaleString()} DA</span>
-                                  </div>
-                                  <div className="flex justify-between">
-                                    <span>{t('courses.recurringSlots')}:</span>
-                                    <span className="font-medium text-[#2563EB]">{t('courses.slotsCount', { count: groupSlots.length })}</span>
+                                    <p className="text-xs font-bold text-[#0F172A]">{teacherName}</p>
+                                    <p className="text-[10px] text-slate-400">{lang === 'ar' ? `${teacherGroups.length} فوج` : `${teacherGroups.length} groupe(s)`}</p>
                                   </div>
                                 </div>
-
-                                {/* Group Actions */}
-                                <div className="flex gap-1.5 mt-3 pt-2 border-t border-slate-100 flex-wrap">
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      setShowScheduleModal(group)
-                                      setError('')
-                                    }}
-                                    className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[11px] font-medium flex items-center gap-1"
-                                  >
-                                    <Clock size={11} /> {t('courses.schedule')}
-                                  </button>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      setShowExtraSessionModal(group)
-                                      setError('')
-                                    }}
-                                    className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded text-[11px] font-medium flex items-center gap-1"
-                                  >
-                                    <Plus size={11} /> {t('courses.extraSession')}
-                                  </button>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      handleDeleteGroup(group.id, group.name)
-                                    }}
-                                    className="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-500 rounded text-[11px] font-medium flex items-center gap-1 ms-auto"
-                                    title={t('common.delete')}
-                                  >
-                                    <Trash2 size={11} /> {t('common.delete')}
-                                  </button>
-                                </div>
+                                <ChevronDown size={14} className={`text-slate-400 transition-transform ${tExpanded ? 'rotate-180' : ''}`} />
                               </div>
-                            )
-                          })}
-                        </div>
-                      )}
-
-                      <button
-                        onClick={() => {
-                          setShowGroupModal(course.id)
-                          setError('')
-                        }}
-                        className="flex items-center gap-1.5 text-xs text-[#2563EB] font-semibold hover:underline pt-1"
-                      >
-                        <Plus size={13} /> {t('courses.addGroup')}
-                      </button>
-                    </div>
-                  )}
+                              {/* Groups under teacher */}
+                              {tExpanded && (
+                                <div className="border-t border-slate-100 p-2 space-y-2">
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                    {teacherGroups.map(group => {
+                                      const groupSlots = schedules.filter(s => s.groupId === group.id)
+                                      const isSelected = selectedGroup?.id === group.id
+                                      return (
+                                        <div
+                                          key={group.id}
+                                          onClick={() => setSelectedGroup(group)}
+                                          className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                                            isSelected ? 'border-[#2563EB] bg-blue-50/50 shadow ring-1 ring-[#2563EB]/20' : 'border-slate-100 bg-slate-50 hover:border-slate-300'
+                                          }`}
+                                        >
+                                          <div className="flex justify-between items-center mb-1">
+                                            <h4 className="font-bold text-xs text-[#0F172A]">{group.name}</h4>
+                                            <span className="text-[10px] font-bold text-[#2563EB]">{group.monthlyPrice.toLocaleString()} DA</span>
+                                          </div>
+                                          <div className="text-[10px] text-slate-500 space-y-0.5">
+                                            <div className="flex justify-between">
+                                              <span>{lang === 'ar' ? 'سعر الحصة' : 'Séance'}:</span>
+                                              <span className="text-emerald-600 font-medium">{Math.round(group.monthlyPrice / 4).toLocaleString()} DA</span>
+                                            </div>
+                                            <div className="flex justify-between">
+                                              <span>{lang === 'ar' ? 'الطاقة' : 'Capacité'}:</span>
+                                              <span>{group.capacity}</span>
+                                            </div>
+                                            <div className="flex justify-between">
+                                              <span>{lang === 'ar' ? 'الحصص' : 'Créneaux'}:</span>
+                                              <span className="text-[#2563EB]">{groupSlots.length}</span>
+                                            </div>
+                                          </div>
+                                          <div className="flex gap-1 mt-2 pt-2 border-t border-slate-100 flex-wrap">
+                                            <button onClick={e => { e.stopPropagation(); setShowScheduleModal(group); setError('') }}
+                                              className="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded text-[10px] flex items-center gap-0.5">
+                                              <Clock size={9} /> {t('courses.schedule')}
+                                            </button>
+                                            <button onClick={e => { e.stopPropagation(); setShowExtraSessionModal(group); setError('') }}
+                                              className="px-1.5 py-0.5 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded text-[10px] flex items-center gap-0.5">
+                                              <Plus size={9} /> {lang === 'ar' ? 'حصة إضافية' : 'Extra'}
+                                            </button>
+                                            <button onClick={e => { e.stopPropagation(); handleDeleteGroup(group.id, group.name) }}
+                                              className="px-1.5 py-0.5 bg-red-50 hover:bg-red-100 text-red-500 rounded text-[10px] flex items-center gap-0.5 ms-auto">
+                                              <Trash2 size={9} /> {t('common.delete')}
+                                            </button>
+                                          </div>
+                                        </div>
+                                      )
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                        <button
+                          onClick={() => { setShowGroupModal(course.id); setError(''); setGroupForm({ name: '', teacherId: '', capacity: '30', monthlyPrice: '', startDate: '', endDate: '', room: '' }) }}
+                          className="flex items-center gap-1.5 text-xs text-[#2563EB] font-semibold hover:underline pt-1"
+                        >
+                          <Plus size={13} /> {t('courses.addGroup')}
+                        </button>
+                      </div>
+                    )
+                  })()}
                 </div>
               )
             })
@@ -460,6 +491,8 @@ export default function Courses() {
                     <span className="font-semibold text-[#0F172A]">{courseLabel}</span>
                     <span>•</span>
                     <span>{teacherLabel}</span>
+                    <span>•</span>
+                    <span className="text-emerald-600 font-medium">{Math.round(selectedGroup.monthlyPrice / 4).toLocaleString()} DA/{lang === 'ar' ? 'حصة' : 'séance'}</span>
                   </div>
                   {WEEKDAYS.map((day) => {
                     const daySlots = schedules.filter(
@@ -476,15 +509,15 @@ export default function Courses() {
                             <span className="text-slate-400 italic">{t('courses.noClasses')}</span>
                           ) : (
                             daySlots.map((slot) => (
-                              <div
+                              <button
                                 key={slot.id}
-                                className="inline-block bg-white border border-border px-2 py-1 rounded shadow-sm my-0.5"
+                                onClick={() => setEnrollSessionSlot(slot)}
+                                className="inline-block bg-white border border-[#2563EB]/30 px-2 py-1 rounded shadow-sm my-0.5 hover:bg-blue-50 hover:border-[#2563EB] transition-colors"
                               >
                                 <div className="font-bold text-[#2563EB]">{slot.startTime} – {slot.endTime}</div>
-                                {slot.room && (
-                                  <div className="text-[10px] text-slate-500">{slot.room}</div>
-                                )}
-                              </div>
+                                {slot.room && <div className="text-[10px] text-slate-500">{slot.room}</div>}
+                                <div className="text-[10px] text-[#2563EB]/60">{lang === 'ar' ? 'تسجيل طالب' : 'Inscrire'}</div>
+                              </button>
                             ))
                           )}
                         </div>
@@ -537,6 +570,13 @@ export default function Courses() {
           <div>
             <label className={labelCls}>{t('common.name')} *</label>
             <input className={inputCls} value={groupForm.name} onChange={(e) => setGroupForm(f => ({ ...f, name: e.target.value }))} />
+          </div>
+          <div>
+            <label className={labelCls}>{lang === 'ar' ? 'الأستاذ' : 'Enseignant'} *</label>
+            <select className={inputCls} value={groupForm.teacherId} onChange={e => setGroupForm(f => ({ ...f, teacherId: e.target.value }))}>
+              <option value="">{lang === 'ar' ? '— اختر أستاذاً —' : '— Choisir un enseignant —'}</option>
+              {teachers.map(tch => <option key={tch.id} value={tch.id}>{tch.lastName} {tch.firstName}</option>)}
+            </select>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
@@ -708,6 +748,65 @@ export default function Courses() {
           </div>
         </Modal>
       )}
+
+      {/* ── Modal: Enroll Student in Slot / Group ── */}
+      {enrollSessionSlot && selectedGroup && (
+        <Modal
+          title={lang === 'ar' ? `تسجيل طالب في فوج: ${selectedGroup.name}` : `Inscrire un étudiant dans : ${selectedGroup.name}`}
+          onClose={() => { setEnrollSessionSlot(null); setEnrollSearch(''); setEnrollStudents([]) }}
+        >
+          <div className="space-y-3">
+            <div className="bg-blue-50 p-2.5 rounded-lg text-xs text-[#2563EB]">
+              <span className="font-bold">{lang === 'ar' ? 'التوقيت' : 'Horaire'}: </span>
+              {enrollSessionSlot.startTime} – {enrollSessionSlot.endTime} ({enrollSessionSlot.room ?? '—'})
+            </div>
+
+            <div>
+              <label className={labelCls}>{lang === 'ar' ? 'البحث عن طالب (بالاسم أو اللقب)' : 'Rechercher un étudiant (par nom/prénom)'}</label>
+              <input
+                ref={enrollSearchRef}
+                type="text"
+                autoFocus
+                className={inputCls}
+                placeholder={lang === 'ar' ? 'اكتب اسم الطالب...' : 'Tapez le nom de l\'étudiant...'}
+                value={enrollSearch}
+                onChange={(e) => handleSearchStudentsForEnroll(e.target.value)}
+              />
+            </div>
+
+            {/* Results list */}
+            {enrollSearch.trim() && (
+              <div className="max-h-52 overflow-y-auto border border-border rounded-lg divide-y divide-slate-100 bg-white">
+                {enrollStudents.length === 0 ? (
+                  <div className="p-3 text-xs text-slate-400 text-center">
+                    {lang === 'ar' ? 'لم يتم العثور على أي طالب' : 'Aucun étudiant trouvé'}
+                  </div>
+                ) : (
+                  enrollStudents.map((st) => (
+                    <div
+                      key={st.id}
+                      className="p-2.5 flex items-center justify-between hover:bg-slate-50 text-xs cursor-pointer"
+                      onClick={() => handleEnrollStudentToGroup(st.id)}
+                    >
+                      <div>
+                        <p className="font-bold text-[#0F172A]">{st.lastName} {st.firstName}</p>
+                        <p className="text-[10px] text-slate-400 font-mono">#{st.registrationNumber}</p>
+                      </div>
+                      <button
+                        disabled={enrolling}
+                        className="px-3 py-1 bg-[#2563EB] text-white text-[11px] font-semibold rounded hover:bg-[#1D4ED8] disabled:opacity-50"
+                      >
+                        {enrolling ? (lang === 'ar' ? 'جاري...' : '...') : (lang === 'ar' ? 'تسجيل' : 'Inscrire')}
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }
+
