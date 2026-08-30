@@ -139,48 +139,6 @@ export function registerUtilityHandlers(): void {
     return { minutes: row ? parseInt(row.value, 10) : 0 }
   })
 
-  // ─── Payments summary stats ────────────────────────────────────────────────
-
-  handle('payments:summary', async () => {
-    requireSession()
-    const sqlite = getSqlite()
-    const today = new Date().toISOString().split('T')[0]
-    const currentMonth = today.substring(0, 7) // YYYY-MM
-
-    const monthRevenue = (sqlite.prepare(`SELECT COALESCE(SUM(amount),0) as total FROM payments WHERE billing_period = ? AND status = 'paid'`).get(currentMonth) as any)?.total ?? 0
-    const todayCollected = (sqlite.prepare(`SELECT COALESCE(SUM(amount),0) as total FROM payments WHERE payment_date = ? AND status = 'paid'`).get(today) as any)?.total ?? 0
-
-    // Outstanding: active enrollments with no paid payment for current month
-    const outstandingRows = sqlite.prepare(`
-      SELECT COALESCE(SUM(e.agreed_price),0) as total
-      FROM enrollments e
-      WHERE e.status = 'active'
-        AND NOT EXISTS (
-          SELECT 1 FROM payments p
-          WHERE p.enrollment_id = e.id
-            AND p.billing_period = ?
-            AND p.status = 'paid'
-        )
-    `).get(currentMonth) as any
-    const outstanding = outstandingRows?.total ?? 0
-
-    // Overdue count: active enrollments missing payment for previous month
-    const prevMonth = new Date(new Date().setMonth(new Date().getMonth() - 1)).toISOString().substring(0, 7)
-    const overdueRows = sqlite.prepare(`
-      SELECT COUNT(*) as cnt
-      FROM enrollments e
-      WHERE e.status = 'active'
-        AND NOT EXISTS (
-          SELECT 1 FROM payments p
-          WHERE p.enrollment_id = e.id
-            AND p.billing_period = ?
-            AND p.status = 'paid'
-        )
-    `).get(prevMonth) as any
-    const overdue = overdueRows?.cnt ?? 0
-
-    return { monthRevenue, todayCollected, outstanding, overdue }
-  })
 
   // Backups
   handle(IPC_CHANNELS.BACKUPS_CREATE, async (payload) => {

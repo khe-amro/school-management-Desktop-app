@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Plus, ChevronDown, Calendar, Clock, Edit2,
-  Trash2, Sparkles, X, BookOpen
+  Trash2, X, BookOpen, DollarSign
 } from 'lucide-react'
 import type { Course, Group, Teacher } from '@shared/types/index'
 
@@ -66,7 +66,7 @@ export default function Courses() {
 
   // Forms
   const [courseForm, setCourseForm] = useState({ nameAr: '', nameFr: '', defaultPrice: '' })
-  const [groupForm, setGroupForm] = useState({ name: '', teacherId: '', capacity: '30', monthlyPrice: '', startDate: '', room: '' })
+  const [groupForm, setGroupForm] = useState({ name: '', capacity: '30', monthlyPrice: '', startDate: '', endDate: '', room: '' })
   const [slotForm, setSlotForm] = useState({ weekday: 0, startTime: '09:00', endTime: '11:00', room: '' })
   const [extraSessionForm, setExtraSessionForm] = useState({ date: new Date().toISOString().slice(0, 10), startTime: '14:00', endTime: '16:00', room: '' })
 
@@ -116,24 +116,34 @@ export default function Courses() {
   }
 
   const handleCreateGroup = async (courseId: number) => {
-    if (!groupForm.name.trim() || !groupForm.teacherId || !groupForm.startDate) {
+    if (!groupForm.name.trim() || !groupForm.startDate) {
       setError(t('courses.fillRequiredFields'))
       return
     }
     setSaving(true)
     try {
+      // Find default teacher from course (or first available teacher)
+      const course = courses.find(c => c.id === courseId)
+      const defaultTeacherId = (course as any)?.defaultTeacherId
+        || teachers.find(Boolean)?.id
+      if (!defaultTeacherId) {
+        setError(lang === 'ar' ? 'يجب إضافة أستاذ أولاً' : 'Veuillez créer un enseignant d\'abord')
+        setSaving(false)
+        return
+      }
       const res = await window.schoolApp.groups.create({
         courseId,
-        teacherId: Number(groupForm.teacherId),
+        teacherId: defaultTeacherId,
         name: groupForm.name,
         capacity: Number(groupForm.capacity) || 30,
         monthlyPrice: Number(groupForm.monthlyPrice) || 0,
         startDate: groupForm.startDate,
+        endDate: groupForm.endDate || null,
         room: groupForm.room || null,
       })
       if (res.success) {
         setShowGroupModal(null)
-        setGroupForm({ name: '', teacherId: '', capacity: '30', monthlyPrice: '', startDate: '', room: '' })
+        setGroupForm({ name: '', capacity: '30', monthlyPrice: '', startDate: '', endDate: '', room: '' })
         setError('')
         await loadData()
       } else {
@@ -172,21 +182,22 @@ export default function Courses() {
     await loadData()
   }
 
-  const handleGenerateSessions = async (groupId: number) => {
-    const startDate = new Date().toISOString().slice(0, 10)
-    const nextMonth = new Date()
-    nextMonth.setMonth(nextMonth.getMonth() + 1)
-    const endDate = nextMonth.toISOString().slice(0, 10)
-
-    setSaving(true)
+  const handleGroupEndDateChange = async (group: Group, newEndDate: string) => {
     try {
-      const res = await window.schoolApp.sessions.generate(groupId, startDate, endDate)
-      if (res.success) {
-        alert(t('courses.generatedSessionsMsg', { count: res.data.generated }))
-      } else {
-        alert(res.error)
+      await window.schoolApp.groups.update(group.id, { endDate: newEndDate || null } as any)
+      if (newEndDate) {
+        // If end date shortened, trim future sessions
+        await window.schoolApp.sessions.trimAfterDate(group.id, newEndDate)
+        // If end date extended, generate new sessions
+        const currentEnd = (group as any).endDate
+        if (!currentEnd || newEndDate > currentEnd) {
+          await window.schoolApp.sessions.generateForGroup(group.id)
+        }
       }
-    } finally { setSaving(false) }
+      await loadData()
+    } catch (err) {
+      console.error('Failed to update end date:', err)
+    }
   }
 
   const handleAddExtraSession = async (groupId: number) => {
@@ -336,6 +347,10 @@ export default function Courses() {
                                     <span className="font-medium text-slate-700">{group.capacity}</span>
                                   </div>
                                   <div className="flex justify-between">
+                                    <span>{lang === 'ar' ? 'سعر الحصة' : 'Prix / séance'}:</span>
+                                    <span className="font-medium text-emerald-600">{Math.round(group.monthlyPrice / 4).toLocaleString()} DA</span>
+                                  </div>
+                                  <div className="flex justify-between">
                                     <span>{t('courses.recurringSlots')}:</span>
                                     <span className="font-medium text-[#2563EB]">{t('courses.slotsCount', { count: groupSlots.length })}</span>
                                   </div>
@@ -352,16 +367,6 @@ export default function Courses() {
                                     className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[11px] font-medium flex items-center gap-1"
                                   >
                                     <Clock size={11} /> {t('courses.schedule')}
-                                  </button>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      handleGenerateSessions(group.id)
-                                    }}
-                                    className="px-2 py-1 bg-[#EFF6FF] hover:bg-blue-100 text-[#2563EB] rounded text-[11px] font-medium flex items-center gap-1"
-                                    title={t('courses.generateTooltip')}
-                                  >
-                                    <Sparkles size={11} /> {t('courses.generate')}
                                   </button>
                                   <button
                                     onClick={(e) => {
@@ -533,16 +538,9 @@ export default function Courses() {
             <label className={labelCls}>{t('common.name')} *</label>
             <input className={inputCls} value={groupForm.name} onChange={(e) => setGroupForm(f => ({ ...f, name: e.target.value }))} />
           </div>
-          <div>
-            <label className={labelCls}>{t('courses.teacher')} *</label>
-            <select className={inputCls} value={groupForm.teacherId} onChange={(e) => setGroupForm(f => ({ ...f, teacherId: e.target.value }))}>
-              <option value="">— {t('courses.teacher')} —</option>
-              {teachers.map((tch) => <option key={tch.id} value={tch.id}>{tch.lastName} {tch.firstName}</option>)}
-            </select>
-          </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className={labelCls}>{t('courses.monthlyPrice')}</label>
+              <label className={labelCls}>{lang === 'ar' ? 'سعر الشهر (DA)' : 'Prix mensuel (DA)'}</label>
               <input
                 type="number"
                 min="0"
@@ -552,6 +550,9 @@ export default function Courses() {
                 onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault() }}
                 dir="ltr"
               />
+              <p className="text-[10px] text-slate-400 mt-0.5">
+                {lang === 'ar' ? `الحصة: ${Math.round(Number(groupForm.monthlyPrice || 0) / 4).toLocaleString()} DA` : `Par séance: ${Math.round(Number(groupForm.monthlyPrice || 0) / 4).toLocaleString()} DA`}
+              </p>
             </div>
             <div>
               <label className={labelCls}>{t('courses.capacity')}</label>
@@ -566,9 +567,15 @@ export default function Courses() {
               />
             </div>
           </div>
-          <div>
-            <label className={labelCls}>{t('courses.startDate')} *</label>
-            <input type="date" className={inputCls} value={groupForm.startDate} onChange={(e) => setGroupForm(f => ({ ...f, startDate: e.target.value }))} dir="ltr" />
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className={labelCls}>{t('courses.startDate')} *</label>
+              <input type="date" className={inputCls} value={groupForm.startDate} onChange={(e) => setGroupForm(f => ({ ...f, startDate: e.target.value }))} dir="ltr" />
+            </div>
+            <div>
+              <label className={labelCls}>{lang === 'ar' ? 'تاريخ الانتهاء (اختياري)' : 'Date de fin (optionnel)'}</label>
+              <input type="date" className={inputCls} value={groupForm.endDate} onChange={(e) => setGroupForm(f => ({ ...f, endDate: e.target.value }))} dir="ltr" />
+            </div>
           </div>
           <div>
             <label className={labelCls}>{t('courses.roomOptional')}</label>

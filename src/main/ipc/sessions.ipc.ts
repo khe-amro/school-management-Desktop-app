@@ -50,7 +50,6 @@ export function registerSessionsHandlers(): void {
     const sqlite = getSqlite()
 
     try {
-      // Get all recurring schedule slots for this group
       const slots = sqlite.prepare(`
         SELECT * FROM group_schedule_slots
         WHERE group_id = ? AND is_active = 1
@@ -61,7 +60,6 @@ export function registerSessionsHandlers(): void {
         return { generated: 0, message: 'No active schedule slots found for this group' }
       }
 
-      // Get group info for teacher and room defaults
       const group = sqlite.prepare('SELECT * FROM groups WHERE id = ?').get(groupId) as any
       if (!group) throw new Error('Group not found')
 
@@ -70,33 +68,21 @@ export function registerSessionsHandlers(): void {
 
       while (currentDate <= endDate) {
         const weekday = getWeekdayFromDate(currentDate)
-
-        // Find matching slots for this weekday
         const matchingSlots = slots.filter((s) => s.weekday === weekday)
 
         for (const slot of matchingSlots) {
-          // Check if session already exists (idempotency)
-          const existing = sqlite.prepare(`
-            SELECT id FROM attendance_sessions
-            WHERE group_id = ? AND session_date = ? AND planned_start_time = ?
-              AND session_type = 'regular' AND schedule_slot_id = ?
-            LIMIT 1
-          `).get(groupId, currentDate, slot.start_time, slot.id)
-
-          if (!existing) {
-            // Create session instance
-            sqlite.prepare(`
-              INSERT INTO attendance_sessions (
-                group_id, session_date, planned_start_time, end_time,
-                room, late_threshold_minutes, status, session_type,
-                schedule_slot_id, created_by, created_at, updated_at
-              ) VALUES (?, ?, ?, ?, ?, 10, 'open', 'regular', ?, 1, datetime('now'), datetime('now'))
-            `).run(
-              groupId, currentDate, slot.start_time, slot.end_time,
-              slot.room || group.room, slot.id
-            )
-            generated++
-          }
+          // Use INSERT OR IGNORE to prevent duplicates (unique index on group+date+slotId)
+          const result = sqlite.prepare(`
+            INSERT OR IGNORE INTO attendance_sessions (
+              group_id, session_date, planned_start_time, end_time,
+              room, late_threshold_minutes, status, session_type,
+              schedule_slot_id, created_by, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, 10, 'open', 'regular', ?, 1, datetime('now'), datetime('now'))
+          `).run(
+            groupId, currentDate, slot.start_time, slot.end_time,
+            slot.room || group.room, slot.id
+          )
+          if (result.changes > 0) generated++
         }
 
         currentDate = addDays(currentDate, 1)
@@ -109,6 +95,82 @@ export function registerSessionsHandlers(): void {
       throw new Error(`Unable to generate sessions: ${err instanceof Error ? err.message : String(err)}`)
     }
   })
+
+  // ─── Auto-generate sessions for full year when group+slots are created ────
+
+  handle('sessions:generateForGroup', async (payload) => {
+    const { groupId } = z.object({ groupId: z.number().int().positive() }).parse(payload)
+    const sqlite = getSqlite()
+
+    try {
+      const group = sqlite.prepare('SELECT * FROM groups WHERE id = ?').get(groupId) as any
+      if (!group) throw new Error('Group not found')
+
+      const slots = sqlite.prepare(`
+        SELECT * FROM group_schedule_slots WHERE group_id = ? AND is_active = 1
+      `).all(groupId) as any[]
+
+      if (slots.length === 0) return { generated: 0, message: 'No slots yet' }
+
+      // Start from group's startDate, end at group's endDate or 1 year from now
+      const startDate = group.start_date
+      let endDate = group.end_date
+      if (!endDate) {
+        const d = new Date()
+        d.setFullYear(d.getFullYear() + 1)
+        endDate = d.toISOString().slice(0, 10)
+      }
+
+      let generated = 0
+      let currentDate = startDate
+
+      while (currentDate <= endDate) {
+        const weekday = getWeekdayFromDate(currentDate)
+        const matchingSlots = slots.filter((s: any) => s.weekday === weekday)
+
+        for (const slot of matchingSlots) {
+          const result = sqlite.prepare(`
+            INSERT OR IGNORE INTO attendance_sessions (
+              group_id, session_date, planned_start_time, end_time,
+              room, late_threshold_minutes, status, session_type,
+              schedule_slot_id, created_by, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, 10, 'open', 'regular', ?, 1, datetime('now'), datetime('now'))
+          `).run(groupId, currentDate, slot.start_time, slot.end_time, slot.room || group.room, slot.id)
+          if (result.changes > 0) generated++
+        }
+
+        currentDate = addDays(currentDate, 1)
+      }
+
+      log.info(`Auto-generated ${generated} sessions for group ${groupId} (${startDate} → ${endDate})`)
+      return { generated, message: `Generated ${generated} sessions through ${endDate}` }
+    } catch (err) {
+      log.error('Failed to auto-generate sessions for group:', err)
+      throw new Error(`Auto-generate failed: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  })
+
+  // ─── Trim sessions after a new end date (when endDate is shortened) ────────
+
+  handle('sessions:trimAfterDate', async (payload) => {
+    const { groupId, afterDate } = z.object({
+      groupId: z.number().int().positive(),
+      afterDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    }).parse(payload)
+    const sqlite = getSqlite()
+
+    // Only remove sessions with no attendance records yet
+    const result = sqlite.prepare(`
+      DELETE FROM attendance_sessions
+      WHERE group_id = ? AND session_date > ?
+        AND session_type = 'regular'
+        AND id NOT IN (SELECT DISTINCT session_id FROM attendance_records)
+    `).run(groupId, afterDate)
+
+    log.info(`Trimmed ${result.changes} future sessions for group ${groupId} after ${afterDate}`)
+    return { removed: result.changes }
+  })
+
 
   handle(IPC_CHANNELS.SESSIONS_CREATE_EXTRA, async (payload) => {
     const data = CreateExtraSessionSchema.parse(payload)

@@ -283,6 +283,39 @@ const MIGRATIONS: { version: number; name: string; sql: string }[] = [
     SELECT 1;
   `,
 },
+{
+  version: 4,
+  name: 'credit_ledger_and_session_autogen',
+  sql: `
+    -- 1. Add payment type to support ledger model (credit top-up, deduction per session, transfer, refund)
+    ALTER TABLE payments ADD COLUMN payment_type TEXT NOT NULL DEFAULT 'credit'
+      CHECK(payment_type IN ('credit','deduction','transfer_in','transfer_out','refund'));
+    -- Link deduction payments to specific sessions
+    ALTER TABLE payments ADD COLUMN session_id INTEGER REFERENCES attendance_sessions(id);
+    -- Make payment_method nullable for system-generated deductions
+    -- (SQLite doesn't support DROP NOT NULL; we store empty string for auto deductions)
+
+    -- 2. Add default_teacher_id to courses (subject → teacher relationship)
+    ALTER TABLE courses ADD COLUMN default_teacher_id INTEGER REFERENCES teachers(id);
+
+    -- 3. Add unique constraint to prevent duplicate sessions (group + date + slot)
+    --    SQLite can't add UNIQUE after creation, so we create a partial unique index
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_group_date_slot
+      ON attendance_sessions(group_id, session_date, COALESCE(schedule_slot_id, 0));
+
+    -- 4. Extend attendance_records to allow 'not_enrolled' status (pre-enrollment sessions)
+    --    SQLite CHECK constraints can't be altered; the application enforces this at service level
+    --    We add a new column to track this case cleanly
+    ALTER TABLE attendance_records ADD COLUMN was_enrolled INTEGER NOT NULL DEFAULT 1;
+
+    -- 5. Add credit balance index for fast lookups
+    CREATE INDEX IF NOT EXISTS idx_payments_enrollment_type ON payments(enrollment_id, payment_type, status);
+    CREATE INDEX IF NOT EXISTS idx_payments_session ON payments(session_id);
+
+    -- 6. Update schema version
+    INSERT OR REPLACE INTO app_metadata(key, value, updated_at) VALUES('schema_version', '4', datetime('now'));
+  `,
+},
 ]
 
 // ─── Migration runner ─────────────────────────────────────────────────────────

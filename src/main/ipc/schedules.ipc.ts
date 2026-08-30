@@ -89,7 +89,7 @@ export function registerSchedulesHandlers(): void {
 
       const newSlot = sqlite.prepare('SELECT * FROM group_schedule_slots WHERE id = ?').get(result.lastInsertRowid) as any
 
-      return {
+      const slotResult = {
         id: newSlot.id,
         groupId: newSlot.group_id,
         weekday: newSlot.weekday,
@@ -102,6 +102,38 @@ export function registerSchedulesHandlers(): void {
         createdAt: newSlot.created_at,
         updatedAt: newSlot.updated_at,
       }
+
+      // Auto-generate full-year sessions for this group after slot creation
+      try {
+        const group = sqlite.prepare('SELECT * FROM groups WHERE id = ?').get(data.groupId) as any
+        if (group) {
+          let endDate = group.end_date
+          if (!endDate) {
+            const d = new Date(); d.setFullYear(d.getFullYear() + 1)
+            endDate = d.toISOString().slice(0, 10)
+          }
+          let currentDate = group.start_date as string
+          while (currentDate <= endDate) {
+            const dayOfWeek = new Date(currentDate + 'T00:00:00Z').getUTCDay()
+            const wd = dayOfWeek === 0 ? 6 : dayOfWeek - 1
+            if (wd === data.weekday) {
+              sqlite.prepare(`
+                INSERT OR IGNORE INTO attendance_sessions (
+                  group_id, session_date, planned_start_time, end_time,
+                  room, late_threshold_minutes, status, session_type,
+                  schedule_slot_id, created_by, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, 10, 'open', 'regular', ?, 1, datetime('now'), datetime('now'))
+              `).run(data.groupId, currentDate, data.startTime, data.endTime, data.room || group.room, newSlot.id)
+            }
+            const d2 = new Date(currentDate + 'T00:00:00Z'); d2.setUTCDate(d2.getUTCDate() + 1)
+            currentDate = d2.toISOString().slice(0, 10)
+          }
+        }
+      } catch (genErr) {
+        log.warn('Auto-session generation after slot create failed (non-fatal):', genErr)
+      }
+
+      return slotResult
     } catch (err) {
       log.error('Failed to create schedule:', err)
       throw new Error(`Unable to create schedule: ${err instanceof Error ? err.message : String(err)}`)
@@ -187,6 +219,36 @@ export function registerSchedulesHandlers(): void {
     } catch (err) {
       log.error('Failed to delete schedule:', err)
       throw new Error(`Unable to delete schedule: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  })
+  // ─── List ALL slots with group/course info (for dashboard weekly view) ──────
+
+  handle('schedules:listAll', async () => {
+    const sqlite = getSqlite()
+    try {
+      const rows = sqlite.prepare(`
+        SELECT s.*, g.name as group_name, g.course_id,
+               c.name_ar as course_name_ar, c.name_fr as course_name_fr
+        FROM group_schedule_slots s
+        JOIN groups g ON s.group_id = g.id
+        JOIN courses c ON g.course_id = c.id
+        WHERE s.is_active = 1 AND g.status = 'active'
+        ORDER BY s.weekday ASC, s.start_time ASC
+      `).all() as any[]
+
+      return rows.map(r => ({
+        groupId: r.group_id,
+        groupName: r.group_name,
+        courseNameAr: r.course_name_ar,
+        courseNameFr: r.course_name_fr,
+        weekday: r.weekday,
+        startTime: r.start_time,
+        endTime: r.end_time,
+        room: r.room,
+      }))
+    } catch (err) {
+      log.error('Failed to list all schedules:', err)
+      return []
     }
   })
 }

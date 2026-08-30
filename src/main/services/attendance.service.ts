@@ -690,7 +690,7 @@ export async function markStudentInSession(
   sessionId: number,
   studentId: number,
   status: 'present' | 'absent' | 'late',
-): Promise<{ success: boolean; studentName: string; status: string }> {
+): Promise<{ success: boolean; studentName: string; status: string; wasEnrolled: boolean; creditBalance: number | null; wasInDebt: boolean }> {
   const authSession = requireSession()
   const db = getDb()
   const sqlite = getSqlite()
@@ -715,20 +715,56 @@ export async function markStudentInSession(
     if (diff > (session.lateThresholdMinutes ?? 10)) finalStatus = 'late'
   }
 
+  // Check if student was enrolled by session date
+  const enrollment = sqlite.prepare(`
+    SELECT e.id, e.enrollment_date, e.agreed_price, g.monthly_price
+    FROM enrollments e
+    JOIN groups g ON e.group_id = g.id
+    WHERE e.student_id = ? AND e.group_id = ? AND e.status = 'active'
+    LIMIT 1
+  `).get(studentId, session.groupId) as any
+
+  const wasEnrolled = enrollment ? (session.sessionDate >= enrollment.enrollmentDate) : false
+
   // Upsert attendance record (allows editing from any day)
   sqlite.prepare(`
-    INSERT INTO attendance_records (session_id, student_id, attendance_status, source, scanned_at, created_by, created_at, updated_at)
-    VALUES (?, ?, ?, 'manual', ?, ?, datetime('now'), datetime('now'))
+    INSERT INTO attendance_records (session_id, student_id, attendance_status, source, scanned_at, was_enrolled, created_by, created_at, updated_at)
+    VALUES (?, ?, ?, 'manual', ?, ?, ?, datetime('now'), datetime('now'))
     ON CONFLICT(session_id, student_id) DO UPDATE SET
       attendance_status = excluded.attendance_status,
       source = 'manual',
+      was_enrolled = excluded.was_enrolled,
       updated_at = datetime('now')
-  `).run(sessionId, studentId, finalStatus, now, authSession.adminId)
+  `).run(sessionId, studentId, finalStatus, now, wasEnrolled ? 1 : 0, authSession.adminId)
+
+  // Auto-deduct session credit if student was enrolled (present or absent after enrollment)
+  let creditBalance: number | null = null
+  let wasInDebt = false
+  if (wasEnrolled && enrollment) {
+    try {
+      const { deductSession } = await import('./payment.service')
+      const sessionPrice = Math.round(((enrollment.agreed_price || enrollment.monthly_price) / 4) * 100) / 100
+      const deductResult = await deductSession({
+        studentId,
+        enrollmentId: enrollment.id,
+        sessionId,
+        sessionDate: session.sessionDate,
+        sessionPrice,
+      })
+      creditBalance = deductResult.newBalance
+      wasInDebt = deductResult.wasInDebt
+    } catch (err) {
+      log.warn('Credit deduction failed (non-fatal):', err)
+    }
+  }
 
   return {
     success: true,
     studentName: `${student.lastNameAr ?? ''} ${student.firstNameAr ?? ''}`.trim(),
     status: finalStatus,
+    wasEnrolled,
+    creditBalance,
+    wasInDebt,
   }
 }
 

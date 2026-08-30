@@ -103,7 +103,7 @@ const api = {
       invoke<Group[]>(IPC_CHANNELS.GROUPS_LIST, opts),
     byCourse: (courseId: number) =>
       invoke<Group[]>(IPC_CHANNELS.GROUPS_BY_COURSE, { courseId }),
-    create: (data: { courseId: number; teacherId: number; name: string; capacity: number; monthlyPrice: number; startDate: string; room?: string | null; scheduleJson?: string | null }) =>
+    create: (data: { courseId: number; teacherId: number; name: string; capacity: number; monthlyPrice: number; startDate: string; endDate?: string | null; room?: string | null; scheduleJson?: string | null }) =>
       invoke<Group>(IPC_CHANNELS.GROUPS_CREATE, data),
     update: (id: number, data: Partial<{ name: string; room: string | null; capacity: number; monthlyPrice: number; status: string }>) =>
       invoke<Group>(IPC_CHANNELS.GROUPS_UPDATE, { id, ...data }),
@@ -158,6 +158,8 @@ const api = {
       invoke<any>(IPC_CHANNELS.SCHEDULES_UPDATE, { id, ...data }),
     delete: (id: number) =>
       invoke<boolean>(IPC_CHANNELS.SCHEDULES_DELETE, { id }),
+    listAll: () =>
+      invoke<any[]>('schedules:listAll'),
   },
 
   sessions: {
@@ -179,19 +181,34 @@ const api = {
       invoke<any[]>(IPC_CHANNELS.SESSIONS_UPCOMING, opts),
     byDate: (startDate: string, endDate: string) =>
       invoke<any[]>(IPC_CHANNELS.SESSIONS_BY_DATE, { startDate, endDate }),
+    generateForGroup: (groupId: number) =>
+      invoke<{ generated: number; message: string }>('sessions:generateForGroup', { groupId }),
+    trimAfterDate: (groupId: number, afterDate: string) =>
+      invoke<{ removed: number }>('sessions:trimAfterDate', { groupId, afterDate }),
   },
 
   payments: {
-    list: (opts?: { page?: number; pageSize?: number; search?: string; studentId?: number }) =>
-      invoke<PaginatedResult<Payment>>(IPC_CHANNELS.PAYMENTS_LIST, opts),
-    create: (data: { studentId: number; enrollmentId: number; billingPeriod: string; amount: number; paymentMethod: 'cash' | 'transfer' | 'check'; paymentDate: string; reference?: string | null; notes?: string | null }) =>
-      invoke<Payment>(IPC_CHANNELS.PAYMENTS_CREATE, data),
+    list: (opts?: { page?: number; pageSize?: number; search?: string; studentId?: number; type?: string }) =>
+      invoke<any>(IPC_CHANNELS.PAYMENTS_LIST, opts),
+    create: (data: { studentId: number; enrollmentId: number; billingPeriod?: string; amount: number; paymentMethod: 'cash' | 'transfer' | 'check'; paymentDate: string; reference?: string | null; notes?: string | null }) =>
+      invoke<any>(IPC_CHANNELS.PAYMENTS_CREATE, data),
     cancel: (id: number, reason?: string | null) =>
       invoke<boolean>(IPC_CHANNELS.PAYMENTS_CANCEL, { id, reason }),
     byStudent: (studentId: number) =>
-      invoke<Payment[]>(IPC_CHANNELS.PAYMENTS_BY_STUDENT, { studentId }),
+      invoke<any[]>(IPC_CHANNELS.PAYMENTS_BY_STUDENT, { studentId }),
     summary: () =>
       invoke<{ monthRevenue: number; todayCollected: number; outstanding: number; overdue: number }>('payments:summary'),
+    // New credit ledger methods
+    topUp: (data: { studentId: number; enrollmentId: number; amount: number; paymentMethod: 'cash' | 'transfer' | 'check'; paymentDate: string; reference?: string | null; notes?: string | null }) =>
+      invoke<any>('payments:topUp', data),
+    deductSession: (data: { studentId: number; enrollmentId: number; sessionId: number; sessionDate: string; sessionPrice: number }) =>
+      invoke<{ deducted: boolean; newBalance: number; wasInDebt: boolean }>('payments:deductSession', data),
+    transfer: (data: { fromEnrollmentId: number; toEnrollmentId: number; studentId: number; amount?: number }) =>
+      invoke<{ transferred: number; newFromBalance: number; newToBalance: number }>('payments:transfer', data),
+    refund: (data: { enrollmentId: number; studentId: number; notes?: string }) =>
+      invoke<{ refunded: number }>('payments:refund', data),
+    balance: (enrollmentId: number) =>
+      invoke<{ balance: number; totalCharged: number; totalDeducted: number; sessionsUsed: number }>('payments:balance', { enrollmentId }),
   },
 
   settings: {

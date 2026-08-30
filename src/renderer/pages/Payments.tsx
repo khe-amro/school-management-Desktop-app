@@ -121,28 +121,32 @@ export default function Payments() {
   const lang = i18n.language as 'ar' | 'fr' | 'en'
   const location = useLocation()
 
-  const [payments, setPayments] = useState<Payment[]>([])
+  const [payments, setPayments] = useState<any[]>([])
   const [summary, setSummary] = useState<PaymentSummary>({ monthRevenue: 0, todayCollected: 0, outstanding: 0, overdue: 0 })
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [overdueFilter, setOverdueFilter] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [enrollmentBalance, setEnrollmentBalance] = useState<{ balance: number; sessionsUsed: number } | null>(null)
 
   // Reference lists
   const [students, setStudents] = useState<Student[]>([])
   const [groups, setGroups] = useState<Group[]>([])
   const [courses, setCourses] = useState<Course[]>([])
   const [enrollments, setEnrollments] = useState<Enrollment[]>([])
-  const [receiptModal, setReceiptModal] = useState<Payment | null>(null)
+  const [receiptModal, setReceiptModal] = useState<any | null>(null)
+
+  // Transfer/Refund modals
+  const [showTransfer, setShowTransfer] = useState<{ enrollmentId: number; studentId: number; balance: number } | null>(null)
+  const [showRefund, setShowRefund] = useState<{ enrollmentId: number; studentId: number; balance: number } | null>(null)
+  const [toEnrollmentId, setToEnrollmentId] = useState('')
 
   // Form State
   const [form, setForm] = useState({
     studentId: '',
     enrollmentId: '',
-    newGroupId: '', // If student not enrolled, user picks a group directly
-    billingPeriod: new Date().toISOString().slice(0, 7),
+    newGroupId: '',
     amount: '',
     paymentMethod: 'cash',
     paymentDate: new Date().toISOString().slice(0, 10),
@@ -179,59 +183,41 @@ export default function Payments() {
     }
   }, [location.search])
 
+  const loadBalance = async (enrollmentId: number) => {
+    try {
+      const res = await window.schoolApp.payments.balance(enrollmentId)
+      if (res.success && res.data) setEnrollmentBalance(res.data)
+    } catch { setEnrollmentBalance(null) }
+  }
+
   const handleStudentChange = async (sid: string) => {
     setError('')
+    setEnrollmentBalance(null)
     setForm((f) => ({ ...f, studentId: sid, enrollmentId: '', newGroupId: '', amount: '' }))
-    if (!sid) {
-      setEnrollments([])
-      return
-    }
-
+    if (!sid) { setEnrollments([]); return }
     const res = await window.schoolApp.enrollments.byStudent(Number(sid))
     if (res.success && res.data && res.data.length > 0) {
       setEnrollments(res.data)
-      // Auto-select first active enrollment and pre-fill its price
       const first = res.data[0]
-      setForm((f) => ({
-        ...f,
-        studentId: sid,
-        enrollmentId: String(first.id),
-        newGroupId: '',
-        amount: String(first.agreedPrice || ''),
-      }))
+      setForm((f) => ({ ...f, studentId: sid, enrollmentId: String(first.id), newGroupId: '', amount: String(first.agreedPrice || '') }))
+      loadBalance(first.id)
     } else {
       setEnrollments([])
-      // If student has no enrollments, if groups exist, default to first group
-      if (groups.length > 0) {
-        setForm((f) => ({
-          ...f,
-          studentId: sid,
-          enrollmentId: '',
-          newGroupId: String(groups[0].id),
-          amount: String(groups[0].monthlyPrice || ''),
-        }))
-      }
+      if (groups.length > 0) setForm((f) => ({ ...f, studentId: sid, enrollmentId: '', newGroupId: String(groups[0].id), amount: String(groups[0].monthlyPrice || '') }))
     }
   }
 
   const handleEnrollmentChange = (enrollId: string) => {
     const found = enrollments.find((e) => e.id === Number(enrollId))
-    setForm((f) => ({
-      ...f,
-      enrollmentId: enrollId,
-      newGroupId: '',
-      amount: found ? String(found.agreedPrice || '') : f.amount,
-    }))
+    setForm((f) => ({ ...f, enrollmentId: enrollId, newGroupId: '', amount: found ? String(found.agreedPrice || '') : f.amount }))
+    if (enrollId) loadBalance(Number(enrollId))
+    else setEnrollmentBalance(null)
   }
 
   const handleNewGroupChange = (grpId: string) => {
     const found = groups.find((g) => g.id === Number(grpId))
-    setForm((f) => ({
-      ...f,
-      newGroupId: grpId,
-      enrollmentId: '',
-      amount: found ? String(found.monthlyPrice || '') : f.amount,
-    }))
+    setForm((f) => ({ ...f, newGroupId: grpId, enrollmentId: '', amount: found ? String(found.monthlyPrice || '') : f.amount }))
+    setEnrollmentBalance(null)
   }
 
   const openForm = async (preselectedStudentId?: string) => {
@@ -271,69 +257,51 @@ export default function Payments() {
   }
 
   const handleSave = async () => {
-    if (!form.studentId) {
-      setError(t('payments.student') + ' * ' + t('common.required'))
-      return
-    }
-    if (!form.enrollmentId && !form.newGroupId) {
-      setError(t('payments.groupOrCourseRequired'))
-      return
-    }
-    if (!form.amount || Number(form.amount) < 0) {
-      setError(t('payments.amount') + ' * ' + t('common.required'))
-      return
-    }
-    if (!form.billingPeriod) {
-      setError(t('payments.billingPeriod') + ' * ' + t('common.required'))
-      return
-    }
-
-    setSaving(true)
-    setError('')
-
+    if (!form.studentId) { setError(t('payments.student') + ' requis'); return }
+    if (!form.enrollmentId && !form.newGroupId) { setError(t('payments.groupOrCourseRequired')); return }
+    if (!form.amount || Number(form.amount) <= 0) { setError(t('payments.amount') + ' requis'); return }
+    setSaving(true); setError('')
     try {
       let finalEnrollmentId = Number(form.enrollmentId)
-
-      // If student was not enrolled yet, auto-enroll them in the selected group now
       if (!finalEnrollmentId && form.newGroupId) {
-        const enrollRes = await window.schoolApp.enrollments.create({
-          studentId: Number(form.studentId),
-          groupId: Number(form.newGroupId),
-          agreedPrice: Number(form.amount),
-          enrollmentDate: form.paymentDate || new Date().toISOString().slice(0, 10),
-        })
-
-        if (!enrollRes.success) {
-          setError(enrollRes.error ?? t('common.error'))
-          setSaving(false)
-          return
-        }
-        finalEnrollmentId = enrollRes.data.id
+        const er = await window.schoolApp.enrollments.create({ studentId: Number(form.studentId), groupId: Number(form.newGroupId), agreedPrice: Number(form.amount), enrollmentDate: form.paymentDate })
+        if (!er.success) { setError(er.error ?? t('common.error')); return }
+        finalEnrollmentId = er.data.id
       }
-
-      const res = await window.schoolApp.payments.create({
+      // Use topUp (credit model)
+      const res = await window.schoolApp.payments.topUp({
         studentId: Number(form.studentId),
         enrollmentId: finalEnrollmentId,
-        billingPeriod: form.billingPeriod,
         amount: Number(form.amount),
         paymentMethod: form.paymentMethod as 'cash' | 'transfer' | 'check',
         paymentDate: form.paymentDate,
         reference: form.reference.trim() || null,
         notes: form.notes.trim() || null,
       })
+      if (!res.success) { setError(res.error ?? t('common.error')) }
+      else { setShowForm(false); setReceiptModal(res.data); await load() }
+    } catch (err: any) { setError(err?.message ?? t('common.error')) }
+    finally { setSaving(false) }
+  }
 
-      if (!res.success) {
-        setError(res.error ?? t('common.error'))
-      } else {
-        setShowForm(false)
-        setReceiptModal(res.data)
-        await load()
-      }
-    } catch (err: any) {
-      setError(err?.message ?? t('common.error'))
-    } finally {
-      setSaving(false)
-    }
+  const handleTransfer = async () => {
+    if (!showTransfer || !toEnrollmentId) return
+    setSaving(true)
+    try {
+      const res = await window.schoolApp.payments.transfer({ fromEnrollmentId: showTransfer.enrollmentId, toEnrollmentId: Number(toEnrollmentId), studentId: showTransfer.studentId })
+      if (res.success) { setShowTransfer(null); setToEnrollmentId(''); await load() }
+      else setError(res.error ?? t('common.error'))
+    } finally { setSaving(false) }
+  }
+
+  const handleRefund = async () => {
+    if (!showRefund) return
+    setSaving(true)
+    try {
+      const res = await window.schoolApp.payments.refund({ enrollmentId: showRefund.enrollmentId, studentId: showRefund.studentId })
+      if (res.success) { setShowRefund(null); await load() }
+      else setError(res.error ?? t('common.error'))
+    } finally { setSaving(false) }
   }
 
   const handleCancel = async (id: number) => {
@@ -356,16 +324,14 @@ export default function Payments() {
   const inputCls = 'w-full px-3 py-2 border border-border rounded-lg text-sm focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 bg-white'
   const labelCls = 'block text-xs font-medium text-slate-600 mb-1'
 
-  // ── Filter: search text + overdue toggle ──
+  // ── Filter by search text ──
   const filtered = payments.filter((p) => {
-    if (overdueFilter && p.status !== 'cancelled') return false
     if (!search) return true
     const q = search.toLowerCase()
     return (
-      p.receiptNumber.toLowerCase().includes(q) ||
+      (p.receiptNumber?.toLowerCase().includes(q)) ||
       (p.studentName && p.studentName.toLowerCase().includes(q)) ||
       (p.studentNumber && p.studentNumber.toLowerCase().includes(q)) ||
-      (p.courseName && p.courseName.toLowerCase().includes(q)) ||
       (p.groupName && p.groupName.toLowerCase().includes(q))
     )
   })
@@ -395,27 +361,13 @@ export default function Payments() {
           </div>
           <p className="text-2xl font-bold text-amber-600">{summary.outstanding.toLocaleString()} DA</p>
         </div>
-        {/* Overdue card — clickable to filter */}
-        <button
-          onClick={() => setOverdueFilter((v) => !v)}
-          className={`p-5 rounded-xl border shadow-xs text-start transition-colors ${
-            overdueFilter
-              ? 'bg-red-50 border-red-300 ring-2 ring-red-200'
-              : 'bg-white border-border hover:bg-red-50/50'
-          }`}
-        >
+        <div className="bg-white p-5 rounded-xl border border-border shadow-xs">
           <div className="flex items-center gap-2 mb-1">
             <AlertTriangle size={14} className="text-red-500" />
-            <p className="text-xs text-slate-400 font-medium">{t('dashboard.overduePayments')}</p>
-            {overdueFilter && (
-              <span className="ml-auto text-[10px] font-semibold text-red-600 bg-red-100 px-1.5 py-0.5 rounded-full">
-                Filtre actif
-              </span>
-            )}
+            <p className="text-xs text-slate-400 font-medium">{lang === 'ar' ? 'ديون متراكمة' : 'Dettes en cours'}</p>
           </div>
-          <p className="text-2xl font-bold text-red-600">{summary.overdue} {t('payments.students')}</p>
-          <p className="text-[10px] text-red-400 mt-1">Cliquer pour filtrer</p>
-        </button>
+          <p className="text-2xl font-bold text-red-600">{summary.outstanding.toLocaleString()} DA</p>
+        </div>
       </div>
 
       {/* Action Bar */}
@@ -430,19 +382,12 @@ export default function Payments() {
             className="w-full ps-9 pe-3 py-2 border border-border rounded-lg text-sm bg-white focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20"
           />
         </div>
-        {overdueFilter && (
-          <button
-            onClick={() => setOverdueFilter(false)}
-            className="flex items-center gap-1.5 text-xs text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded-lg hover:bg-red-100"
-          >
-            <X size={12} /> Effacer le filtre
-          </button>
-        )}
+        {/* no overdue filter button needed anymore */}
         <button
           onClick={() => openForm()}
           className="flex items-center gap-2 bg-[#2563EB] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#1D4ED8] transition-colors"
         >
-          <Plus size={15} /> {t('payments.add')}
+          <Plus size={15} /> {lang === 'ar' ? 'شحن رصيد' : 'Recharger'}
         </button>
       </div>
 
@@ -455,7 +400,7 @@ export default function Payments() {
         ) : filtered.length === 0 ? (
           <div className="text-center py-16 text-slate-400">
             <CreditCard size={36} className="mx-auto mb-2 opacity-30" />
-            <p className="font-medium">{overdueFilter ? 'Aucun paiement en retard' : t('payments.noPayments')}</p>
+            <p className="font-medium">{t('payments.noPayments')}</p>
           </div>
         ) : (
           <table className="w-full text-xs text-start">
@@ -464,9 +409,8 @@ export default function Payments() {
                 <th className="px-4 py-3 text-start">{t('payments.receiptNumber')}</th>
                 <th className="px-4 py-3 text-start">{t('payments.student')}</th>
                 <th className="px-4 py-3 text-start">{t('payments.courseAndGroup')}</th>
-                <th className="px-4 py-3 text-start">{t('payments.billingPeriod')}</th>
+                <th className="px-4 py-3 text-start">{lang === 'ar' ? 'النوع' : 'Type'}</th>
                 <th className="px-4 py-3 text-start">{t('payments.amount')}</th>
-                <th className="px-4 py-3 text-start">{t('payments.method')}</th>
                 <th className="px-4 py-3 text-start">{t('payments.date')}</th>
                 <th className="px-4 py-3 text-start">{t('payments.status')}</th>
                 <th className="px-4 py-3 text-end">{t('common.actions')}</th>
@@ -475,22 +419,31 @@ export default function Payments() {
             <tbody className="divide-y divide-[#F1F5F9]">
               {filtered.map((p) => (
                 <tr key={p.id} className="hover:bg-slate-50/70 transition-colors">
-                  <td className="px-4 py-3 font-mono font-bold text-[#0F172A]">{p.receiptNumber}</td>
+                  <td className="px-4 py-3 font-mono text-[10px] text-slate-600">{p.receiptNumber}</td>
                   <td className="px-4 py-3 font-medium text-[#0F172A]">
-                    <div>{p.studentName ?? `Student #${p.studentId}`}</div>
+                    <div>{p.studentName ?? `#${p.studentId}`}</div>
                     {p.studentNumber && <div className="text-[10px] text-slate-400 font-mono">{p.studentNumber}</div>}
                   </td>
-                  <td className="px-4 py-3 text-slate-600">
-                    <span className="font-medium">{p.courseName ?? ''}</span>
-                    {p.groupName && <span className="text-slate-400 text-[11px] block">{p.groupName}</span>}
+                  <td className="px-4 py-3 text-slate-600 text-[11px]">
+                    {p.groupName ?? '—'}
                   </td>
-                  <td className="px-4 py-3 font-mono text-slate-500">{p.billingPeriod}</td>
-                  <td className="px-4 py-3 font-bold text-[#2563EB]">{p.amount.toLocaleString()} DA</td>
-                  <td className="px-4 py-3 text-slate-600">
-                    {t(`payments.${p.paymentMethod}`)}
-                    {p.reference && <span className="text-[10px] text-slate-400 block font-mono">#{p.reference}</span>}
+                  <td className="px-4 py-3">
+                    <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                      p.paymentType === 'credit' ? 'bg-emerald-100 text-emerald-700' :
+                      p.paymentType === 'deduction' ? 'bg-blue-100 text-blue-700' :
+                      p.paymentType === 'transfer_in' ? 'bg-teal-100 text-teal-700' :
+                      p.paymentType === 'transfer_out' ? 'bg-amber-100 text-amber-700' :
+                      'bg-red-100 text-red-700'
+                    }`}>
+                      {p.paymentType === 'credit' ? (lang === 'ar' ? 'شحن' : 'Crédit') :
+                       p.paymentType === 'deduction' ? (lang === 'ar' ? 'حصة' : 'Séance') :
+                       p.paymentType === 'transfer_in' ? (lang === 'ar' ? 'تحويل+' : 'Transfert+') :
+                       p.paymentType === 'transfer_out' ? (lang === 'ar' ? 'تحويل-' : 'Transfert-') :
+                       (lang === 'ar' ? 'استرداد' : 'Remboursement')}
+                    </span>
                   </td>
-                  <td className="px-4 py-3 font-mono text-slate-500">{p.paymentDate}</td>
+                  <td className="px-4 py-3 font-bold text-[#2563EB]">{p.amount?.toLocaleString()} DA</td>
+                  <td className="px-4 py-3 font-mono text-slate-500 text-[11px]">{p.paymentDate}</td>
                   <td className="px-4 py-3">
                     <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold ${
                       p.status === 'paid' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
@@ -500,9 +453,9 @@ export default function Payments() {
                   </td>
                   <td className="px-4 py-3 text-end flex gap-2 justify-end">
                     <button onClick={() => setReceiptModal(p)} className="text-xs text-[#2563EB] hover:underline flex items-center gap-1">
-                      <Printer size={12} /> {t('payments.receipt')}
+                      <Printer size={12} />
                     </button>
-                    {p.status === 'paid' && (
+                    {p.status === 'paid' && p.paymentType === 'credit' && (
                       <button onClick={() => handleCancel(p.id)} className="text-xs text-red-500 hover:underline">{t('payments.cancel')}</button>
                     )}
                   </td>
@@ -518,7 +471,7 @@ export default function Payments() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fade-in max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="font-bold text-base text-[#0F172A]">{t('payments.add')}</h3>
+              <h3 className="font-bold text-base text-[#0F172A]">{lang === 'ar' ? 'شحن رصيد' : 'Recharger le crédit'}</h3>
               <button onClick={() => setShowForm(false)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
             </div>
 
@@ -567,31 +520,24 @@ export default function Payments() {
                 </div>
               )}
 
-              {/* Billing Period & Amount */}
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className={labelCls}>{t('payments.billingPeriod')} *</label>
-                  <input
-                    type="month"
-                    className={inputCls}
-                    value={form.billingPeriod}
-                    onChange={(e) => setForm((f) => ({ ...f, billingPeriod: e.target.value }))}
-                    dir="ltr"
-                  />
+              {/* Balance info */}
+              {enrollmentBalance && (
+                <div className={`p-3 rounded-lg border text-xs flex items-center justify-between ${
+                  enrollmentBalance.balance < 0 ? 'bg-red-50 border-red-200 text-red-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                }`}>
+                  <span>{lang === 'ar' ? 'الرصيد الحالي' : 'Solde actuel'}:</span>
+                  <span className="font-bold text-base">{enrollmentBalance.balance.toLocaleString()} DA</span>
                 </div>
-                <div>
-                  <label className={labelCls}>{t('payments.amount')} (DA) *</label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    className={inputCls}
-                    value={form.amount}
-                    onChange={(e) => setForm((f) => ({ ...f, amount: normalizeNumberInput(e.target.value) }))}
-                    onKeyDown={(e) => { if (!/[\d.,٠-٩۰-۹Backspace Delete ArrowLeft ArrowRight Tab]/.test(e.key) && e.key.length === 1) e.preventDefault() }}
-                    placeholder="0.00"
-                    dir="ltr"
-                  />
-                </div>
+              )}
+              {/* Amount */}
+              <div>
+                <label className={labelCls}>{lang === 'ar' ? 'مبلغ الشحن (DA)' : 'Montant à créditer (DA)'} *</label>
+                <input
+                  type="text" inputMode="decimal" className={inputCls}
+                  value={form.amount}
+                  onChange={(e) => setForm((f) => ({ ...f, amount: normalizeNumberInput(e.target.value) }))}
+                  placeholder="0" dir="ltr"
+                />
               </div>
 
               {/* Payment Method & Date */}

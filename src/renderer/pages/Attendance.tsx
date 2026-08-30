@@ -117,9 +117,23 @@ function SmartScanner({ lang }: { lang: string }) {
     try {
       const res = await window.schoolApp.attendance.markSession(session.id, resolved.student.id, 'present')
       if (res.success) {
-        const status = res.data?.status ?? 'present'
-        showFeedback(status === 'late' ? 'late' : 'ok', `${resolved.student.lastNameAr} ${resolved.student.firstNameAr} — ${t(`attendance.${status}`)}`)
-        beep(true)
+        const d = res.data ?? {}
+        const status = d.status ?? 'present'
+        const name = `${resolved.student.lastNameAr} ${resolved.student.firstNameAr}`
+
+        // Build feedback message with credit info
+        let msg = `${name} — ${t(`attendance.${status}`)}`
+        if (d.creditBalance !== null && d.creditBalance !== undefined) {
+          const balStr = `${Number(d.creditBalance).toLocaleString()} DA`
+          if (d.wasInDebt) {
+            msg += ` ⚠ رصيد سلبي: ${balStr}`
+          } else {
+            msg += ` · رصيد: ${balStr}`
+          }
+        }
+
+        showFeedback(d.wasInDebt ? 'err' : (status === 'late' ? 'late' : 'ok'), msg)
+        beep(!d.wasInDebt)
         setResolved(null)
         setInput('')
         setTimeout(() => inputRef.current?.focus(), 100)
