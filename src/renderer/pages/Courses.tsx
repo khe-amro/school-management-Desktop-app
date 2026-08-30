@@ -60,6 +60,7 @@ export default function Courses() {
   // Modals
   const [showCourseModal, setShowCourseModal] = useState(false)
   const [showGroupModal, setShowGroupModal] = useState<number | null>(null) // courseId
+  const [editingGroup, setEditingGroup] = useState<Group | null>(null)
   const [showScheduleModal, setShowScheduleModal] = useState<Group | null>(null)
   const [showExtraSessionModal, setShowExtraSessionModal] = useState<Group | null>(null)
   const [saving, setSaving] = useState(false)
@@ -141,6 +142,55 @@ export default function Courses() {
       })
       if (res.success) {
         setShowGroupModal(null)
+        setGroupForm({ name: '', teacherId: '', capacity: '30', monthlyPrice: '', startDate: '', endDate: '', room: '' })
+        setError('')
+        await loadData()
+      } else {
+        setError(res.error ?? t('common.error'))
+      }
+    } finally { setSaving(false) }
+  }
+
+  const openEditGroup = (group: Group) => {
+    setEditingGroup(group)
+    setGroupForm({
+      name: group.name,
+      teacherId: String(group.teacherId),
+      capacity: String(group.capacity || 30),
+      monthlyPrice: String(group.monthlyPrice || 0),
+      startDate: group.startDate || '',
+      endDate: (group as any).endDate || '',
+      room: (group as any).room || '',
+    })
+    setError('')
+  }
+
+  const handleUpdateGroup = async () => {
+    if (!editingGroup) return
+    if (!groupForm.name.trim() || !groupForm.teacherId) {
+      setError(lang === 'ar' ? 'الاسم والأستاذ مطلوبان' : 'Nom et enseignant requis')
+      return
+    }
+    setSaving(true)
+    try {
+      const newEndDate = groupForm.endDate || null
+      const res = await window.schoolApp.groups.update(editingGroup.id, {
+        name: groupForm.name,
+        teacherId: Number(groupForm.teacherId),
+        capacity: Number(groupForm.capacity) || 30,
+        monthlyPrice: Number(groupForm.monthlyPrice) || 0,
+        startDate: groupForm.startDate,
+        endDate: newEndDate,
+        room: groupForm.room || null,
+      } as any)
+
+      if (res.success) {
+        // If end date changed, handle trimming/generation
+        if (newEndDate && newEndDate !== (editingGroup as any).endDate) {
+          await window.schoolApp.sessions.trimAfterDate(editingGroup.id, newEndDate)
+          await window.schoolApp.sessions.generateForGroup(editingGroup.id)
+        }
+        setEditingGroup(null)
         setGroupForm({ name: '', teacherId: '', capacity: '30', monthlyPrice: '', startDate: '', endDate: '', room: '' })
         setError('')
         await loadData()
@@ -406,6 +456,11 @@ export default function Courses() {
                                             </div>
                                           </div>
                                           <div className="flex gap-1 mt-2 pt-2 border-t border-slate-100 flex-wrap">
+                                            <button onClick={e => { e.stopPropagation(); openEditGroup(group) }}
+                                              className="px-1.5 py-0.5 bg-[#EFF6FF] hover:bg-[#DBEAFE] text-[#2563EB] rounded text-[10px] flex items-center gap-0.5"
+                                              title={lang === 'ar' ? 'تعديل الفوج' : 'Modifier le groupe'}>
+                                              <Edit2 size={9} /> {lang === 'ar' ? 'تعديل' : 'Edit'}
+                                            </button>
                                             <button onClick={e => { e.stopPropagation(); setShowScheduleModal(group); setError('') }}
                                               className="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded text-[10px] flex items-center gap-0.5">
                                               <Clock size={9} /> {t('courses.schedule')}
@@ -630,6 +685,74 @@ export default function Courses() {
           </div>
         </Modal>
       )}
+
+      {/* ── Modal: Edit Group ── */}
+      {editingGroup && (
+        <Modal title={lang === 'ar' ? `تعديل الفوج: ${editingGroup.name}` : `Modifier le groupe : ${editingGroup.name}`} onClose={() => setEditingGroup(null)}>
+          <div>
+            <label className={labelCls}>{t('common.name')} *</label>
+            <input className={inputCls} value={groupForm.name} onChange={(e) => setGroupForm(f => ({ ...f, name: e.target.value }))} />
+          </div>
+          <div>
+            <label className={labelCls}>{lang === 'ar' ? 'الأستاذ' : 'Enseignant'} *</label>
+            <select className={inputCls} value={groupForm.teacherId} onChange={e => setGroupForm(f => ({ ...f, teacherId: e.target.value }))}>
+              <option value="">{lang === 'ar' ? '— اختر أستاذاً —' : '— Choisir un enseignant —'}</option>
+              {teachers.map(tch => <option key={tch.id} value={tch.id}>{tch.lastName} {tch.firstName}</option>)}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className={labelCls}>{lang === 'ar' ? 'سعر الشهر (DA)' : 'Prix mensuel (DA)'}</label>
+              <input
+                type="number"
+                min="0"
+                className={inputCls}
+                value={groupForm.monthlyPrice}
+                onChange={(e) => setGroupForm(f => ({ ...f, monthlyPrice: e.target.value }))}
+                onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault() }}
+                dir="ltr"
+              />
+              <p className="text-[10px] text-slate-400 mt-0.5">
+                {lang === 'ar' ? `الحصة: ${Math.round(Number(groupForm.monthlyPrice || 0) / 4).toLocaleString()} DA` : `Par séance: ${Math.round(Number(groupForm.monthlyPrice || 0) / 4).toLocaleString()} DA`}
+              </p>
+            </div>
+            <div>
+              <label className={labelCls}>{t('courses.capacity')}</label>
+              <input
+                type="number"
+                min="1"
+                className={inputCls}
+                value={groupForm.capacity}
+                onChange={(e) => setGroupForm(f => ({ ...f, capacity: e.target.value }))}
+                onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault() }}
+                dir="ltr"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className={labelCls}>{t('courses.startDate')} *</label>
+              <input type="date" className={inputCls} value={groupForm.startDate} onChange={(e) => setGroupForm(f => ({ ...f, startDate: e.target.value }))} dir="ltr" />
+            </div>
+            <div>
+              <label className={labelCls}>{lang === 'ar' ? 'تاريخ الانتهاء (اختياري)' : 'Date de fin (optionnel)'}</label>
+              <input type="date" className={inputCls} value={groupForm.endDate} onChange={(e) => setGroupForm(f => ({ ...f, endDate: e.target.value }))} dir="ltr" />
+            </div>
+          </div>
+          <div>
+            <label className={labelCls}>{t('courses.roomOptional')}</label>
+            <input className={inputCls} value={groupForm.room} onChange={(e) => setGroupForm(f => ({ ...f, room: e.target.value }))} placeholder={t('courses.roomPlaceholder')} />
+          </div>
+          {error && <p className="text-xs text-red-600">{error}</p>}
+          <div className="flex justify-end gap-2 pt-3">
+            <button onClick={() => setEditingGroup(null)} className="px-4 py-2 border border-border rounded-lg text-xs text-slate-600">{t('common.cancel')}</button>
+            <button onClick={handleUpdateGroup} disabled={saving} className="px-4 py-2 bg-[#2563EB] text-white rounded-lg text-xs font-semibold hover:bg-[#1D4ED8]">
+              {saving ? t('common.saving') : t('common.save')}
+            </button>
+          </div>
+        </Modal>
+      )}
+
 
       {/* ── Modal: Manage Schedule Slots ── */}
       {showScheduleModal && (
