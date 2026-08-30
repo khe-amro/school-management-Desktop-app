@@ -340,14 +340,22 @@ function SmartScanner({ lang }: { lang: string }) {
 }
 
 // ── Roster Tab ─────────────────────────────────────────────────────────────────
-function RosterView({ lang }: { lang: string }) {
+function RosterView({ lang, initialSession }: { lang: string; initialSession?: { id: number; date: string } | null }) {
   const { t } = useTranslation()
-  const [date, setDate] = useState(today())
+  const [date, setDate] = useState(initialSession?.date || today())
   const [sessions, setSessions] = useState<any[]>([])
-  const [selectedSession, setSelectedSession] = useState<number | null>(null)
+  const [selectedSession, setSelectedSession] = useState<number | null>(initialSession?.id || null)
   const [roster, setRoster] = useState<any>(null)
   const [loadingSessions, setLoadingSessions] = useState(false)
   const [loadingRoster, setLoadingRoster] = useState(false)
+
+  const loadRoster = useCallback(async (sessionId: number) => {
+    setSelectedSession(sessionId)
+    setLoadingRoster(true)
+    const res = await window.schoolApp.attendance.withRoster(sessionId)
+    if (res.success && res.data) setRoster(res.data)
+    setLoadingRoster(false)
+  }, [])
 
   const loadSessions = useCallback(async () => {
     setLoadingSessions(true)
@@ -359,13 +367,13 @@ function RosterView({ lang }: { lang: string }) {
 
   useEffect(() => { loadSessions() }, [loadSessions])
 
-  const loadRoster = async (sessionId: number) => {
-    setSelectedSession(sessionId)
-    setLoadingRoster(true)
-    const res = await window.schoolApp.attendance.withRoster(sessionId)
-    if (res.success && res.data) setRoster(res.data)
-    setLoadingRoster(false)
-  }
+  useEffect(() => {
+    if (initialSession) {
+      setDate(initialSession.date)
+      setSelectedSession(initialSession.id)
+      loadRoster(initialSession.id)
+    }
+  }, [initialSession, loadRoster])
 
   const markStudent = async (studentId: number, status: 'present' | 'absent' | 'late') => {
     if (!selectedSession) return
@@ -454,7 +462,7 @@ function RosterView({ lang }: { lang: string }) {
 }
 
 // ── Calendar Tab ───────────────────────────────────────────────────────────────
-function CalendarView({ lang, onSessionClick }: { lang: string; onSessionClick: (id: number) => void }) {
+function CalendarView({ lang, onSessionClick }: { lang: string; onSessionClick: (session: any) => void }) {
   const { t } = useTranslation()
   const now = new Date()
   const [year, setYear] = useState(now.getFullYear())
@@ -526,7 +534,7 @@ function CalendarView({ lang, onSessionClick }: { lang: string; onSessionClick: 
             <p className="text-xs text-slate-400 text-center py-4">{t('attendance.noSessionsThisDay')}</p>
           ) : (
             daySessions.map(s => (
-              <button key={s.id} onClick={() => onSessionClick(s.id)}
+              <button key={s.id} onClick={() => onSessionClick(s)}
                 className="w-full text-left mb-2 p-3 rounded-xl bg-slate-50 hover:bg-blue-50 hover:border-blue-200 border border-transparent transition-all">
                 <p className="font-semibold text-xs text-[#0F172A]">
                   {lang === 'ar' ? (s.courseNameAr || s.courseNameFr) : (s.courseNameFr || s.courseNameAr)}
@@ -550,10 +558,10 @@ function CalendarView({ lang, onSessionClick }: { lang: string; onSessionClick: 
 export default function Attendance() {
   const { t, i18n } = useTranslation()
   const [tab, setTab] = useState<Tab>('scanner')
-  const [rosterSession, setRosterSession] = useState<number | null>(null)
+  const [rosterSession, setRosterSession] = useState<{ id: number; date: string } | null>(null)
 
-  const handleCalendarSessionClick = (sessionId: number) => {
-    setRosterSession(sessionId)
+  const handleCalendarSessionClick = (session: any) => {
+    setRosterSession({ id: session.id, date: session.sessionDate })
     setTab('roster')
   }
 
@@ -581,7 +589,7 @@ export default function Attendance() {
       </div>
 
       {tab === 'scanner' && <SmartScanner lang={i18n.language} />}
-      {tab === 'roster' && <RosterView lang={i18n.language} />}
+      {tab === 'roster' && <RosterView lang={i18n.language} initialSession={rosterSession} />}
       {tab === 'calendar' && <CalendarView lang={i18n.language} onSessionClick={handleCalendarSessionClick} />}
     </div>
   )
