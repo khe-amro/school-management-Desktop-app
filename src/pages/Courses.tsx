@@ -37,8 +37,11 @@ export default function Courses() {
   const [courseModal, setCourseModal] = useState(false)
   const [groupModal, setGroupModal] = useState(false)
   const [slotModal, setSlotModal] = useState(false)
+  const [generateModal, setGenerateModal] = useState(false)
+  const [sessionsModal, setSessionsModal] = useState(false)
   const [selectedCourseId, setSelectedCourseId] = useState<number | null>(null)
   const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null)
+  const [groupSessions, setGroupSessions] = useState<any[]>([])
 
   const [courseForm, setCourseForm] = useState({ nameFr: '', nameAr: '', descriptionFr: '', defaultPrice: '2500' })
   const [groupForm, setGroupForm] = useState({
@@ -46,6 +49,12 @@ export default function Courses() {
     startDate: new Date().toISOString().split('T')[0], endDate: ''
   })
   const [slotForm, setSlotForm] = useState({ weekday: 1, startTime: '08:00', endTime: '10:00', room: '' })
+
+  const [genPreset, setGenPreset] = useState<'year' | '3m' | '6m' | 'custom'>('year')
+  const [genStartDate, setGenStartDate] = useState(new Date().toISOString().split('T')[0])
+  const [genEndDate, setGenEndDate] = useState(
+    new Date(new Date().getFullYear(), 5, 30).toISOString().split('T')[0] // end of June default
+  )
 
   const api = (window as any).schoolApp
 
@@ -80,6 +89,86 @@ export default function Courses() {
 
   const getCourseGroups = (courseId: number) => groups.filter(g => g.courseId === courseId)
   const getGroupSlots = (groupId: number) => schedules.filter(s => s.groupId === groupId)
+
+  // Open sessions list for group
+  const handleOpenGroupSessions = async (groupId: number) => {
+    setSelectedGroupId(groupId)
+    setSessionsModal(true)
+    if (!api) return
+    try {
+      const res = await api.sessions.list({ groupId, limit: 300 })
+      if (res.success && res.data) {
+        setGroupSessions(res.data)
+      }
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  // Cancel an individual scheduled session
+  const handleCancelSessionFromList = async (sessionId: number) => {
+    const reason = prompt('Motif d\'annulation pour cette séance :')
+    if (reason === null || !api) return
+    try {
+      const res = await api.sessions.cancel(sessionId, reason || 'Séance annulée')
+      if (res.success) {
+        alert('Séance annulée avec succès')
+        if (selectedGroupId) handleOpenGroupSessions(selectedGroupId)
+      } else {
+        alert(res.error?.message || 'Erreur lors de l\'annulation')
+      }
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  // Open generate modal with calculated dates based on preset
+  const handleOpenGenerateModal = (groupId: number) => {
+    setSelectedGroupId(groupId)
+    const today = new Date()
+    const currentYear = today.getFullYear()
+    const currentMonth = today.getMonth() // 0-11
+    
+    // Academic year runs Sept -> June
+    const academicStart = currentMonth >= 8 ? `${currentYear}-09-01` : `${currentYear - 1}-09-01`
+    const academicEnd = currentMonth >= 8 ? `${currentYear + 1}-06-30` : `${currentYear}-06-30`
+
+    setGenStartDate(today.toISOString().split('T')[0])
+    setGenEndDate(academicEnd)
+    setGenPreset('year')
+    setGenerateModal(true)
+  }
+
+  const handleExecuteGenerate = async () => {
+    if (!api || !selectedGroupId) return
+    let start = genStartDate
+    let end = genEndDate
+
+    const today = new Date()
+    if (genPreset === '3m') {
+      start = today.toISOString().split('T')[0]
+      const endD = new Date(today)
+      endD.setMonth(endD.getMonth() + 3)
+      end = endD.toISOString().split('T')[0]
+    } else if (genPreset === '6m') {
+      start = today.toISOString().split('T')[0]
+      const endD = new Date(today)
+      endD.setMonth(endD.getMonth() + 6)
+      end = endD.toISOString().split('T')[0]
+    }
+
+    try {
+      const res = await api.sessions.generate(selectedGroupId, start, end)
+      if (res.success) {
+        setGenerateModal(false)
+        alert(`Succès ! ${res.data.generated} séances récurrentes ont été générées pour ce groupe du ${start} au ${end} sans aucun doublon.`)
+      } else {
+        alert(res.error?.message || 'Erreur lors de la génération')
+      }
+    } catch (err) {
+      console.error(err)
+    }
+  }
 
   const handleAddCourse = async () => {
     if (!api || !courseForm.nameFr) return

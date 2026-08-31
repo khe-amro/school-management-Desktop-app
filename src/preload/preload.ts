@@ -198,6 +198,10 @@ const api = {
       invoke<any[]>(IPC_CHANNELS.PAYMENTS_BY_STUDENT, { studentId }),
     summary: () =>
       invoke<{ monthRevenue: number; todayCollected: number; outstanding: number; overdue: number }>('payments:summary'),
+    debtReport: () =>
+      invoke<any[]>('payments:debtReport'),
+    studentDebt: (studentId: number) =>
+      invoke<any>('payments:studentDebt', { studentId }),
     // New credit ledger methods
     topUp: (data: { studentId: number; enrollmentId: number; amount: number; paymentMethod: 'cash' | 'transfer' | 'check'; paymentDate: string; reference?: string | null; notes?: string | null }) =>
       invoke<any>('payments:topUp', data),

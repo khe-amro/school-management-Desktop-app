@@ -235,19 +235,45 @@ export async function listPayments(opts: {
 }): Promise<PaginatedResult<any>> {
   const sqlite = getSqlite()
   const page = Math.max(1, opts.page ?? 1)
-  const pageSize = Math.min(200, Math.max(1, opts.pageSize ?? 50))
+  const pageSize = Math.min(500, Math.max(1, opts.pageSize ?? 50))
   const offset = (page - 1) * pageSize
 
   let where = "WHERE 1=1"
   const params: any[] = []
 
-  if (opts.studentId) { where += " AND p.student_id = ?"; params.push(opts.studentId) }
-  if (opts.search) { where += " AND (p.receipt_number LIKE ? OR s.last_name_ar LIKE ? OR s.first_name_ar LIKE ?)"; const q = `%${opts.search}%`; params.push(q,q,q) }
-  if (opts.type) { where += " AND p.payment_type = ?"; params.push(opts.type) }
-  else { where += " AND p.payment_type = 'credit'" } // Default: only show top-ups in main list
+  if (opts.studentId) {
+    where += " AND p.student_id = ?"
+    params.push(opts.studentId)
+  }
+
+  if (opts.search && opts.search.trim()) {
+    const q = `%${opts.search.trim()}%`
+    where += ` AND (
+      p.receipt_number LIKE ?
+      OR s.last_name_ar LIKE ?
+      OR s.first_name_ar LIKE ?
+      OR s.last_name_fr LIKE ?
+      OR s.first_name_fr LIKE ?
+      OR s.student_number LIKE ?
+      OR g.name LIKE ?
+      OR c.name_fr LIKE ?
+      OR c.name_ar LIKE ?
+      OR p.reference LIKE ?
+      OR p.notes LIKE ?
+      OR p.billing_period LIKE ?
+    )`
+    params.push(q, q, q, q, q, q, q, q, q, q, q, q)
+  }
+
+  if (opts.type) {
+    where += " AND p.payment_type = ?"
+    params.push(opts.type)
+  } else {
+    where += " AND p.payment_type = 'credit'" // Default: only show top-ups in main list
+  }
 
   const rows = sqlite.prepare(`
-    SELECT p.*, s.last_name_ar, s.first_name_ar, s.student_number,
+    SELECT p.*, s.last_name_ar, s.first_name_ar, s.last_name_fr, s.first_name_fr, s.student_number,
            g.name as group_name, c.name_ar as course_name_ar, c.name_fr as course_name_fr
     FROM payments p
     LEFT JOIN students s ON p.student_id = s.id
@@ -262,6 +288,9 @@ export async function listPayments(opts: {
   const total = (sqlite.prepare(`
     SELECT COUNT(*) as cnt FROM payments p
     LEFT JOIN students s ON p.student_id = s.id
+    LEFT JOIN enrollments e ON p.enrollment_id = e.id
+    LEFT JOIN groups g ON e.group_id = g.id
+    LEFT JOIN courses c ON g.course_id = c.id
     ${where}
   `).get(...params) as any)?.cnt ?? 0
 
@@ -278,7 +307,7 @@ export async function listPayments(opts: {
 export async function createPayment(data: {
   studentId: number
   enrollmentId: number
-  billingPeriod: string
+  billingPeriod?: string
   amount: number
   paymentMethod: 'cash' | 'transfer' | 'check'
   paymentDate: string
@@ -326,8 +355,10 @@ export async function cancelPayment(id: number, reason?: string | null): Promise
 export async function getPaymentsByStudent(studentId: number): Promise<any[]> {
   const sqlite = getSqlite()
   const rows = sqlite.prepare(`
-    SELECT p.*, g.name as group_name, c.name_ar as course_name_ar, c.name_fr as course_name_fr
+    SELECT p.*, s.last_name_fr, s.first_name_fr, s.last_name_ar, s.first_name_ar, s.student_number,
+           g.name as group_name, c.name_ar as course_name_ar, c.name_fr as course_name_fr
     FROM payments p
+    LEFT JOIN students s ON p.student_id = s.id
     LEFT JOIN enrollments e ON p.enrollment_id = e.id
     LEFT JOIN groups g ON e.group_id = g.id
     LEFT JOIN courses c ON g.course_id = c.id
@@ -337,7 +368,157 @@ export async function getPaymentsByStudent(studentId: number): Promise<any[]> {
   return rows.map(mapRawRow)
 }
 
-// ─── Payment summary for dashboard ───────────────────────────────────────────
+// ─── Calendar Month Prepaid Tuition & Debt Calculation ────────────────────────
+
+export function calculateMonthsElapsed(startDateStr: string, endDateStr?: string | null): number {
+  if (!startDateStr) return 1
+  const start = new Date(startDateStr.slice(0, 10) + 'T00:00:00Z')
+  const now = new Date()
+  const currentMonthDate = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1))
+
+  let targetDate = currentMonthDate
+  if (endDateStr) {
+    const end = new Date(endDateStr.slice(0, 10) + 'T00:00:00Z')
+    const endMonthDate = new Date(Date.UTC(end.getFullYear(), end.getMonth(), 1))
+    if (endMonthDate < targetDate) {
+      targetDate = endMonthDate
+    }
+  }
+
+  const startYear = start.getUTCFullYear()
+  const startMonth = start.getUTCMonth()
+  const targetYear = targetDate.getUTCFullYear()
+  const targetMonth = targetDate.getUTCMonth()
+
+  const diff = (targetYear - startYear) * 12 + (targetMonth - startMonth) + 1
+  return Math.max(1, diff)
+}
+
+export async function calculateStudentTuitionDebt(studentId: number): Promise<{
+  studentId: number
+  totalDebt: number
+  totalPaid: number
+  totalDue: number
+  monthsOverdue: number
+  status: 'up_to_date' | 'overdue' | 'advance'
+  enrollments: any[]
+}> {
+  const sqlite = getSqlite()
+
+  const enrollments = sqlite.prepare(`
+    SELECT e.*, g.name as group_name, g.start_date as group_start_date, g.end_date as group_end_date,
+           c.name_fr as course_name_fr, c.name_ar as course_name_ar
+    FROM enrollments e
+    JOIN groups g ON e.group_id = g.id
+    JOIN courses c ON g.course_id = c.id
+    WHERE e.student_id = ? AND e.status = 'active'
+  `).all(studentId) as any[]
+
+  let totalStudentDue = 0
+  let totalStudentPaid = 0
+  const enrollmentDetails: any[] = []
+
+  for (const en of enrollments) {
+    const start = en.enrollment_date || en.group_start_date
+    const months = calculateMonthsElapsed(start, en.group_end_date)
+    const agreedPrice = Number(en.agreed_price) || 0
+    const totalDue = months * agreedPrice
+
+    const paidRow = sqlite.prepare(`
+      SELECT COALESCE(SUM(amount), 0) as paid
+      FROM payments
+      WHERE enrollment_id = ? AND payment_type = 'credit' AND status = 'paid'
+    `).get(en.id) as any
+
+    const totalPaid = Number(paidRow?.paid ?? 0)
+    const balance = totalPaid - totalDue
+    const debt = balance < 0 ? Math.abs(balance) : 0
+    const monthsOverdue = agreedPrice > 0 ? Math.ceil(debt / agreedPrice) : 0
+    const status = debt > 0 ? 'overdue' : (balance > 0 ? 'advance' : 'up_to_date')
+
+    totalStudentDue += totalDue
+    totalStudentPaid += totalPaid
+
+    enrollmentDetails.push({
+      enrollmentId: en.id,
+      groupId: en.group_id,
+      groupName: en.group_name,
+      courseName: en.course_name_fr || en.course_name_ar,
+      agreedPrice,
+      enrollmentDate: en.enrollment_date,
+      monthsBilled: months,
+      totalDue,
+      totalPaid,
+      balance,
+      debt,
+      monthsOverdue,
+      status,
+    })
+  }
+
+  const netBalance = totalStudentPaid - totalStudentDue
+  const totalDebt = netBalance < 0 ? Math.abs(netBalance) : 0
+  const overallStatus = totalDebt > 0 ? 'overdue' : (netBalance > 0 ? 'advance' : 'up_to_date')
+  const maxMonthsOverdue = enrollmentDetails.reduce((max, e) => Math.max(max, e.monthsOverdue), 0)
+
+  return {
+    studentId,
+    totalDebt,
+    totalPaid: totalStudentPaid,
+    totalDue: totalStudentDue,
+    monthsOverdue: maxMonthsOverdue,
+    status: overallStatus,
+    enrollments: enrollmentDetails,
+  }
+}
+
+export async function getStudentsDebtReport(): Promise<any[]> {
+  const sqlite = getSqlite()
+
+  const students = sqlite.prepare(`
+    SELECT s.id, s.student_number, s.first_name_fr, s.last_name_fr,
+           s.first_name_ar, s.last_name_ar, s.phone, s.status
+    FROM students s
+    WHERE s.status = 'active'
+    ORDER BY s.last_name_fr ASC, s.first_name_fr ASC
+  `).all() as any[]
+
+  const report: any[] = []
+
+  for (const s of students) {
+    const debtInfo = await calculateStudentTuitionDebt(s.id)
+    if (debtInfo.enrollments.length === 0) continue
+
+    const lastPayment = sqlite.prepare(`
+      SELECT payment_date, amount FROM payments
+      WHERE student_id = ? AND payment_type = 'credit' AND status = 'paid'
+      ORDER BY payment_date DESC, created_at DESC
+      LIMIT 1
+    `).get(s.id) as any
+
+    report.push({
+      studentId: s.id,
+      studentNumber: s.student_number,
+      firstNameFr: s.first_name_fr,
+      lastNameFr: s.last_name_fr,
+      firstNameAr: s.first_name_ar,
+      lastNameAr: s.last_name_ar,
+      phone: s.phone,
+      totalDebt: debtInfo.totalDebt,
+      totalPaid: debtInfo.totalPaid,
+      totalDue: debtInfo.totalDue,
+      monthsOverdue: debtInfo.monthsOverdue,
+      status: debtInfo.status,
+      enrollments: debtInfo.enrollments,
+      lastPaymentDate: lastPayment?.payment_date,
+      lastPaymentAmount: lastPayment?.amount,
+    })
+  }
+
+  return report
+}
+
+// ─── Payment summary for dashboard (using calendar month debt engine) ────────
 
 export async function getPaymentsSummary(): Promise<{
   monthRevenue: number
@@ -351,33 +532,25 @@ export async function getPaymentsSummary(): Promise<{
   const monthStart = today.slice(0, 7) + '-01'
 
   const monthCredit = (sqlite.prepare(`
-    SELECT COALESCE(SUM(amount),0) as total FROM payments
+    SELECT COALESCE(SUM(amount), 0) as total FROM payments
     WHERE payment_type='credit' AND status='paid' AND payment_date >= ?
   `).get(monthStart) as any)?.total ?? 0
 
   const todayCredit = (sqlite.prepare(`
-    SELECT COALESCE(SUM(amount),0) as total FROM payments
+    SELECT COALESCE(SUM(amount), 0) as total FROM payments
     WHERE payment_type='credit' AND status='paid' AND payment_date = ?
   `).get(today) as any)?.total ?? 0
 
-  // "Outstanding" = sum of negative balances across all enrollments
-  const outstanding = (sqlite.prepare(`
-    SELECT COALESCE(SUM(CASE WHEN net < 0 THEN ABS(net) ELSE 0 END), 0) as total
-    FROM (
-      SELECT enrollment_id,
-        SUM(CASE WHEN payment_type IN ('credit','transfer_in') THEN amount
-                 WHEN payment_type IN ('deduction','transfer_out','refund') THEN -amount
-                 ELSE 0 END) as net
-      FROM payments WHERE status='paid'
-      GROUP BY enrollment_id
-    )
-  `).get() as any)?.total ?? 0
+  // Calculate real outstanding tuition debt across all active students
+  const debtReport = await getStudentsDebtReport()
+  const totalOutstandingDebt = debtReport.reduce((acc, item) => acc + item.totalDebt, 0)
+  const totalOverdueStudentsCount = debtReport.filter(item => item.totalDebt > 0).length
 
   return {
     monthRevenue: monthCredit,
     todayCollected: todayCredit,
-    outstanding,
-    overdue: outstanding,
+    outstanding: totalOutstandingDebt,
+    overdue: totalOverdueStudentsCount,
   }
 }
 

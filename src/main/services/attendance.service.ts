@@ -22,19 +22,32 @@ export async function startAttendanceSession(data: {
   })
   if (!group) throw new AppError(ErrorCode.NOT_FOUND, 'Group not found')
 
-  // If there is already an open attendance session for this group, reuse it instead of duplicating
-  const existingOpen = await db.query.attendanceSessions.findFirst({
+  // Check if a session already exists for this group on this date (open or scheduled)
+  const existingForDate = await db.query.attendanceSessions.findFirst({
     where: and(
       eq(schema.attendanceSessions.groupId, data.groupId),
-      eq(schema.attendanceSessions.status, 'open')
+      eq(schema.attendanceSessions.sessionDate, data.sessionDate)
     ),
     orderBy: desc(schema.attendanceSessions.createdAt),
   })
-  if (existingOpen) {
-    return mapSessionRow(existingOpen)
-  }
 
   const now = new Date().toISOString()
+
+  if (existingForDate) {
+    if (existingForDate.status !== 'open') {
+      await db.update(schema.attendanceSessions).set({
+        status: 'open',
+        sessionType: existingForDate.sessionType === 'cancelled' ? 'regular' : existingForDate.sessionType,
+        actualStartTime: existingForDate.actualStartTime || now.slice(11, 16),
+        updatedAt: now,
+      }).where(eq(schema.attendanceSessions.id, existingForDate.id))
+
+      existingForDate.status = 'open'
+      existingForDate.actualStartTime = existingForDate.actualStartTime || now.slice(11, 16)
+    }
+    return mapSessionRow(existingForDate)
+  }
+
   const result = await db.insert(schema.attendanceSessions).values({
     groupId: data.groupId,
     sessionDate: data.sessionDate,

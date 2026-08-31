@@ -298,22 +298,117 @@ const MIGRATIONS: { version: number; name: string; sql: string }[] = [
     -- 2. Add default_teacher_id to courses (subject → teacher relationship)
     ALTER TABLE courses ADD COLUMN default_teacher_id INTEGER REFERENCES teachers(id);
 
-    -- 3. Add unique constraint to prevent duplicate sessions (group + date + slot)
+    -- 3. Clean up any existing duplicate attendance sessions before creating the unique index:
+    --    First, remove duplicate attendance_records if a student has records in both canonical & duplicate sessions
+    DELETE FROM attendance_records
+    WHERE id IN (
+      SELECT ar_dup.id
+      FROM attendance_records ar_dup
+      JOIN attendance_sessions s_dup ON ar_dup.session_id = s_dup.id
+      JOIN attendance_sessions s_canon ON s_canon.group_id = s_dup.group_id
+        AND s_canon.session_date = s_dup.session_date
+        AND COALESCE(s_canon.schedule_slot_id, 0) = COALESCE(s_dup.schedule_slot_id, 0)
+        AND s_canon.id < s_dup.id
+      JOIN attendance_records ar_canon ON ar_canon.session_id = s_canon.id
+        AND ar_canon.student_id = ar_dup.student_id
+    );
+
+    --    Second, re-point any remaining attendance_records from duplicate sessions to canonical session
+    UPDATE attendance_records
+    SET session_id = (
+      SELECT MIN(s_canon.id)
+      FROM attendance_sessions s_canon
+      JOIN attendance_sessions s_dup ON s_canon.group_id = s_dup.group_id
+        AND s_canon.session_date = s_dup.session_date
+        AND COALESCE(s_canon.schedule_slot_id, 0) = COALESCE(s_dup.schedule_slot_id, 0)
+      WHERE s_dup.id = attendance_records.session_id
+    )
+    WHERE session_id IN (
+      SELECT id FROM attendance_sessions
+      WHERE id NOT IN (
+        SELECT MIN(id) FROM attendance_sessions
+        GROUP BY group_id, session_date, COALESCE(schedule_slot_id, 0)
+      )
+    );
+
+    --    Third, delete the duplicate attendance_sessions
+    DELETE FROM attendance_sessions
+    WHERE id NOT IN (
+      SELECT MIN(id)
+      FROM attendance_sessions
+      GROUP BY group_id, session_date, COALESCE(schedule_slot_id, 0)
+    );
+
+    -- 4. Add unique constraint to prevent duplicate sessions (group + date + slot)
     --    SQLite can't add UNIQUE after creation, so we create a partial unique index
     CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_group_date_slot
       ON attendance_sessions(group_id, session_date, COALESCE(schedule_slot_id, 0));
 
-    -- 4. Extend attendance_records to allow 'not_enrolled' status (pre-enrollment sessions)
+    -- 5. Extend attendance_records to allow 'not_enrolled' status (pre-enrollment sessions)
     --    SQLite CHECK constraints can't be altered; the application enforces this at service level
     --    We add a new column to track this case cleanly
     ALTER TABLE attendance_records ADD COLUMN was_enrolled INTEGER NOT NULL DEFAULT 1;
 
-    -- 5. Add credit balance index for fast lookups
+    -- 6. Add credit balance index for fast lookups
     CREATE INDEX IF NOT EXISTS idx_payments_enrollment_type ON payments(enrollment_id, payment_type, status);
     CREATE INDEX IF NOT EXISTS idx_payments_session ON payments(session_id);
 
-    -- 6. Update schema version
+    -- 7. Update schema version
     INSERT OR REPLACE INTO app_metadata(key, value, updated_at) VALUES('schema_version', '4', datetime('now'));
+  `,
+},
+{
+  version: 5,
+  name: 'session_dedup_and_debt_tracking',
+  sql: `
+    -- 1. Merge and clean duplicate attendance sessions for same group, date and start time
+    DELETE FROM attendance_records
+    WHERE id IN (
+      SELECT ar_dup.id
+      FROM attendance_records ar_dup
+      JOIN attendance_sessions s_dup ON ar_dup.session_id = s_dup.id
+      JOIN attendance_sessions s_canon ON s_canon.group_id = s_dup.group_id
+        AND s_canon.session_date = s_dup.session_date
+        AND COALESCE(s_canon.planned_start_time, '') = COALESCE(s_dup.planned_start_time, '')
+        AND s_canon.id < s_dup.id
+      JOIN attendance_records ar_canon ON ar_canon.session_id = s_canon.id
+        AND ar_canon.student_id = ar_dup.student_id
+    );
+
+    UPDATE attendance_records
+    SET session_id = (
+      SELECT MIN(s_canon.id)
+      FROM attendance_sessions s_canon
+      JOIN attendance_sessions s_dup ON s_canon.group_id = s_dup.group_id
+        AND s_canon.session_date = s_dup.session_date
+        AND COALESCE(s_canon.planned_start_time, '') = COALESCE(s_dup.planned_start_time, '')
+      WHERE s_dup.id = attendance_records.session_id
+    )
+    WHERE session_id IN (
+      SELECT id FROM attendance_sessions
+      WHERE id NOT IN (
+        SELECT MIN(id) FROM attendance_sessions
+        GROUP BY group_id, session_date, COALESCE(planned_start_time, '')
+      )
+    );
+
+    DELETE FROM attendance_sessions
+    WHERE id NOT IN (
+      SELECT MIN(id)
+      FROM attendance_sessions
+      GROUP BY group_id, session_date, COALESCE(planned_start_time, '')
+    );
+
+    -- 2. Create unique index to guarantee no duplicate session per group, date and start time
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_group_date_time
+      ON attendance_sessions(group_id, session_date, COALESCE(planned_start_time, '00:00'));
+
+    -- 3. Add search indexes for payments and student lookups
+    CREATE INDEX IF NOT EXISTS idx_payments_status_period ON payments(status, billing_period);
+    CREATE INDEX IF NOT EXISTS idx_enrollments_student_status ON enrollments(student_id, status);
+
+    -- 4. Update schema version
+    INSERT OR REPLACE INTO app_metadata(key, value, updated_at) VALUES('schema_version', '5', datetime('now'));
   `,
 },
 ]

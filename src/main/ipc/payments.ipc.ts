@@ -4,6 +4,7 @@ import {
   listPayments, createPayment, cancelPayment, getPaymentsByStudent,
   topUpCredit, deductSession, transferBalance, refundEnrollment,
   getEnrollmentBalance, getPaymentsSummary,
+  getStudentsDebtReport, calculateStudentTuitionDebt,
 } from '../services/payment.service'
 import { z } from 'zod'
 
@@ -47,7 +48,16 @@ export function registerPaymentHandlers(): void {
     return getPaymentsByStudent(studentId)
   })
 
-  // ─── New credit endpoints ───────────────────────────────────────────────────
+  handle('payments:debtReport', async () => {
+    return getStudentsDebtReport()
+  })
+
+  handle('payments:studentDebt', async (payload) => {
+    const { studentId } = z.object({ studentId: z.number().int().positive() }).parse(payload)
+    return calculateStudentTuitionDebt(studentId)
+  })
+
+  // ─── Credit ledger endpoints ────────────────────────────────────────────────
 
   handle('payments:topUp', async (payload) => {
     const data = z.object({

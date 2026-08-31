@@ -76,6 +76,10 @@ export default function Attendance() {
   const [sessionTime, setSessionTime] = useState('08:00')
   const [activeSession, setActiveSession] = useState<any | null>(null)
   const [groupStudents, setGroupStudents] = useState<any[]>([])
+  const [groupSchedules, setGroupSchedules] = useState<any[]>([])
+  const [cancelModalOpen, setCancelModalOpen] = useState(false)
+  const [cancelReasonPreset, setCancelReasonPreset] = useState('Absence de l\'enseignant')
+  const [cancelCustomReason, setCancelCustomReason] = useState('')
 
   // Mode: 'attendance' vs 'lookup'
   const [mode, setMode] = useState<'attendance' | 'lookup'>('attendance')
@@ -96,6 +100,34 @@ export default function Attendance() {
 
   const inputRef = useRef<HTMLInputElement>(null)
   const api = (window as any).schoolApp
+
+  // Compute localized day info
+  const dateObj = new Date(sessionDate + 'T00:00:00')
+  const dayNameFr = dateObj.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+  const dayOfWeekNumber = dateObj.getDay() === 0 ? 7 : dateObj.getDay() // 1=Mon ... 7=Sun
+
+  // Find matching scheduled slot for today
+  const matchingSchedule = groupSchedules.find(s => s.weekday === dayOfWeekNumber)
+
+  // When group or date changes, load group schedules to check for matching slot
+  useEffect(() => {
+    const fetchSchedules = async () => {
+      if (!api || !selectedGroup) return
+      try {
+        const res = await api.schedules.list({ groupId: Number(selectedGroup) })
+        if (res.success && res.data) {
+          setGroupSchedules(res.data)
+          const match = res.data.find((s: any) => s.weekday === dayOfWeekNumber)
+          if (match && match.startTime) {
+            setSessionTime(match.startTime)
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load schedules for group:', err)
+      }
+    }
+    fetchSchedules()
+  }, [selectedGroup, sessionDate, dayOfWeekNumber])
 
   // Load initial courses & groups
   useEffect(() => {
@@ -249,6 +281,32 @@ export default function Attendance() {
       }
     } catch (err) {
       console.error(err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Cancel active session with reason
+  const handleConfirmCancelSession = async () => {
+    if (!api || !activeSession) return
+    const finalReason = cancelReasonPreset === 'other'
+      ? cancelCustomReason.trim() || 'Séance annulée'
+      : cancelReasonPreset
+
+    setLoading(true)
+    try {
+      const res = await api.sessions.cancel(activeSession.id, finalReason)
+      if (res.success) {
+        setCancelModalOpen(false)
+        setActiveSession(null)
+        setRecords([])
+        alert(`Séance annulée avec succès. Motif : ${finalReason}`)
+        loadGroupDetails()
+      } else {
+        alert(res.error?.message || 'Erreur lors de l\'annulation de la séance')
+      }
+    } catch (err) {
+      console.error('Error cancelling session:', err)
     } finally {
       setLoading(false)
     }
@@ -464,7 +522,30 @@ export default function Attendance() {
       {/* Left: Scanner & Sessions */}
       <div className="col-span-2 flex flex-col gap-4">
         {/* Session config header */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-blue-800 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-md capitalize">
+                📅 {dayNameFr}
+              </span>
+              {matchingSchedule ? (
+                <span className="text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-md">
+                  🕒 Créneau prévu : {matchingSchedule.startTime} - {matchingSchedule.endTime} ({matchingSchedule.room || 'Salle principale'})
+                </span>
+              ) : (
+                <span className="text-xs text-slate-500 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-md">
+                  Aucun créneau régulier ce jour (Séance exceptionnelle ou rattrapage)
+                </span>
+              )}
+            </div>
+
+            {activeSession && activeSession.sessionType === 'cancelled' && (
+              <span className="text-xs font-bold text-red-700 bg-red-50 border border-red-200 px-2.5 py-1 rounded-md">
+                Séance annulée : {activeSession.cancelledReason || 'Motif non précisé'}
+              </span>
+            )}
+          </div>
+
           <div className="grid grid-cols-4 gap-3 items-end">
             <div>
               <label className="block text-xs font-medium text-slate-500 mb-1.5">Cours</label>
@@ -493,13 +574,13 @@ export default function Attendance() {
                   type="date"
                   value={sessionDate}
                   onChange={e => setSessionDate(e.target.value)}
-                  className="w-full px-2 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
+                  className="w-full px-2 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white font-medium"
                 />
                 <input
                   type="time"
                   value={sessionTime}
                   onChange={e => setSessionTime(e.target.value)}
-                  className="w-20 px-2 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
+                  className="w-20 px-2 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white font-mono"
                 />
               </div>
             </div>
@@ -508,22 +589,32 @@ export default function Attendance() {
                 <button
                   onClick={handleStartSession}
                   disabled={loading || !selectedGroup}
-                  className="w-full px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                  className="w-full px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-sm"
                 >
                   <Plus size={14} /> Démarrer session
                 </button>
               ) : (
-                <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg px-3 py-2">
-                  <div className="flex items-center gap-1.5 text-xs text-green-700 font-semibold">
-                    <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                    Session en cours
+                <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg px-2 py-1.5 gap-1">
+                  <div className="flex items-center gap-1.5 text-xs text-green-700 font-semibold truncate">
+                    <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse shrink-0" />
+                    En cours
                   </div>
-                  <button
-                    onClick={handleEndSession}
-                    className="text-xs text-red-600 hover:text-red-800 font-medium ml-2"
-                  >
-                    Clôturer
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={handleEndSession}
+                      className="px-2 py-1 text-xs font-medium text-slate-700 hover:text-slate-900 bg-white border border-slate-200 hover:bg-slate-50 rounded transition-colors"
+                      title="Clôturer la session et sauvegarder les présences"
+                    >
+                      Clôturer
+                    </button>
+                    <button
+                      onClick={() => setCancelModalOpen(true)}
+                      className="px-2 py-1 text-xs font-semibold text-red-600 hover:text-white hover:bg-red-600 border border-red-200 rounded transition-colors"
+                      title="Annuler cette séance"
+                    >
+                      Annuler
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -805,6 +896,59 @@ export default function Attendance() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* Cancel Session Modal */}
+      <Modal open={cancelModalOpen} onClose={() => setCancelModalOpen(false)} title="Annuler la séance" size="sm">
+        <div className="space-y-4">
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
+            Cette action marquera la séance comme <strong>Annulée</strong> et fermera la session d'appel.
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1.5">Motif d'annulation *</label>
+            <select
+              value={cancelReasonPreset}
+              onChange={e => setCancelReasonPreset(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
+            >
+              <option value="Absence de l'enseignant">Absence de l'enseignant</option>
+              <option value="Jour férié / Vacances scolaires">Jour férié / Vacances scolaires</option>
+              <option value="Intempéries / Cas de force majeure">Intempéries / Cas de force majeure</option>
+              <option value="Problème technique / Salle indisponible">Problème technique / Salle indisponible</option>
+              <option value="other">Autre motif...</option>
+            </select>
+          </div>
+
+          {cancelReasonPreset === 'other' && (
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">Précisez le motif :</label>
+              <input
+                type="text"
+                placeholder="Ex: Réunion pédagogique..."
+                value={cancelCustomReason}
+                onChange={e => setCancelCustomReason(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500"
+                autoFocus
+              />
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              onClick={() => setCancelModalOpen(false)}
+              className="px-4 py-2 text-sm text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg"
+            >
+              Retour
+            </button>
+            <button
+              onClick={handleConfirmCancelSession}
+              className="px-4 py-2 text-sm font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-sm"
+            >
+              Confirmer l'annulation
+            </button>
+          </div>
+        </div>
       </Modal>
     </div>
   )

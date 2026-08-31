@@ -27,7 +27,7 @@ const CancelSessionSchema = z.object({
 function getWeekdayFromDate(dateStr: string): number {
   const date = new Date(dateStr + 'T00:00:00Z')
   const day = date.getUTCDay()
-  // Convert JS (0=Sunday) to our format (0=Monday)
+  // Convert JS (0=Sunday) to our format (0=Monday ... 6=Sunday)
   return day === 0 ? 6 : day - 1
 }
 
@@ -37,11 +37,16 @@ function addDays(dateStr: string, days: number): string {
   return date.toISOString().split('T')[0]
 }
 
-function formatDateDayName(dateStr: string): string {
+function getDayInfo(dateStr: string) {
   const date = new Date(dateStr + 'T00:00:00Z')
   const day = date.getUTCDay()
-  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-  return days[day]
+  const daysFr = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi']
+  const daysAr = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
+  return {
+    dayOfWeek: day,
+    dayNameFr: daysFr[day] || 'Inconnu',
+    dayNameAr: daysAr[day] || '',
+  }
 }
 
 export function registerSessionsHandlers(): void {
@@ -57,11 +62,11 @@ export function registerSessionsHandlers(): void {
       `).all(groupId) as any[]
 
       if (slots.length === 0) {
-        return { generated: 0, message: 'No active schedule slots found for this group' }
+        return { generated: 0, message: 'Aucun créneau horaire configuré pour ce groupe' }
       }
 
       const group = sqlite.prepare('SELECT * FROM groups WHERE id = ?').get(groupId) as any
-      if (!group) throw new Error('Group not found')
+      if (!group) throw new Error('Groupe introuvable')
 
       let generated = 0
       let currentDate = startDate
@@ -71,28 +76,35 @@ export function registerSessionsHandlers(): void {
         const matchingSlots = slots.filter((s) => s.weekday === weekday)
 
         for (const slot of matchingSlots) {
-          // Use INSERT OR IGNORE to prevent duplicates (unique index on group+date+slotId)
-          const result = sqlite.prepare(`
-            INSERT OR IGNORE INTO attendance_sessions (
-              group_id, session_date, planned_start_time, end_time,
-              room, late_threshold_minutes, status, session_type,
-              schedule_slot_id, created_by, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, 10, 'open', 'regular', ?, 1, datetime('now'), datetime('now'))
-          `).run(
-            groupId, currentDate, slot.start_time, slot.end_time,
-            slot.room || group.room, slot.id
-          )
-          if (result.changes > 0) generated++
+          // Check if session already exists on this date and time
+          const existing = sqlite.prepare(`
+            SELECT id FROM attendance_sessions
+            WHERE group_id = ? AND session_date = ? AND COALESCE(planned_start_time, '') = ?
+          `).get(groupId, currentDate, slot.start_time)
+
+          if (!existing) {
+            const result = sqlite.prepare(`
+              INSERT INTO attendance_sessions (
+                group_id, session_date, planned_start_time, end_time,
+                room, late_threshold_minutes, status, session_type,
+                schedule_slot_id, created_by, created_at, updated_at
+              ) VALUES (?, ?, ?, ?, ?, 10, 'open', 'regular', ?, 1, datetime('now'), datetime('now'))
+            `).run(
+              groupId, currentDate, slot.start_time, slot.end_time,
+              slot.room || group.room, slot.id
+            )
+            if (result.changes > 0) generated++
+          }
         }
 
         currentDate = addDays(currentDate, 1)
       }
 
       log.info(`Generated ${generated} sessions for group ${groupId}`)
-      return { generated, message: `Generated ${generated} session instances` }
+      return { generated, message: `${generated} séances générées avec succès (${startDate} au ${endDate})` }
     } catch (err) {
       log.error('Failed to generate sessions:', err)
-      throw new Error(`Unable to generate sessions: ${err instanceof Error ? err.message : String(err)}`)
+      throw new Error(`Erreur génération séances: ${err instanceof Error ? err.message : String(err)}`)
     }
   })
 
@@ -110,14 +122,13 @@ export function registerSessionsHandlers(): void {
         SELECT * FROM group_schedule_slots WHERE group_id = ? AND is_active = 1
       `).all(groupId) as any[]
 
-      if (slots.length === 0) return { generated: 0, message: 'No slots yet' }
+      if (slots.length === 0) return { generated: 0, message: 'Aucun créneau' }
 
-      // Start from group's startDate, end at group's endDate or 1 year from now
-      const startDate = group.start_date
+      const startDate = group.start_date || new Date().toISOString().slice(0, 10)
       let endDate = group.end_date
       if (!endDate) {
-        const d = new Date()
-        d.setFullYear(d.getFullYear() + 1)
+        const d = new Date(startDate + 'T00:00:00Z')
+        d.setUTCFullYear(d.getUTCFullYear() + 1)
         endDate = d.toISOString().slice(0, 10)
       }
 
@@ -129,28 +140,35 @@ export function registerSessionsHandlers(): void {
         const matchingSlots = slots.filter((s: any) => s.weekday === weekday)
 
         for (const slot of matchingSlots) {
-          const result = sqlite.prepare(`
-            INSERT OR IGNORE INTO attendance_sessions (
-              group_id, session_date, planned_start_time, end_time,
-              room, late_threshold_minutes, status, session_type,
-              schedule_slot_id, created_by, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, 10, 'open', 'regular', ?, 1, datetime('now'), datetime('now'))
-          `).run(groupId, currentDate, slot.start_time, slot.end_time, slot.room || group.room, slot.id)
-          if (result.changes > 0) generated++
+          const existing = sqlite.prepare(`
+            SELECT id FROM attendance_sessions
+            WHERE group_id = ? AND session_date = ? AND COALESCE(planned_start_time, '') = ?
+          `).get(groupId, currentDate, slot.start_time)
+
+          if (!existing) {
+            const result = sqlite.prepare(`
+              INSERT INTO attendance_sessions (
+                group_id, session_date, planned_start_time, end_time,
+                room, late_threshold_minutes, status, session_type,
+                schedule_slot_id, created_by, created_at, updated_at
+              ) VALUES (?, ?, ?, ?, ?, 10, 'open', 'regular', ?, 1, datetime('now'), datetime('now'))
+            `).run(groupId, currentDate, slot.start_time, slot.end_time, slot.room || group.room, slot.id)
+            if (result.changes > 0) generated++
+          }
         }
 
         currentDate = addDays(currentDate, 1)
       }
 
       log.info(`Auto-generated ${generated} sessions for group ${groupId} (${startDate} → ${endDate})`)
-      return { generated, message: `Generated ${generated} sessions through ${endDate}` }
+      return { generated, message: `${generated} séances générées jusqu'au ${endDate}` }
     } catch (err) {
       log.error('Failed to auto-generate sessions for group:', err)
-      throw new Error(`Auto-generate failed: ${err instanceof Error ? err.message : String(err)}`)
+      throw new Error(`Erreur génération automatique: ${err instanceof Error ? err.message : String(err)}`)
     }
   })
 
-  // ─── Trim sessions after a new end date (when endDate is shortened) ────────
+  // ─── Trim sessions after a new end date ───────────────────────────────────
 
   handle('sessions:trimAfterDate', async (payload) => {
     const { groupId, afterDate } = z.object({
@@ -159,7 +177,6 @@ export function registerSessionsHandlers(): void {
     }).parse(payload)
     const sqlite = getSqlite()
 
-    // Only remove sessions with no attendance records yet
     const result = sqlite.prepare(`
       DELETE FROM attendance_sessions
       WHERE group_id = ? AND session_date > ?
@@ -171,19 +188,17 @@ export function registerSessionsHandlers(): void {
     return { removed: result.changes }
   })
 
-
   handle(IPC_CHANNELS.SESSIONS_CREATE_EXTRA, async (payload) => {
     const data = CreateExtraSessionSchema.parse(payload)
     const sqlite = getSqlite()
 
     try {
       if (data.startTime >= data.endTime) {
-        throw new Error('Start time must be before end time')
+        throw new Error('L\'heure de début doit précéder l\'heure de fin')
       }
 
-      // Get group for defaults
       const group = sqlite.prepare('SELECT * FROM groups WHERE id = ?').get(data.groupId) as any
-      if (!group) throw new Error('Group not found')
+      if (!group) throw new Error('Groupe introuvable')
 
       const stmt = sqlite.prepare(`
         INSERT INTO attendance_sessions (
@@ -201,21 +216,25 @@ export function registerSessionsHandlers(): void {
       )
 
       const session = sqlite.prepare('SELECT * FROM attendance_sessions WHERE id = ?').get(result.lastInsertRowid) as any
+      const dayInfo = getDayInfo(session.session_date)
 
       return {
         id: session.id,
         groupId: session.group_id,
         sessionDate: session.session_date,
         plannedStartTime: session.planned_start_time,
+        startTime: session.planned_start_time,
         endTime: session.end_time,
         room: session.room,
         sessionType: session.session_type,
         status: session.status,
+        dayNameFr: dayInfo.dayNameFr,
+        dayNameAr: dayInfo.dayNameAr,
         createdAt: session.created_at,
       }
     } catch (err) {
       log.error('Failed to create extra session:', err)
-      throw new Error(`Unable to create extra session: ${err instanceof Error ? err.message : String(err)}`)
+      throw new Error(`Impossible de créer la séance supplémentaire: ${err instanceof Error ? err.message : String(err)}`)
     }
   })
 
@@ -226,14 +245,15 @@ export function registerSessionsHandlers(): void {
     try {
       sqlite.prepare(`
         UPDATE attendance_sessions
-        SET session_type = 'cancelled', cancelled_reason = ?, updated_at = datetime('now')
+        SET session_type = 'cancelled', status = 'closed', cancelled_reason = ?, updated_at = datetime('now')
         WHERE id = ?
-      `).run(reason || null, sessionId)
+      `).run(reason || 'Séance annulée', sessionId)
 
+      log.info(`Cancelled session ${sessionId}, reason: ${reason}`)
       return true
     } catch (err) {
       log.error('Failed to cancel session:', err)
-      throw new Error(`Unable to cancel session: ${err instanceof Error ? err.message : String(err)}`)
+      throw new Error(`Erreur lors de l'annulation: ${err instanceof Error ? err.message : String(err)}`)
     }
   })
 
@@ -274,48 +294,81 @@ export function registerSessionsHandlers(): void {
       groupId: z.number().int().positive().optional(),
       status: z.enum(['open', 'closed']).optional(),
       sessionType: z.enum(['regular', 'extra', 'makeup', 'cancelled']).optional(),
+      limit: z.number().int().min(1).max(1000).optional(),
     }).parse(payload ?? {})
 
     const sqlite = getSqlite()
 
     try {
-      let sql = 'SELECT * FROM attendance_sessions WHERE 1=1'
+      let sql = `
+        SELECT s.*, g.name as group_name, c.name_ar as course_name_ar, c.name_fr as course_name_fr,
+               t.first_name as teacher_first_name, t.last_name as teacher_last_name,
+               (SELECT COUNT(*) FROM attendance_records ar WHERE ar.session_id = s.id AND ar.attendance_status IN ('present','late')) as present_count,
+               (SELECT COUNT(*) FROM attendance_records ar WHERE ar.session_id = s.id AND ar.attendance_status = 'absent') as absent_count,
+               (SELECT COUNT(*) FROM attendance_records ar WHERE ar.session_id = s.id AND ar.attendance_status = 'late') as late_count,
+               (SELECT COUNT(*) FROM enrollments e WHERE e.group_id = s.group_id AND e.status = 'active') as enrolled_count
+        FROM attendance_sessions s
+        LEFT JOIN groups g ON s.group_id = g.id
+        LEFT JOIN courses c ON g.course_id = c.id
+        LEFT JOIN teachers t ON g.teacher_id = t.id
+        WHERE 1=1
+      `
       const params: any[] = []
 
       if (opts.groupId) {
-        sql += ' AND group_id = ?'
+        sql += ' AND s.group_id = ?'
         params.push(opts.groupId)
       }
 
       if (opts.status) {
-        sql += ' AND status = ?'
+        sql += ' AND s.status = ?'
         params.push(opts.status)
       }
 
       if (opts.sessionType) {
-        sql += ' AND session_type = ?'
+        sql += ' AND s.session_type = ?'
         params.push(opts.sessionType)
       }
 
-      sql += ' ORDER BY session_date DESC, planned_start_time DESC'
+      sql += ' ORDER BY s.session_date DESC, s.planned_start_time DESC'
+
+      if (opts.limit) {
+        sql += ` LIMIT ${opts.limit}`
+      }
 
       const stmt = sqlite.prepare(sql)
       const rows = stmt.all(...params) as any[]
 
-      return rows.map((row) => ({
-        id: row.id,
-        groupId: row.group_id,
-        sessionDate: row.session_date,
-        plannedStartTime: row.planned_start_time,
-        actualStartTime: row.actual_start_time,
-        endTime: row.end_time,
-        room: row.room,
-        sessionType: row.session_type,
-        status: row.status,
-        lateThresholdMinutes: row.late_threshold_minutes,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-      }))
+      return rows.map((row) => {
+        const dayInfo = getDayInfo(row.session_date)
+        return {
+          id: row.id,
+          groupId: row.group_id,
+          groupName: row.group_name || `Groupe #${row.group_id}`,
+          courseName: row.course_name_fr || row.course_name_ar || '',
+          courseNameFr: row.course_name_fr,
+          courseNameAr: row.course_name_ar,
+          teacherName: row.teacher_first_name ? `${row.teacher_first_name} ${row.teacher_last_name}` : undefined,
+          sessionDate: row.session_date,
+          dayNameFr: dayInfo.dayNameFr,
+          dayNameAr: dayInfo.dayNameAr,
+          plannedStartTime: row.planned_start_time,
+          startTime: row.planned_start_time || row.actual_start_time || '08:00',
+          actualStartTime: row.actual_start_time,
+          endTime: row.end_time || '',
+          room: row.room,
+          sessionType: row.session_type,
+          status: row.status,
+          cancelledReason: row.cancelled_reason,
+          lateThresholdMinutes: row.late_threshold_minutes,
+          presentCount: row.present_count ?? 0,
+          absentCount: row.absent_count ?? 0,
+          lateCount: row.late_count ?? 0,
+          enrolledCount: row.enrolled_count ?? 0,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        }
+      })
     } catch (err) {
       log.error('Failed to list sessions:', err)
       throw new Error(`Unable to list sessions: ${err instanceof Error ? err.message : String(err)}`)
@@ -327,19 +380,33 @@ export function registerSessionsHandlers(): void {
     const sqlite = getSqlite()
 
     try {
-      const session = sqlite.prepare('SELECT * FROM attendance_sessions WHERE id = ?').get(id) as any
+      const session = sqlite.prepare(`
+        SELECT s.*, g.name as group_name, c.name_ar as course_name_ar, c.name_fr as course_name_fr
+        FROM attendance_sessions s
+        LEFT JOIN groups g ON s.group_id = g.id
+        LEFT JOIN courses c ON g.course_id = c.id
+        WHERE s.id = ?
+      `).get(id) as any
+
       if (!session) throw new Error('Session not found')
+      const dayInfo = getDayInfo(session.session_date)
 
       return {
         id: session.id,
         groupId: session.group_id,
+        groupName: session.group_name,
+        courseName: session.course_name_fr || session.course_name_ar,
         sessionDate: session.session_date,
+        dayNameFr: dayInfo.dayNameFr,
+        dayNameAr: dayInfo.dayNameAr,
         plannedStartTime: session.planned_start_time,
+        startTime: session.planned_start_time || session.actual_start_time || '08:00',
         actualStartTime: session.actual_start_time,
         endTime: session.end_time,
         room: session.room,
         sessionType: session.session_type,
         status: session.status,
+        cancelledReason: session.cancelled_reason,
         lateThresholdMinutes: session.late_threshold_minutes,
         createdAt: session.created_at,
         updatedAt: session.updated_at,
@@ -362,8 +429,7 @@ export function registerSessionsHandlers(): void {
       const now = new Date()
       const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 
-      // Automatic cleanup: if a day has completely passed (session_date < today)
-      // 1. Delete expired open sessions that have no attendance records recorded
+      // Automatic cleanup: past days open sessions with no attendance -> close or clean
       sqlite.prepare(`
         DELETE FROM attendance_sessions
         WHERE session_date < ?
@@ -371,7 +437,6 @@ export function registerSessionsHandlers(): void {
           AND id NOT IN (SELECT DISTINCT session_id FROM attendance_records WHERE attendance_status IN ('present', 'late'))
       `).run(today)
 
-      // 2. Automatically mark remaining past open sessions as closed
       sqlite.prepare(`
         UPDATE attendance_sessions
         SET status = 'closed', updated_at = datetime('now')
@@ -393,27 +458,29 @@ export function registerSessionsHandlers(): void {
         params.unshift(opts.groupId)
       }
 
-      if (opts.limit) {
-        sql += ` LIMIT ${Math.min(opts.limit, 100)}`
-      } else {
-        sql += ' LIMIT 50'
-      }
+      sql += ` LIMIT ${Math.min(opts.limit || 50, 100)}`
 
       const stmt = sqlite.prepare(sql)
       const rows = stmt.all(...params) as any[]
 
-      return rows.map((row) => ({
-        id: row.id,
-        groupId: row.group_id,
-        groupName: row.group_name || (row.course_name_fr || row.course_name_ar ? `${row.course_name_fr || row.course_name_ar}` : undefined),
-        courseName: row.course_name_fr || row.course_name_ar,
-        sessionDate: row.session_date,
-        plannedStartTime: row.planned_start_time,
-        endTime: row.end_time,
-        room: row.room,
-        sessionType: row.session_type,
-        status: row.status,
-      }))
+      return rows.map((row) => {
+        const dayInfo = getDayInfo(row.session_date)
+        return {
+          id: row.id,
+          groupId: row.group_id,
+          groupName: row.group_name || (row.course_name_fr || row.course_name_ar ? `${row.course_name_fr || row.course_name_ar}` : undefined),
+          courseName: row.course_name_fr || row.course_name_ar,
+          sessionDate: row.session_date,
+          dayNameFr: dayInfo.dayNameFr,
+          dayNameAr: dayInfo.dayNameAr,
+          plannedStartTime: row.planned_start_time,
+          startTime: row.planned_start_time || row.actual_start_time || '08:00',
+          endTime: row.end_time || '',
+          room: row.room,
+          sessionType: row.session_type,
+          status: row.status,
+        }
+      })
     } catch (err) {
       log.error('Failed to get upcoming sessions:', err)
       throw new Error(`Unable to get upcoming sessions: ${err instanceof Error ? err.message : String(err)}`)
@@ -433,7 +500,7 @@ export function registerSessionsHandlers(): void {
     try {
       const rows = sqlite.prepare(`
         SELECT s.id, s.group_id, s.session_date, s.planned_start_time, s.end_time,
-               s.room, s.status, s.session_type,
+               s.room, s.status, s.session_type, s.cancelled_reason,
                g.name as group_name,
                c.name_ar as course_name_ar, c.name_fr as course_name_fr,
                (SELECT COUNT(*) FROM attendance_records ar WHERE ar.session_id = s.id AND ar.attendance_status IN ('present','late')) as present_count,
@@ -442,25 +509,31 @@ export function registerSessionsHandlers(): void {
         LEFT JOIN groups g ON s.group_id = g.id
         LEFT JOIN courses c ON g.course_id = c.id
         WHERE s.session_date >= ? AND s.session_date <= ?
-          AND s.session_type != 'cancelled'
         ORDER BY s.session_date ASC, s.planned_start_time ASC
       `).all(startDate, endDate) as any[]
 
-      return rows.map(row => ({
-        id: row.id,
-        groupId: row.group_id,
-        groupName: row.group_name,
-        courseNameAr: row.course_name_ar,
-        courseNameFr: row.course_name_fr,
-        sessionDate: row.session_date,
-        plannedStartTime: row.planned_start_time,
-        endTime: row.end_time,
-        room: row.room,
-        status: row.status,
-        sessionType: row.session_type,
-        presentCount: row.present_count ?? 0,
-        enrolledCount: row.enrolled_count ?? 0,
-      }))
+      return rows.map(row => {
+        const dayInfo = getDayInfo(row.session_date)
+        return {
+          id: row.id,
+          groupId: row.group_id,
+          groupName: row.group_name,
+          courseNameAr: row.course_name_ar,
+          courseNameFr: row.course_name_fr,
+          sessionDate: row.session_date,
+          dayNameFr: dayInfo.dayNameFr,
+          dayNameAr: dayInfo.dayNameAr,
+          plannedStartTime: row.planned_start_time,
+          startTime: row.planned_start_time || '08:00',
+          endTime: row.end_time,
+          room: row.room,
+          status: row.status,
+          sessionType: row.session_type,
+          cancelledReason: row.cancelled_reason,
+          presentCount: row.present_count ?? 0,
+          enrolledCount: row.enrolled_count ?? 0,
+        }
+      })
     } catch (err) {
       log.error('Failed to get sessions by date:', err)
       throw new Error(`Unable to get sessions by date: ${err instanceof Error ? err.message : String(err)}`)
