@@ -38,77 +38,157 @@ function StudentCombobox({
 }) {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
+  const [isTyping, setIsTyping] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
 
-  // Sync display label when value changes from outside (e.g. auto-select)
   const selectedStudent = students.find((s) => String(s.id) === value)
+  const nameAr = selectedStudent ? `${selectedStudent.lastNameAr || ''} ${selectedStudent.firstNameAr || ''}`.trim() : ''
+  const nameFr = selectedStudent ? `${selectedStudent.lastNameFr || ''} ${selectedStudent.firstNameFr || ''}`.trim() : ''
+  const selectedName = nameAr || nameFr
   const displayLabel = selectedStudent
-    ? `${selectedStudent.lastNameAr} ${selectedStudent.firstNameAr} — ${selectedStudent.studentNumber}`
+    ? (selectedName ? `${selectedName} — #${selectedStudent.studentNumber}` : selectedStudent.studentNumber)
     : ''
 
+  // Sync input text when value or selected student changes and user is not actively typing
   useEffect(() => {
-    if (!open) setQuery('')
-  }, [open])
+    if (!isTyping) {
+      setQuery(displayLabel)
+    }
+  }, [value, displayLabel, isTyping])
 
   // Close on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false)
+        setIsTyping(false)
+        setQuery(displayLabel)
+      }
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
-  }, [])
+  }, [displayLabel])
 
-  const q = query.toLowerCase()
-  const filtered = query
-    ? students.filter((s) =>
-        `${s.lastNameAr} ${s.firstNameAr} ${s.lastNameFr} ${s.firstNameFr} ${s.studentNumber} ${s.phone ?? ''}`
-          .toLowerCase()
-          .includes(q)
-      )
+  const q = isTyping ? query.toLowerCase().trim() : ''
+  const filtered = q
+    ? students.filter((s) => {
+        const ar = `${s.lastNameAr || ''} ${s.firstNameAr || ''}`.toLowerCase()
+        const fr = `${s.lastNameFr || ''} ${s.firstNameFr || ''}`.toLowerCase()
+        const num = (s.studentNumber || '').toLowerCase()
+        const ph = (s.phone || '').toLowerCase()
+        return ar.includes(q) || fr.includes(q) || num.includes(q) || ph.includes(q)
+      })
     : students
+
+  const visibleStudents = filtered.slice(0, 30)
+
+  const handleClear = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    onChange('')
+    setQuery('')
+    setIsTyping(true)
+    setOpen(true)
+    inputRef.current?.focus()
+  }
 
   return (
     <div ref={ref} className="relative">
       <div
-        className={`${inputCls} flex items-center cursor-pointer gap-2`}
-        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-2 relative bg-white border border-border rounded-xl px-3 py-2 shadow-sm focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20 transition-all cursor-text"
+        onClick={() => {
+          if (!open) setOpen(true)
+          inputRef.current?.focus()
+        }}
       >
-        {open ? (
-          <input
-            autoFocus
-            className="flex-1 outline-none bg-transparent text-sm"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={placeholder}
-            onClick={(e) => e.stopPropagation()}
-          />
+        <Search size={15} className="shrink-0 text-slate-400 ms-0.5" />
+        <input
+          ref={inputRef}
+          type="text"
+          className="flex-1 outline-none bg-transparent text-xs text-[#0F172A] placeholder:text-slate-400"
+          value={query}
+          onFocus={() => {
+            setOpen(true)
+            setIsTyping(true)
+          }}
+          onChange={(e) => {
+            setQuery(e.target.value)
+            setIsTyping(true)
+            if (!open) setOpen(true)
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              setOpen(false)
+              setIsTyping(false)
+              setQuery(displayLabel)
+            }
+          }}
+          placeholder={placeholder}
+        />
+        {value || query ? (
+          <button
+            type="button"
+            onClick={handleClear}
+            className="text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-100 transition-colors shrink-0"
+            title="إلغاء الاختيار"
+          >
+            <X size={14} />
+          </button>
         ) : (
-          <span className={`flex-1 text-sm truncate ${!displayLabel ? 'text-slate-400' : ''}`}>
-            {displayLabel || placeholder}
-          </span>
+          <ChevronDown
+            size={14}
+            className="shrink-0 text-slate-400 cursor-pointer hover:text-slate-600 transition-colors"
+            onClick={(e) => {
+              e.stopPropagation()
+              setOpen((v) => !v)
+            }}
+          />
         )}
-        <ChevronDown size={14} className="shrink-0 text-slate-400" />
       </div>
+
       {open && (
-        <div className="absolute z-50 mt-1 w-full bg-white border border-border rounded-lg shadow-lg max-h-52 overflow-y-auto">
-          {filtered.length === 0 ? (
-            <div className="px-3 py-2 text-xs text-slate-400">Aucun résultat</div>
+        <div className="absolute z-50 mt-1.5 w-full bg-white border border-border rounded-xl shadow-xl max-h-60 overflow-y-auto divide-y divide-slate-100 animate-fade-in">
+          {visibleStudents.length === 0 ? (
+            <div className="px-4 py-3 text-xs text-slate-400 text-center">
+              لم يتم العثور على أي طالب
+            </div>
           ) : (
-            filtered.map((s) => (
-              <div
-                key={s.id}
-                className={`px-3 py-2 text-sm cursor-pointer hover:bg-blue-50 flex justify-between items-center ${String(s.id) === value ? 'bg-blue-50 font-semibold text-[#2563EB]' : ''}`}
-                onMouseDown={(e) => {
-                  e.preventDefault()
-                  onChange(String(s.id))
-                  setOpen(false)
-                }}
-              >
-                <span>{s.lastNameAr} {s.firstNameAr}</span>
-                <span className="text-[10px] font-mono text-slate-400">{s.studentNumber}</span>
-              </div>
-            ))
+            visibleStudents.map((s) => {
+              const stNameAr = `${s.lastNameAr || ''} ${s.firstNameAr || ''}`.trim()
+              const stNameFr = `${s.lastNameFr || ''} ${s.firstNameFr || ''}`.trim()
+              const stName = stNameAr || stNameFr || s.studentNumber
+              const isSelected = String(s.id) === value
+
+              return (
+                <div
+                  key={s.id}
+                  className={`px-3.5 py-2.5 text-xs cursor-pointer hover:bg-indigo-50/70 transition-colors flex items-center justify-between gap-3 ${
+                    isSelected ? 'bg-indigo-50/90 font-bold text-indigo-700' : 'text-[#0F172A]'
+                  }`}
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    onChange(String(s.id))
+                    setIsTyping(false)
+                    setOpen(false)
+                  }}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <div className={`w-7 h-7 rounded-full text-[11px] font-bold flex items-center justify-center shrink-0 ${
+                      isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'
+                    }`}>
+                      {stName.charAt(0)}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-semibold">{stName}</p>
+                      {s.phone && <p className="text-[10px] text-slate-400 font-mono dir-ltr">{s.phone}</p>}
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 text-slate-600 shrink-0">
+                    #{s.studentNumber}
+                  </span>
+                </div>
+              )
+            })
           )}
         </div>
       )}

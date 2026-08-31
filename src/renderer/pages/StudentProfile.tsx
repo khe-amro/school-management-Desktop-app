@@ -10,6 +10,14 @@ import {
 import type { Student, Payment, AttendanceRecord, Group, Course } from '@shared/types/index'
 import QRCode from 'qrcode'
 
+// Convert Eastern Arabic numerals (٠-٩) and Persian numerals (۰-۹) to standard ASCII (0-9)
+function normalizeNumberInput(val: string): string {
+  const ascii = val
+    .replace(/[٠-٩]/g, (d) => '0123456789'['٠١٢٣٤٥٦٧٨٩'.indexOf(d)])
+    .replace(/[۰-۹]/g, (d) => '0123456789'['۰۱۲۳۴۵٦٧٨٩'.indexOf(d)])
+  return ascii.replace(/[^0-9.]/g, '')
+}
+
 type Tab = 'overview' | 'attendance' | 'payments' | 'enrollments' | 'notes'
 
 interface EnrollmentWithDetails {
@@ -853,13 +861,39 @@ export default function StudentProfile() {
                 <label className="block font-medium text-slate-600 mb-1">
                   {lang === 'ar' ? 'المبلغ المراد تحويله (دج) *' : 'Montant à transférer (DA) *'}
                 </label>
-                <input
-                  type="number"
-                  className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-white font-bold text-[#2563EB]"
-                  value={transferAmount}
-                  onChange={(e) => setTransferAmount(e.target.value)}
-                  dir="ltr"
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-white font-extrabold text-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] outline-none transition-all"
+                    value={transferAmount}
+                    onChange={(e) => setTransferAmount(normalizeNumberInput(e.target.value))}
+                    placeholder="0"
+                    dir="ltr"
+                  />
+                </div>
+                {/* Quick preset buttons */}
+                <div className="flex gap-1.5 mt-2 flex-wrap text-[11px]">
+                  {[500, 1000, 1500, 2000, 2500].map((amt) => (
+                    <button
+                      key={amt}
+                      type="button"
+                      onClick={() => setTransferAmount(String(amt))}
+                      className="px-2 py-0.5 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 rounded font-medium text-slate-600 transition-colors"
+                    >
+                      {amt} DA
+                    </button>
+                  ))}
+                  {transferModalSource && (
+                    <button
+                      type="button"
+                      onClick={() => setTransferAmount(String(transferModalSource.agreedPrice || 0))}
+                      className="px-2 py-0.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded font-bold transition-colors"
+                    >
+                      {lang === 'ar' ? 'المبلغ كاملاً' : 'Total'} ({transferModalSource.agreedPrice} DA)
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* Checkbox: Close source group */}
