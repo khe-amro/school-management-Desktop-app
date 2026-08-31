@@ -323,7 +323,34 @@ export default function Courses() {
     try {
       const res = await window.schoolApp.enrollments.byGroup(groupId)
       if (res.success && res.data) {
-        setGroupEnrollments(res.data)
+        const items = res.data
+        const enriched = await Promise.all(
+          items.map(async (item: any) => {
+            const hasName = item.firstNameAr || item.lastNameAr || item.firstNameFr || item.lastNameFr || item.fullName || item.firstName || item.lastName
+            if (!hasName) {
+              try {
+                const sRes = await window.schoolApp.students.getById(item.studentId)
+                if (sRes.success && sRes.data) {
+                  const s = sRes.data
+                  return {
+                    ...item,
+                    studentNumber: s.studentNumber || item.studentNumber,
+                    registrationNumber: s.studentNumber || item.studentNumber,
+                    firstNameAr: s.firstNameAr || '',
+                    lastNameAr: s.lastNameAr || '',
+                    firstNameFr: s.firstNameFr || '',
+                    lastNameFr: s.lastNameFr || '',
+                    phone: s.phone || item.phone,
+                  }
+                }
+              } catch {
+                /* ignore */
+              }
+            }
+            return item
+          })
+        )
+        setGroupEnrollments(enriched)
       } else {
         setGroupEnrollments([])
       }
@@ -1087,11 +1114,12 @@ export default function Courses() {
               ) : (() => {
                 const q = drawerSearch.toLowerCase().trim()
                 const filtered = groupEnrollments.filter((item) => {
-                  const arName = `${item.lastNameAr || ''} ${item.firstNameAr || ''}`.toLowerCase()
-                  const frName = `${item.lastNameFr || ''} ${item.firstNameFr || ''}`.toLowerCase()
-                  const num = (item.studentNumber || '').toLowerCase()
+                  const arName = `${item.lastNameAr || item.lastName || ''} ${item.firstNameAr || item.firstName || ''}`.toLowerCase()
+                  const frName = `${item.lastNameFr || item.lastName || ''} ${item.firstNameFr || item.firstName || ''}`.toLowerCase()
+                  const fullName = (item.fullName || '').toLowerCase()
+                  const num = (item.studentNumber || item.registrationNumber || '').toLowerCase()
                   const phone = (item.phone || '').toLowerCase()
-                  return arName.includes(q) || frName.includes(q) || num.includes(q) || phone.includes(q)
+                  return arName.includes(q) || frName.includes(q) || fullName.includes(q) || num.includes(q) || phone.includes(q)
                 })
 
                 if (filtered.length === 0) {
@@ -1103,9 +1131,13 @@ export default function Courses() {
                 }
 
                 return filtered.map((item) => {
-                  const arName = `${item.lastNameAr || ''} ${item.firstNameAr || ''}`.trim()
-                  const frName = `${item.lastNameFr || ''} ${item.firstNameFr || ''}`.trim()
-                  const studentName = lang === 'ar' ? (arName || frName || 'طالب') : (frName || arName || 'Étudiant')
+                  const arName = `${item.lastNameAr || item.lastName || ''} ${item.firstNameAr || item.firstName || ''}`.trim()
+                  const frName = `${item.lastNameFr || item.lastName || ''} ${item.firstNameFr || item.firstName || ''}`.trim()
+                  const altName = item.fullName || item.studentName || item.name
+                  const fallbackLabel = `#${item.studentNumber || item.studentId}`
+                  const studentName = lang === 'ar'
+                    ? (arName || frName || altName || fallbackLabel)
+                    : (frName || arName || altName || fallbackLabel)
 
                   return (
                     <div
