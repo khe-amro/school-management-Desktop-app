@@ -213,12 +213,48 @@ export async function listEnrollmentsByStudent(studentId: number): Promise<Enrol
   }))
 }
 
-export async function listEnrollmentsByGroup(groupId: number): Promise<Enrollment[]> {
+export async function listEnrollmentsByGroup(groupId: number): Promise<any[]> {
   const db = getDb()
-  const rows = await db.select().from(schema.enrollments)
+  const rows = await db
+    .select({
+      id: schema.enrollments.id,
+      studentId: schema.enrollments.studentId,
+      groupId: schema.enrollments.groupId,
+      agreedPrice: schema.enrollments.agreedPrice,
+      enrollmentDate: schema.enrollments.enrollmentDate,
+      status: schema.enrollments.status,
+      createdAt: schema.enrollments.createdAt,
+      updatedAt: schema.enrollments.updatedAt,
+      studentNumber: schema.students.studentNumber,
+      firstNameAr: schema.students.firstNameAr,
+      lastNameAr: schema.students.lastNameAr,
+      firstNameFr: schema.students.firstNameFr,
+      lastNameFr: schema.students.lastNameFr,
+      phone: schema.students.phone,
+      studentStatus: schema.students.status,
+    })
+    .from(schema.enrollments)
+    .leftJoin(schema.students, eq(schema.enrollments.studentId, schema.students.id))
     .where(and(eq(schema.enrollments.groupId, groupId), eq(schema.enrollments.status, 'active')))
     .orderBy(desc(schema.enrollments.createdAt))
-  return rows.map(r => ({ id: r.id, studentId: r.studentId, groupId: r.groupId, agreedPrice: r.agreedPrice, enrollmentDate: r.enrollmentDate, status: r.status as Enrollment['status'], createdAt: r.createdAt, updatedAt: r.updatedAt }))
+
+  return rows.map((r) => ({
+    id: r.id,
+    studentId: r.studentId,
+    groupId: r.groupId,
+    agreedPrice: r.agreedPrice,
+    enrollmentDate: r.enrollmentDate,
+    status: r.status as Enrollment['status'],
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+    studentNumber: r.studentNumber ?? '',
+    firstNameAr: r.firstNameAr ?? '',
+    lastNameAr: r.lastNameAr ?? '',
+    firstNameFr: r.firstNameFr ?? '',
+    lastNameFr: r.lastNameFr ?? '',
+    phone: r.phone ?? null,
+    studentStatus: r.studentStatus ?? 'active',
+  }))
 }
 
 export async function updateEnrollment(id: number, data: Partial<{ status: Enrollment['status']; agreedPrice: number }>): Promise<Enrollment> {

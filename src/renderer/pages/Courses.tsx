@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router-dom'
 import {
   Plus, ChevronDown, Calendar, Clock, Edit2,
-  Trash2, X, BookOpen, DollarSign
+  Trash2, X, BookOpen, DollarSign, Users, ExternalLink, UserMinus, Search
 } from 'lucide-react'
 import type { Course, Group, Teacher } from '@shared/types/index'
 
@@ -65,6 +66,14 @@ export default function Courses() {
   const [showExtraSessionModal, setShowExtraSessionModal] = useState<Group | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const navigate = useNavigate()
+
+  // Group Students Side Drawer
+  const [viewGroupStudents, setViewGroupStudents] = useState<Group | null>(null)
+  const [groupEnrollments, setGroupEnrollments] = useState<any[]>([])
+  const [loadingGroupStudents, setLoadingGroupStudents] = useState(false)
+  const [drawerSearch, setDrawerSearch] = useState('')
+
   // Slot enrollment modal
   const [enrollSessionSlot, setEnrollSessionSlot] = useState<ScheduleSlot | null>(null)
   const [enrollSearch, setEnrollSearch] = useState('')
@@ -298,11 +307,57 @@ export default function Courses() {
         setEnrollSearch('')
         setEnrollStudents([])
         await loadData()
+        if (viewGroupStudents) {
+          await loadGroupStudents(viewGroupStudents.id)
+        }
       } else {
         alert(res.error ?? (lang === 'ar' ? 'فشل التسجيل (قد يكون مسجلاً بالفعل)' : 'Échec de l\'inscription'))
       }
     } finally {
       setEnrolling(false)
+    }
+  }
+
+  const loadGroupStudents = useCallback(async (groupId: number) => {
+    setLoadingGroupStudents(true)
+    try {
+      const res = await window.schoolApp.enrollments.byGroup(groupId)
+      if (res.success && res.data) {
+        setGroupEnrollments(res.data)
+      } else {
+        setGroupEnrollments([])
+      }
+    } catch {
+      setGroupEnrollments([])
+    } finally {
+      setLoadingGroupStudents(false)
+    }
+  }, [])
+
+  const openGroupStudents = (group: Group) => {
+    setViewGroupStudents(group)
+    setDrawerSearch('')
+    loadGroupStudents(group.id)
+  }
+
+  const handleUnenrollStudent = async (enrollmentId: number, studentName: string) => {
+    const confirmMsg = lang === 'ar'
+      ? `هل أنت متأكد من إلغاء تسجيل الطالب "${studentName}" من هذا الفوج؟`
+      : `Voulez-vous vraiment désinscrire l'étudiant "${studentName}" de ce groupe ?`
+    if (!window.confirm(confirmMsg)) return
+
+    try {
+      const res = await window.schoolApp.enrollments.update(enrollmentId, { status: 'inactive' })
+      if (res.success) {
+        if (viewGroupStudents) {
+          await loadGroupStudents(viewGroupStudents.id)
+        }
+        await loadData()
+      } else {
+        alert(res.error ?? 'Erreur')
+      }
+    } catch (err: any) {
+      alert(err.message || 'Erreur')
     }
   }
 
@@ -452,8 +507,14 @@ export default function Courses() {
                                               <span className="text-emerald-600 font-medium">{Math.round(group.monthlyPrice / 4).toLocaleString()} DA</span>
                                             </div>
                                             <div className="flex justify-between">
-                                              <span>{lang === 'ar' ? 'الطاقة' : 'Capacité'}:</span>
-                                              <span>{group.capacity}</span>
+                                              <span>{lang === 'ar' ? 'الطلاب المسجلون' : 'Inscrits'}:</span>
+                                              <span
+                                                className="text-indigo-600 font-bold cursor-pointer hover:underline"
+                                                onClick={(e) => { e.stopPropagation(); openGroupStudents(group) }}
+                                                title={lang === 'ar' ? 'عرض قائمة الطلاب' : 'Voir la liste'}
+                                              >
+                                                {group.enrolledCount ?? 0} / {group.capacity}
+                                              </span>
                                             </div>
                                             <div className="flex justify-between">
                                               <span>{lang === 'ar' ? 'الحصص' : 'Créneaux'}:</span>
@@ -465,6 +526,11 @@ export default function Courses() {
                                               className="px-1.5 py-0.5 bg-[#EFF6FF] hover:bg-[#DBEAFE] text-[#2563EB] rounded text-[10px] flex items-center gap-0.5"
                                               title={lang === 'ar' ? 'تعديل الفوج' : 'Modifier le groupe'}>
                                               <Edit2 size={9} /> {lang === 'ar' ? 'تعديل' : 'Edit'}
+                                            </button>
+                                            <button onClick={e => { e.stopPropagation(); openGroupStudents(group) }}
+                                              className="px-1.5 py-0.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded text-[10px] flex items-center gap-0.5 font-medium"
+                                              title={lang === 'ar' ? 'عرض الطلاب المسجلين' : 'Voir les étudiants'}>
+                                              <Users size={9} /> {lang === 'ar' ? 'الطلاب' : 'Étudiants'} ({group.enrolledCount ?? 0})
                                             </button>
                                             <button onClick={e => { e.stopPropagation(); setShowScheduleModal(group); setError('') }}
                                               className="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded text-[10px] flex items-center gap-0.5">
@@ -516,15 +582,24 @@ export default function Courses() {
                 <p className="text-[11px] text-slate-400">{t('courses.scheduleSubtitle')}</p>
               </div>
               {selectedGroup && (
-                <button
-                  onClick={() => {
-                    setShowScheduleModal(selectedGroup)
-                    setError('')
-                  }}
-                  className="px-2.5 py-1 bg-[#2563EB] text-white rounded text-xs font-semibold hover:bg-[#1D4ED8] flex items-center gap-1"
-                >
-                  <Plus size={12} /> {t('courses.manage')}
-                </button>
+                <div className="flex gap-1.5">
+                  <button
+                    onClick={() => openGroupStudents(selectedGroup)}
+                    className="px-2.5 py-1 bg-indigo-600 text-white rounded text-xs font-semibold hover:bg-indigo-700 flex items-center gap-1 transition-colors"
+                    title={lang === 'ar' ? 'عرض الطلاب المسجلين' : 'Voir les étudiants'}
+                  >
+                    <Users size={12} /> {lang === 'ar' ? 'الطلاب' : 'Étudiants'} ({selectedGroup.enrolledCount ?? 0})
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowScheduleModal(selectedGroup)
+                      setError('')
+                    }}
+                    className="px-2.5 py-1 bg-[#2563EB] text-white rounded text-xs font-semibold hover:bg-[#1D4ED8] flex items-center gap-1"
+                  >
+                    <Plus size={12} /> {t('courses.manage')}
+                  </button>
+                </div>
               )}
             </div>
 
@@ -941,6 +1016,143 @@ export default function Courses() {
             )}
           </div>
         </Modal>
+      )}
+
+      {/* ── Side Drawer: Enrolled Students in Group ── */}
+      {viewGroupStudents && (
+        <div className="fixed inset-0 z-50 overflow-hidden bg-black/40 animate-fade-in flex justify-end">
+          <div className="w-full max-w-lg bg-white h-full shadow-2xl flex flex-col transform transition-transform duration-300">
+            {/* Header */}
+            <div className="p-5 border-b border-border bg-slate-50 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold">
+                  <Users size={20} />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-[#0F172A]">
+                    {lang === 'ar' ? `قائمة الطلاب: ${viewGroupStudents.name}` : `Liste des étudiants: ${viewGroupStudents.name}`}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    {lang === 'ar'
+                      ? `العدد الإجمالي: ${groupEnrollments.length} / ${viewGroupStudents.capacity} طالب`
+                      : `Total: ${groupEnrollments.length} / ${viewGroupStudents.capacity} étudiants`}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setViewGroupStudents(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-200 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Controls Bar: Search & Quick Add */}
+            <div className="p-4 border-b border-border flex gap-2 bg-white">
+              <div className="relative flex-1">
+                <Search size={14} className="absolute inset-s-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={drawerSearch}
+                  onChange={(e) => setDrawerSearch(e.target.value)}
+                  placeholder={lang === 'ar' ? 'بحث عن طالب في القائمة...' : 'Rechercher un étudiant...'}
+                  className="w-full ps-9 pe-3 py-1.5 border border-border rounded-lg text-xs outline-none focus:border-indigo-500"
+                />
+              </div>
+              <button
+                onClick={() => {
+                  const groupSlots = schedules.filter(s => s.groupId === viewGroupStudents.id)
+                  setSelectedGroup(viewGroupStudents)
+                  if (groupSlots.length > 0) setEnrollSessionSlot(groupSlots[0])
+                  else setEnrollSessionSlot({ id: 0, groupId: viewGroupStudents.id, weekday: 0, startTime: '00:00', endTime: '00:00', isActive: true })
+                }}
+                className="px-3 py-1.5 bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-semibold rounded-lg flex items-center gap-1 shrink-0"
+              >
+                <Plus size={14} />
+                {lang === 'ar' ? 'إضافة طالب' : 'Ajouter'}
+              </button>
+            </div>
+
+            {/* Content List */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-2">
+              {loadingGroupStudents ? (
+                <div className="flex justify-center py-12">
+                  <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : groupEnrollments.length === 0 ? (
+                <div className="text-center py-12 text-slate-400">
+                  <Users size={36} className="mx-auto mb-2 opacity-30" />
+                  <p className="text-xs">{lang === 'ar' ? 'لا يوجد أي طالب مسجل في هذا الفوج بعد' : 'Aucun étudiant inscrit dans ce groupe'}</p>
+                </div>
+              ) : (() => {
+                const q = drawerSearch.toLowerCase().trim()
+                const filtered = groupEnrollments.filter((item) => {
+                  const arName = `${item.lastNameAr || ''} ${item.firstNameAr || ''}`.toLowerCase()
+                  const frName = `${item.lastNameFr || ''} ${item.firstNameFr || ''}`.toLowerCase()
+                  const num = (item.studentNumber || '').toLowerCase()
+                  const phone = (item.phone || '').toLowerCase()
+                  return arName.includes(q) || frName.includes(q) || num.includes(q) || phone.includes(q)
+                })
+
+                if (filtered.length === 0) {
+                  return (
+                    <div className="text-center py-8 text-xs text-slate-400">
+                      {lang === 'ar' ? 'لم يتم العثور على أي نتائج' : 'Aucun résultat'}
+                    </div>
+                  )
+                }
+
+                return filtered.map((item) => {
+                  const arName = `${item.lastNameAr || ''} ${item.firstNameAr || ''}`.trim()
+                  const frName = `${item.lastNameFr || ''} ${item.firstNameFr || ''}`.trim()
+                  const studentName = lang === 'ar' ? (arName || frName || 'طالب') : (frName || arName || 'Étudiant')
+
+                  return (
+                    <div
+                      key={item.id}
+                      className="p-3 bg-white border border-border rounded-xl hover:border-indigo-200 hover:shadow-sm transition-all flex items-center justify-between gap-3"
+                    >
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <div className="w-9 h-9 rounded-full bg-indigo-50 text-indigo-700 font-bold text-xs flex items-center justify-center shrink-0 border border-indigo-100">
+                          {studentName.charAt(0)}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-bold text-xs text-[#0F172A] truncate">{studentName}</p>
+                          <div className="flex items-center gap-2 text-[10px] text-slate-400 font-mono mt-0.5">
+                            <span>#{item.studentNumber || item.studentId}</span>
+                            {item.phone && <span>• {item.phone}</span>}
+                            <span>• {item.agreedPrice} DA</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1 shrink-0">
+                        {/* Direct Link to Student Profile */}
+                        <button
+                          onClick={() => navigate(`/students/${item.studentId}`)}
+                          className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors"
+                          title={lang === 'ar' ? 'الانتقال إلى الملف الشخصي للطالب' : 'Voir le profil de l\'étudiant'}
+                        >
+                          <ExternalLink size={12} />
+                          <span>{lang === 'ar' ? 'الملف' : 'Profil'}</span>
+                        </button>
+
+                        {/* Unenroll Button */}
+                        <button
+                          onClick={() => handleUnenrollStudent(item.id, studentName)}
+                          className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
+                          title={lang === 'ar' ? 'إلغاء تسجيل الطالب من الفوج' : 'Désinscrire l\'étudiant'}
+                        >
+                          <UserMinus size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })
+              })()}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
