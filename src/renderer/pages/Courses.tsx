@@ -267,14 +267,19 @@ export default function Courses() {
     } finally { setSaving(false) }
   }
 
-  const handleSearchStudentsForEnroll = async (query: string) => {
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const handleSearchStudentsForEnroll = (query: string) => {
     setEnrollSearch(query)
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
     if (!query.trim()) { setEnrollStudents([]); return }
-    try {
-      const res = await window.schoolApp.students.searchByName(query.trim())
-      if (res.success && res.data) setEnrollStudents(res.data)
-      else setEnrollStudents([])
-    } catch { setEnrollStudents([]) }
+    searchTimeoutRef.current = setTimeout(async () => {
+      try {
+        const res = await window.schoolApp.students.searchByName(query.trim())
+        if (res.success && res.data) setEnrollStudents(res.data)
+        else setEnrollStudents([])
+      } catch { setEnrollStudents([]) }
+    }, 150)
   }
 
   const handleEnrollStudentToGroup = async (studentId: number) => {
@@ -905,24 +910,32 @@ export default function Courses() {
                     {lang === 'ar' ? 'لم يتم العثور على أي طالب' : 'Aucun étudiant trouvé'}
                   </div>
                 ) : (
-                  enrollStudents.map((st) => (
-                    <div
-                      key={st.id}
-                      className="p-2.5 flex items-center justify-between hover:bg-slate-50 text-xs cursor-pointer"
-                      onClick={() => handleEnrollStudentToGroup(st.id)}
-                    >
-                      <div>
-                        <p className="font-bold text-[#0F172A]">{st.lastName} {st.firstName}</p>
-                        <p className="text-[10px] text-slate-400 font-mono">#{st.registrationNumber}</p>
-                      </div>
-                      <button
-                        disabled={enrolling}
-                        className="px-3 py-1 bg-[#2563EB] text-white text-[11px] font-semibold rounded hover:bg-[#1D4ED8] disabled:opacity-50"
+                  enrollStudents.map((st) => {
+                    const nameAr = `${st.lastNameAr || ''} ${st.firstNameAr || ''}`.trim()
+                    const nameFr = `${st.lastNameFr || ''} ${st.firstNameFr || ''}`.trim()
+                    const displayName = lang === 'ar'
+                      ? (nameAr || nameFr || `${st.lastName || ''} ${st.firstName || ''}`.trim())
+                      : (nameFr || nameAr || `${st.lastName || ''} ${st.firstName || ''}`.trim())
+                    const number = st.studentNumber || st.registrationNumber || ''
+                    return (
+                      <div
+                        key={st.id}
+                        className="p-2.5 flex items-center justify-between hover:bg-slate-50 text-xs cursor-pointer"
+                        onClick={() => handleEnrollStudentToGroup(st.id)}
                       >
-                        {enrolling ? (lang === 'ar' ? 'جاري...' : '...') : (lang === 'ar' ? 'تسجيل' : 'Inscrire')}
-                      </button>
-                    </div>
-                  ))
+                        <div>
+                          <p className="font-bold text-[#0F172A]">{displayName || (lang === 'ar' ? 'طالب' : 'Étudiant')}</p>
+                          {number && <p className="text-[10px] text-slate-400 font-mono">#{number}</p>}
+                        </div>
+                        <button
+                          disabled={enrolling}
+                          className="px-3 py-1 bg-[#2563EB] text-white text-[11px] font-semibold rounded hover:bg-[#1D4ED8] disabled:opacity-50"
+                        >
+                          {enrolling ? (lang === 'ar' ? 'جاري...' : '...') : (lang === 'ar' ? 'تسجيل' : 'Inscrire')}
+                        </button>
+                      </div>
+                    )
+                  })
                 )}
               </div>
             )}

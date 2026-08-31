@@ -39,76 +39,100 @@ function StudentCombobox({
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
 
-  // Sync display label when value changes from outside (e.g. auto-select)
   const selectedStudent = students.find((s) => String(s.id) === value)
+  const nameAr = selectedStudent ? `${selectedStudent.lastNameAr || ''} ${selectedStudent.firstNameAr || ''}`.trim() : ''
+  const nameFr = selectedStudent ? `${selectedStudent.lastNameFr || ''} ${selectedStudent.firstNameFr || ''}`.trim() : ''
+  const selectedName = nameAr || nameFr
   const displayLabel = selectedStudent
-    ? `${selectedStudent.lastNameAr} ${selectedStudent.firstNameAr} — ${selectedStudent.studentNumber}`
+    ? (selectedName ? `${selectedName} — ${selectedStudent.studentNumber}` : selectedStudent.studentNumber)
     : ''
-
-  useEffect(() => {
-    if (!open) setQuery('')
-  }, [open])
 
   // Close on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  const q = query.toLowerCase()
+  const q = query.toLowerCase().trim()
   const filtered = query
-    ? students.filter((s) =>
-        `${s.lastNameAr} ${s.firstNameAr} ${s.lastNameFr} ${s.firstNameFr} ${s.studentNumber} ${s.phone ?? ''}`
-          .toLowerCase()
-          .includes(q)
-      )
+    ? students.filter((s) => {
+        const ar = `${s.lastNameAr || ''} ${s.firstNameAr || ''}`.toLowerCase()
+        const fr = `${s.lastNameFr || ''} ${s.firstNameFr || ''}`.toLowerCase()
+        const num = (s.studentNumber || '').toLowerCase()
+        const ph = (s.phone || '').toLowerCase()
+        return ar.includes(q) || fr.includes(q) || num.includes(q) || ph.includes(q)
+      })
     : students
+
+  const visibleStudents = filtered.slice(0, 30)
 
   return (
     <div ref={ref} className="relative">
       <div
-        className={`${inputCls} flex items-center cursor-pointer gap-2`}
-        onClick={() => setOpen((v) => !v)}
+        className={`${inputCls} flex items-center cursor-text gap-2`}
+        onClick={() => {
+          if (!open) setOpen(true)
+          inputRef.current?.focus()
+        }}
       >
-        {open ? (
-          <input
-            autoFocus
-            className="flex-1 outline-none bg-transparent text-sm"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={placeholder}
-            onClick={(e) => e.stopPropagation()}
-          />
-        ) : (
-          <span className={`flex-1 text-sm truncate ${!displayLabel ? 'text-slate-400' : ''}`}>
-            {displayLabel || placeholder}
-          </span>
-        )}
-        <ChevronDown size={14} className="shrink-0 text-slate-400" />
+        <input
+          ref={inputRef}
+          type="text"
+          className="flex-1 outline-none bg-transparent text-sm"
+          value={open ? query : (displayLabel || query)}
+          onFocus={() => {
+            setOpen(true)
+            setQuery('')
+          }}
+          onChange={(e) => {
+            setQuery(e.target.value)
+            if (!open) setOpen(true)
+          }}
+          placeholder={displayLabel || placeholder}
+        />
+        <ChevronDown
+          size={14}
+          className="shrink-0 text-slate-400 cursor-pointer"
+          onClick={(e) => {
+            e.stopPropagation()
+            setOpen((v) => !v)
+          }}
+        />
       </div>
       {open && (
         <div className="absolute z-50 mt-1 w-full bg-white border border-border rounded-lg shadow-lg max-h-52 overflow-y-auto">
-          {filtered.length === 0 ? (
+          {visibleStudents.length === 0 ? (
             <div className="px-3 py-2 text-xs text-slate-400">Aucun résultat</div>
           ) : (
-            filtered.map((s) => (
-              <div
-                key={s.id}
-                className={`px-3 py-2 text-sm cursor-pointer hover:bg-blue-50 flex justify-between items-center ${String(s.id) === value ? 'bg-blue-50 font-semibold text-[#2563EB]' : ''}`}
-                onMouseDown={(e) => {
-                  e.preventDefault()
-                  onChange(String(s.id))
-                  setOpen(false)
-                }}
-              >
-                <span>{s.lastNameAr} {s.firstNameAr}</span>
-                <span className="text-[10px] font-mono text-slate-400">{s.studentNumber}</span>
-              </div>
-            ))
+            visibleStudents.map((s) => {
+              const stNameAr = `${s.lastNameAr || ''} ${s.firstNameAr || ''}`.trim()
+              const stNameFr = `${s.lastNameFr || ''} ${s.firstNameFr || ''}`.trim()
+              const stName = stNameAr || stNameFr || s.studentNumber
+              return (
+                <div
+                  key={s.id}
+                  className={`px-3 py-2 text-sm cursor-pointer hover:bg-blue-50 flex justify-between items-center ${
+                    String(s.id) === value ? 'bg-blue-50 font-semibold text-[#2563EB]' : ''
+                  }`}
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    onChange(String(s.id))
+                    setQuery('')
+                    setOpen(false)
+                  }}
+                >
+                  <span>{stName}</span>
+                  <span className="text-[10px] font-mono text-slate-400">{s.studentNumber}</span>
+                </div>
+              )
+            })
           )}
         </div>
       )}

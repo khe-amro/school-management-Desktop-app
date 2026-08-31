@@ -75,16 +75,19 @@ export function registerStudentHandlers(): void {
           OR student_number LIKE ?
         )
       ORDER BY last_name_ar, first_name_ar
-      LIMIT 7
+      LIMIT 25
     `).all(q, q, q, q, q, q, q, q, q) as any[]
 
     return rows.map(r => ({
       id: r.id,
       studentNumber: r.student_number,
+      registrationNumber: r.student_number,
       firstNameAr: r.first_name_ar,
       lastNameAr: r.last_name_ar,
       firstNameFr: r.first_name_fr,
       lastNameFr: r.last_name_fr,
+      firstName: r.first_name_ar || r.first_name_fr || '',
+      lastName: r.last_name_ar || r.last_name_fr || '',
       status: r.status,
     }))
   })
