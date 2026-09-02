@@ -52,6 +52,12 @@ export default function Dashboard() {
   const [weeklySlots, setWeeklySlots] = useState<WeeklySlot[]>([])
   const [todaySessions, setTodaySessions] = useState<TodaySession[]>([])
   const [loading, setLoading] = useState(true)
+  const [nowTime, setNowTime] = useState<Date>(new Date())
+
+  useEffect(() => {
+    const timer = setInterval(() => setNowTime(new Date()), 1000)
+    return () => clearInterval(timer)
+  }, [])
 
   const loadData = async () => {
     try {
@@ -237,13 +243,23 @@ export default function Dashboard() {
 
         {/* Today's sessions */}
         <div className="bg-white rounded-xl border border-border p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-[#0F172A] text-sm flex items-center gap-2">
-              <Clock size={14} />
-              {lang === 'ar' ? 'حصص اليوم' : "Séances d'aujourd'hui"}
-            </h3>
-            <button onClick={() => navigate('/attendance')} className="text-xs text-[#2563EB] hover:underline">
-              {lang === 'ar' ? 'الحضور' : 'Présence'}
+          <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+            <div>
+              <h3 className="font-bold text-[#0F172A] text-sm flex items-center gap-2">
+                <Clock size={16} className="text-[#2563EB] animate-pulse" />
+                {lang === 'ar' ? 'حصص اليوم' : "Séances d'aujourd'hui"}
+              </h3>
+              <div className="flex items-center gap-2 mt-1.5 font-mono text-[11px] font-bold">
+                <span className="bg-blue-50 text-[#2563EB] px-2.5 py-0.5 rounded-md border border-blue-100 flex items-center gap-1">
+                  📅 {nowTime.toLocaleDateString(lang === 'ar' ? 'ar-DZ' : lang === 'fr' ? 'fr-FR' : 'en-US', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+                </span>
+                <span className="bg-slate-100 text-slate-700 px-2.5 py-0.5 rounded-md border border-slate-200 tracking-wider flex items-center gap-1">
+                  ⏱ {nowTime.toLocaleTimeString(lang === 'ar' ? 'ar-DZ' : lang === 'fr' ? 'fr-FR' : 'en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                </span>
+              </div>
+            </div>
+            <button onClick={() => navigate('/attendance')} className="text-xs font-semibold text-[#2563EB] hover:underline bg-blue-50 px-2.5 py-1.5 rounded-lg border border-blue-100 transition-colors hover:bg-blue-100">
+              {lang === 'ar' ? 'متابعة الحضور' : 'Présence'}
             </button>
           </div>
 
