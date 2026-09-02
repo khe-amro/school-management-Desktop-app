@@ -28,8 +28,8 @@ const WEEKDAYS = [
 ]
 
 const Modal = ({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) => (
-  <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-    <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fade-in">
+  <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
+    <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fade-in" onClick={(e) => e.stopPropagation()}>
       <div className="flex justify-between items-center mb-4">
         <h3 className="font-bold text-[#0F172A]">{title}</h3>
         <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
@@ -1047,8 +1047,8 @@ export default function Courses() {
 
       {/* ── Side Drawer: Enrolled Students in Group ── */}
       {viewGroupStudents && (
-        <div className="fixed inset-0 z-50 overflow-hidden bg-black/40 animate-fade-in flex justify-end">
-          <div className="w-full max-w-lg bg-white h-full shadow-2xl flex flex-col transform transition-transform duration-300">
+        <div className="fixed inset-0 z-50 overflow-hidden bg-black/40 animate-fade-in flex justify-end" onClick={() => setViewGroupStudents(null)}>
+          <div className="w-full max-w-lg bg-white h-full shadow-2xl flex flex-col transform transition-transform duration-300" onClick={(e) => e.stopPropagation()}>
             {/* Header */}
             <div className="p-5 border-b border-border bg-slate-50 flex items-center justify-between">
               <div className="flex items-center gap-3">

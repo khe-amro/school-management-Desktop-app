@@ -77,7 +77,7 @@ export default function AutoLock() {
 
   return (
     <div className="fixed inset-0 z-999 bg-[#0F172A] flex items-center justify-center p-4 animate-fade-in">
-      <div className="bg-white rounded-2xl w-full max-w-sm p-8 shadow-2xl text-center space-y-5">
+      <div className="bg-white rounded-2xl w-full max-w-sm p-8 shadow-2xl text-center space-y-5" onClick={(e) => e.stopPropagation()}>
         <div className="w-16 h-16 rounded-full bg-[#EFF6FF] text-[#2563EB] flex items-center justify-center mx-auto border-2 border-[#2563EB]">
           <Lock size={28} />
         </div>

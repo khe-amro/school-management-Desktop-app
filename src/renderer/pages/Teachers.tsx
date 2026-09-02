@@ -173,8 +173,8 @@ export default function Teachers() {
 
       {/* Inline modal */}
       {showForm && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fade-in">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowForm(false)}>
+          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fade-in" onClick={(e) => e.stopPropagation()}>
             <h3 className="font-bold text-[#0F172A] mb-5">{editing ? t('teachers.edit') : t('teachers.add')}</h3>
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">

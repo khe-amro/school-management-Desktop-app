@@ -221,7 +221,10 @@ function SmartScanner({ lang }: { lang: string }) {
               {suggestions.map((s, idx) => (
                 <div
                   key={s.id}
-                  onClick={() => selectSuggestion(s)}
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    selectSuggestion(s)
+                  }}
                   onMouseEnter={() => setActiveSugIdx(idx)}
                   className={`px-4 py-2.5 flex items-center justify-between cursor-pointer transition-colors ${
                     activeSugIdx === idx ? 'bg-blue-50 text-[#2563EB]' : 'hover:bg-slate-50 text-[#0F172A]'
