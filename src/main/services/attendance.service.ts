@@ -613,7 +613,7 @@ export async function resolveStudentSessions(rawToken: string, date: string): Pr
 
       for (const slot of slots) {
         const res = sqlite.prepare(`
-          INSERT INTO attendance_sessions (group_id, session_date, planned_start_time, end_time, room, status, session_type, schedule_slot_id, created_by, created_at, updated_at)
+          INSERT OR IGNORE INTO attendance_sessions (group_id, session_date, planned_start_time, end_time, room, status, session_type, schedule_slot_id, created_by, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, 'open', 'regular', ?, 1, datetime('now'), datetime('now'))
         `).run(groupId, date, slot.start_time, slot.end_time, slot.room, slot.id)
 

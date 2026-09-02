@@ -60,7 +60,7 @@ export default function Dashboard() {
       const [studentsRes, summaryRes, upcomingRes, schedulesRes] = await Promise.all([
         window.schoolApp.students.list({ pageSize: 1, status: 'active' }),
         window.schoolApp.payments.summary(),
-        window.schoolApp.sessions.upcoming({ limit: 50 }),
+        window.schoolApp.sessions.upcoming({ todayOnly: true, limit: 50 }),
         window.schoolApp.schedules?.listAll?.() ?? Promise.resolve({ success: true, data: [] }),
       ])
 
@@ -75,15 +75,17 @@ export default function Dashboard() {
         }))
       }
       if (upcomingRes.success && upcomingRes.data) {
-        // Deduplicate by sessionId — prevent duplicates appearing
-        const seen = new Set<number>()
-        const deduped = (upcomingRes.data as TodaySession[]).filter(s => {
-          if (seen.has(s.id)) return false
-          seen.add(s.id)
+        // Filter strictly to today's sessions and deduplicate by group + time
+        const seen = new Set<string>()
+        const todayOnlySessions = (upcomingRes.data as TodaySession[]).filter(s => {
+          if (s.sessionDate && s.sessionDate !== today) return false
+          const key = `${s.groupId}_${s.plannedStartTime || ''}_${s.sessionDate}`
+          if (seen.has(key)) return false
+          seen.add(key)
           return true
         })
-        setTodaySessions(deduped)
-        setStats(s => ({ ...s, todaySessions: deduped.length }))
+        setTodaySessions(todayOnlySessions)
+        setStats(s => ({ ...s, todaySessions: todayOnlySessions.length }))
       }
       if (schedulesRes.success && schedulesRes.data) {
         setWeeklySlots(schedulesRes.data as WeeklySlot[])

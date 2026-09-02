@@ -316,6 +316,31 @@ const MIGRATIONS: { version: number; name: string; sql: string }[] = [
     INSERT OR REPLACE INTO app_metadata(key, value, updated_at) VALUES('schema_version', '4', datetime('now'));
   `,
 },
+{
+  version: 5,
+  name: 'cleanup_duplicate_sessions_and_add_unique_index',
+  sql: `
+    -- Delete duplicate attendance_sessions for same group, date, and planned_start_time, keeping the one with attendance records or lowest id
+    DELETE FROM attendance_sessions
+    WHERE id NOT IN (
+      SELECT id FROM (
+        SELECT id,
+               ROW_NUMBER() OVER (
+                 PARTITION BY group_id, session_date, COALESCE(planned_start_time, '')
+                 ORDER BY (SELECT COUNT(*) FROM attendance_records WHERE session_id = attendance_sessions.id) DESC, id ASC
+               ) as rn
+        FROM attendance_sessions
+      ) WHERE rn = 1
+    );
+
+    -- Unique index to strictly prevent duplicate sessions for same group, date & time
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_group_date_time
+      ON attendance_sessions(group_id, session_date, COALESCE(planned_start_time, ''));
+
+    -- Update schema version
+    INSERT OR REPLACE INTO app_metadata(key, value, updated_at) VALUES('schema_version', '5', datetime('now'));
+  `,
+},
 ]
 
 // ─── Migration runner ─────────────────────────────────────────────────────────

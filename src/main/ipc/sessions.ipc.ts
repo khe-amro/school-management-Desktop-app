@@ -354,6 +354,7 @@ export function registerSessionsHandlers(): void {
     const opts = z.object({
       groupId: z.number().int().positive().optional(),
       limit: z.number().int().min(1).max(100).optional(),
+      todayOnly: z.boolean().optional(),
     }).parse(payload ?? {})
 
     const sqlite = getSqlite()
@@ -383,7 +384,7 @@ export function registerSessionsHandlers(): void {
         FROM attendance_sessions s
         LEFT JOIN groups g ON s.group_id = g.id
         LEFT JOIN courses c ON g.course_id = c.id
-        WHERE s.session_date >= ? AND s.session_type != 'cancelled'
+        WHERE ${opts.todayOnly ? 's.session_date = ?' : 's.session_date >= ?'} AND s.session_type != 'cancelled'
         ORDER BY s.session_date ASC, s.planned_start_time ASC
       `
       const params: any[] = [today]
