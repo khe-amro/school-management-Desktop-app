@@ -28,8 +28,8 @@ const WEEKDAYS = [
 ]
 
 const Modal = ({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) => (
-  <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
-    <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fade-in" onClick={(e) => e.stopPropagation()}>
+  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4" onClick={onClose}>
+    <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fade-in relative z-[101]" onClick={(e) => e.stopPropagation()}>
       <div className="flex justify-between items-center mb-4">
         <h3 className="font-bold text-[#0F172A]">{title}</h3>
         <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
@@ -979,72 +979,6 @@ export default function Courses() {
         </Modal>
       )}
 
-      {/* ── Modal: Enroll Student in Slot / Group ── */}
-      {enrollSessionSlot && selectedGroup && (
-        <Modal
-          title={lang === 'ar' ? `تسجيل طالب في فوج: ${selectedGroup.name}` : `Inscrire un étudiant dans : ${selectedGroup.name}`}
-          onClose={() => { setEnrollSessionSlot(null); setEnrollSearch(''); setEnrollStudents([]) }}
-        >
-          <div className="space-y-3">
-            <div className="bg-blue-50 p-2.5 rounded-lg text-xs text-[#2563EB]">
-              <span className="font-bold">{lang === 'ar' ? 'التوقيت' : 'Horaire'}: </span>
-              {enrollSessionSlot.startTime} – {enrollSessionSlot.endTime} ({enrollSessionSlot.room ?? '—'})
-            </div>
-
-            <div>
-              <label className={labelCls}>{lang === 'ar' ? 'البحث عن طالب (بالاسم أو اللقب)' : 'Rechercher un étudiant (par nom/prénom)'}</label>
-              <input
-                ref={enrollSearchRef}
-                type="text"
-                autoFocus
-                className={inputCls}
-                placeholder={lang === 'ar' ? 'اكتب اسم الطالب...' : 'Tapez le nom de l\'étudiant...'}
-                value={enrollSearch}
-                onChange={(e) => handleSearchStudentsForEnroll(e.target.value)}
-              />
-            </div>
-
-            {/* Results list */}
-            {enrollSearch.trim() && (
-              <div className="max-h-52 overflow-y-auto border border-border rounded-lg divide-y divide-slate-100 bg-white">
-                {enrollStudents.length === 0 ? (
-                  <div className="p-3 text-xs text-slate-400 text-center">
-                    {lang === 'ar' ? 'لم يتم العثور على أي طالب' : 'Aucun étudiant trouvé'}
-                  </div>
-                ) : (
-                  enrollStudents.map((st) => {
-                    const nameAr = `${st.lastNameAr || ''} ${st.firstNameAr || ''}`.trim()
-                    const nameFr = `${st.lastNameFr || ''} ${st.firstNameFr || ''}`.trim()
-                    const displayName = lang === 'ar'
-                      ? (nameAr || nameFr || `${st.lastName || ''} ${st.firstName || ''}`.trim())
-                      : (nameFr || nameAr || `${st.lastName || ''} ${st.firstName || ''}`.trim())
-                    const number = st.studentNumber || st.registrationNumber || ''
-                    return (
-                      <div
-                        key={st.id}
-                        className="p-2.5 flex items-center justify-between hover:bg-slate-50 text-xs cursor-pointer"
-                        onClick={() => handleEnrollStudentToGroup(st.id)}
-                      >
-                        <div>
-                          <p className="font-bold text-[#0F172A]">{displayName || (lang === 'ar' ? 'طالب' : 'Étudiant')}</p>
-                          {number && <p className="text-[10px] text-slate-400 font-mono">#{number}</p>}
-                        </div>
-                        <button
-                          disabled={enrolling}
-                          className="px-3 py-1 bg-[#2563EB] text-white text-[11px] font-semibold rounded hover:bg-[#1D4ED8] disabled:opacity-50"
-                        >
-                          {enrolling ? (lang === 'ar' ? 'جاري...' : '...') : (lang === 'ar' ? 'تسجيل' : 'Inscrire')}
-                        </button>
-                      </div>
-                    )
-                  })
-                )}
-              </div>
-            )}
-          </div>
-        </Modal>
-      )}
-
       {/* ── Side Drawer: Enrolled Students in Group ── */}
       {viewGroupStudents && (
         <div className="fixed inset-0 z-50 overflow-hidden bg-black/40 animate-fade-in flex justify-end" onClick={() => setViewGroupStudents(null)}>
@@ -1185,6 +1119,72 @@ export default function Courses() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Modal: Enroll Student in Slot / Group ── */}
+      {enrollSessionSlot && selectedGroup && (
+        <Modal
+          title={lang === 'ar' ? `تسجيل طالب في فوج: ${selectedGroup.name}` : `Inscrire un étudiant dans : ${selectedGroup.name}`}
+          onClose={() => { setEnrollSessionSlot(null); setEnrollSearch(''); setEnrollStudents([]) }}
+        >
+          <div className="space-y-3">
+            <div className="bg-blue-50 p-2.5 rounded-lg text-xs text-[#2563EB]">
+              <span className="font-bold">{lang === 'ar' ? 'التوقيت' : 'Horaire'}: </span>
+              {enrollSessionSlot.startTime} – {enrollSessionSlot.endTime} ({enrollSessionSlot.room ?? '—'})
+            </div>
+
+            <div>
+              <label className={labelCls}>{lang === 'ar' ? 'البحث عن طالب (بالاسم أو اللقب)' : 'Rechercher un étudiant (par nom/prénom)'}</label>
+              <input
+                ref={enrollSearchRef}
+                type="text"
+                autoFocus
+                className={inputCls}
+                placeholder={lang === 'ar' ? 'اكتب اسم الطالب...' : 'Tapez le nom de l\'étudiant...'}
+                value={enrollSearch}
+                onChange={(e) => handleSearchStudentsForEnroll(e.target.value)}
+              />
+            </div>
+
+            {/* Results list */}
+            {enrollSearch.trim() && (
+              <div className="max-h-52 overflow-y-auto border border-border rounded-lg divide-y divide-slate-100 bg-white">
+                {enrollStudents.length === 0 ? (
+                  <div className="p-3 text-xs text-slate-400 text-center">
+                    {lang === 'ar' ? 'لم يتم العثور على أي طالب' : 'Aucun étudiant trouvé'}
+                  </div>
+                ) : (
+                  enrollStudents.map((st) => {
+                    const nameAr = `${st.lastNameAr || ''} ${st.firstNameAr || ''}`.trim()
+                    const nameFr = `${st.lastNameFr || ''} ${st.firstNameFr || ''}`.trim()
+                    const displayName = lang === 'ar'
+                      ? (nameAr || nameFr || `${st.lastName || ''} ${st.firstName || ''}`.trim())
+                      : (nameFr || nameAr || `${st.lastName || ''} ${st.firstName || ''}`.trim())
+                    const number = st.studentNumber || st.registrationNumber || ''
+                    return (
+                      <div
+                        key={st.id}
+                        className="p-2.5 flex items-center justify-between hover:bg-slate-50 text-xs cursor-pointer"
+                        onClick={() => handleEnrollStudentToGroup(st.id)}
+                      >
+                        <div>
+                          <p className="font-bold text-[#0F172A]">{displayName || (lang === 'ar' ? 'طالب' : 'Étudiant')}</p>
+                          {number && <p className="text-[10px] text-slate-400 font-mono">#{number}</p>}
+                        </div>
+                        <button
+                          disabled={enrolling}
+                          className="px-3 py-1 bg-[#2563EB] text-white text-[11px] font-semibold rounded hover:bg-[#1D4ED8] disabled:opacity-50"
+                        >
+                          {enrolling ? (lang === 'ar' ? 'جاري...' : '...') : (lang === 'ar' ? 'تسجيل' : 'Inscrire')}
+                        </button>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            )}
+          </div>
+        </Modal>
       )}
     </div>
   )

@@ -389,9 +389,18 @@ function RosterView({ lang, initialSession }: { lang: string; initialSession?: {
       {/* Sessions list */}
       <div className="lg:col-span-2 space-y-3">
         <div className="bg-white rounded-xl border border-border p-4">
-          <label className="block text-xs font-medium text-slate-500 mb-1">{t('attendance.date')}</label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-xs font-medium text-slate-500">{t('attendance.date')}</label>
+            <button
+              onClick={() => { setDate(today()); setSelectedSession(null); setRoster(null) }}
+              className="text-xs text-[#2563EB] hover:underline font-semibold flex items-center gap-1"
+            >
+              <Calendar size={12} />
+              <span>{lang === 'ar' ? 'اليوم' : 'Aujourd\'hui'}</span>
+            </button>
+          </div>
           <input type="date" value={date} onChange={e => { setDate(e.target.value); setSelectedSession(null); setRoster(null) }}
-            className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20" />
+            className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 bg-white" />
         </div>
         {loadingSessions ? (
           <div className="flex justify-center py-8"><div className="w-5 h-5 border-2 border-[#2563EB] border-t-transparent rounded-full animate-spin" /></div>
@@ -492,19 +501,95 @@ function CalendarView({ lang, onSessionClick }: { lang: string; onSessionClick: 
 
   const dayLabel = `${year}-${String(month + 1).padStart(2, '0')}`
   const daySessions = selectedDay ? (sessionsByDay[selectedDay] ?? []) : []
-  const monthNames = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc']
+  const monthNamesAr = [
+    '01 - جانفي / يناير', '02 - فيفري / فبراير', '03 - مارس', '04 - أبريل / أفريل',
+    '05 - ماي / مايو', '06 - جوان / يونيو', '07 - جويلية / يوليو', '08 - أوت / أغسطس',
+    '09 - سبتمبر', '10 - أكتوبر', '11 - نوفمبر', '12 - ديسمبر'
+  ]
+  const monthNamesFr = [
+    '01 - Janvier', '02 - Février', '03 - Mars', '04 - Avril',
+    '05 - Mai', '06 - Juin', '07 - Juillet', '08 - Août',
+    '09 - Septembre', '10 - Octobre', '11 - Novembre', '12 - Décembre'
+  ]
+  const monthNamesEn = [
+    '01 - January', '02 - February', '03 - March', '04 - April',
+    '05 - May', '06 - June', '07 - July', '08 - August',
+    '09 - September', '10 - October', '11 - November', '12 - December'
+  ]
+  const monthsList = lang === 'ar' ? monthNamesAr : lang === 'en' ? monthNamesEn : monthNamesFr
+  const years = Array.from({ length: 9 }, (_, i) => now.getFullYear() - 4 + i)
+  const weekDays = lang === 'ar'
+    ? ['إثنين', 'ثلاثاء', 'أربعاء', 'خميس', 'جمعة', 'سبت', 'أحد']
+    : lang === 'en'
+    ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+    : ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim']
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-      <div className="lg:col-span-2 bg-white rounded-xl border border-border p-4">
-        <div className="flex items-center justify-between mb-4">
-          <button onClick={prev} className="p-1.5 hover:bg-slate-100 rounded-lg"><ChevronLeft size={18} /></button>
-          <span className="font-bold text-sm text-[#0F172A]">{monthNames[month]} {year}</span>
-          <button onClick={next} className="p-1.5 hover:bg-slate-100 rounded-lg"><ChevronRight size={18} /></button>
+      <div className="lg:col-span-2 bg-white rounded-xl border border-border p-4 shadow-xs">
+        {/* Navigation Toolbar */}
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={prev}
+              className="p-1.5 bg-white border border-border hover:bg-slate-100 text-slate-700 rounded-lg transition-colors shadow-2xs"
+              title={lang === 'ar' ? 'الشهر السابق' : 'Mois précédent'}
+            >
+              <ChevronLeft size={18} />
+            </button>
+            <button
+              onClick={next}
+              className="p-1.5 bg-white border border-border hover:bg-slate-100 text-slate-700 rounded-lg transition-colors shadow-2xs"
+              title={lang === 'ar' ? 'الشهر التالي' : 'Mois suivant'}
+            >
+              <ChevronRight size={18} />
+            </button>
+
+            <button
+              onClick={() => {
+                const todayDate = new Date()
+                setYear(todayDate.getFullYear())
+                setMonth(todayDate.getMonth())
+                setSelectedDay(today())
+              }}
+              className="px-3 py-1.5 bg-white border border-border hover:bg-blue-50 hover:border-blue-200 text-[#2563EB] text-xs font-bold rounded-lg transition-all shadow-2xs flex items-center gap-1.5"
+            >
+              <Calendar size={13} />
+              <span>{lang === 'ar' ? 'اليوم' : 'Aujourd\'hui'}</span>
+            </button>
+          </div>
+
+          {/* Month & Year Jump Selectors */}
+          <div className="flex items-center gap-2">
+            <select
+              value={month}
+              onChange={(e) => setMonth(Number(e.target.value))}
+              className="px-3 py-1.5 bg-white border border-border rounded-lg text-xs font-bold text-[#0F172A] focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 outline-none shadow-2xs cursor-pointer"
+            >
+              {monthsList.map((name, idx) => (
+                <option key={idx} value={idx}>
+                  {name}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={year}
+              onChange={(e) => setYear(Number(e.target.value))}
+              className="px-3 py-1.5 bg-white border border-border rounded-lg text-xs font-bold text-[#0F172A] focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 outline-none shadow-2xs cursor-pointer"
+            >
+              {years.map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
+
         <div className="grid grid-cols-7 gap-1 mb-1">
-          {['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((d, i) => (
-            <div key={i} className="text-center text-xs text-slate-400 font-medium py-1">{d}</div>
+          {weekDays.map((d, i) => (
+            <div key={i} className="text-center text-xs text-slate-500 font-semibold py-1">{d}</div>
           ))}
         </div>
         <div className="grid grid-cols-7 gap-1">
