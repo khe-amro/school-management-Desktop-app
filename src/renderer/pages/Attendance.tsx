@@ -262,21 +262,61 @@ function SmartScanner({ lang }: { lang: string }) {
 
       {resolved && (
         <div className="bg-white rounded-2xl border border-border p-5 shadow-lg animate-fade-in space-y-4">
-          {/* Student info */}
+          {/* Student General Info Header */}
           <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
             <div className="w-12 h-12 rounded-full bg-blue-50 border-2 border-blue-200 flex items-center justify-center text-blue-700 font-bold text-lg shrink-0">
               {(resolved.student.firstNameAr || resolved.student.firstNameFr || '?').charAt(0)}
             </div>
-            <div className="flex-1">
-              <p className="font-bold text-[#0F172A]" dir="rtl">{resolved.student.lastNameAr} {resolved.student.firstNameAr}</p>
-              <p className="text-xs text-slate-400">{resolved.student.studentNumber}</p>
-            </div>
-            <div className="text-right space-y-1">
-              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${resolved.paymentsSummary?.status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                {resolved.paymentsSummary?.status === 'paid' ? t('attendance.upToDate') : t('attendance.pending')}
-              </span>
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-[#0F172A] text-base truncate" dir="rtl">
+                {resolved.student.lastNameAr} {resolved.student.firstNameAr}
+                {resolved.student.lastNameFr && <span className="text-xs text-slate-400 font-normal ms-2">({resolved.student.lastNameFr} {resolved.student.firstNameFr})</span>}
+              </p>
+              <div className="flex items-center gap-3 text-xs text-slate-400 font-mono mt-0.5">
+                <span>#{resolved.student.studentNumber}</span>
+                {resolved.student.phone && <span>• 📞 {resolved.student.phone}</span>}
+              </div>
             </div>
           </div>
+
+          {/* Student Abonments & Money Left Breakdown */}
+          {resolved.enrollmentsWithBalance?.length > 0 && (
+            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+              <p className="text-xs font-bold text-slate-600 flex items-center gap-1.5">
+                <CreditCard size={14} className="text-[#2563EB]" />
+                <span>{lang === 'ar' ? 'معلومات الاشتراك والمسح المالي:' : 'Solde des abonnements:'}</span>
+              </p>
+              <div className="space-y-1.5">
+                {resolved.enrollmentsWithBalance.map((en: any) => (
+                  <div
+                    key={en.enrollmentId}
+                    className={`p-2.5 rounded-lg border text-xs flex flex-wrap items-center justify-between gap-2 ${
+                      en.wasInDebt
+                        ? 'bg-red-50 border-red-200 text-red-800'
+                        : 'bg-white border-slate-200 text-slate-700'
+                    }`}
+                  >
+                    <div>
+                      <span className="font-bold">{en.courseNameAr || en.courseNameFr}</span>
+                      <span className="text-slate-500 ms-1">({en.groupName})</span>
+                    </div>
+
+                    <div className="flex items-center gap-2 font-mono">
+                      {en.wasInDebt ? (
+                        <span className="px-2 py-0.5 bg-red-600 text-white font-bold rounded-md animate-pulse text-[11px]">
+                          ⚠️ {lang === 'ar' ? `رصيد سالب: ${en.balance} د.ج (دين)` : `Solde négatif: ${en.balance} DA`}
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 font-bold rounded-md text-[11px]">
+                          ✓ {lang === 'ar' ? `المتبقي: ${en.balance} د.ج (${en.remainingSessions} حصص)` : `Reste: ${en.balance} DA (${en.remainingSessions} s)`}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Recent attendance */}
           {resolved.recentAttendance?.length > 0 && (
@@ -452,8 +492,19 @@ function RosterView({ lang, initialSession }: { lang: string; initialSession?: {
                     {(s.firstNameAr || s.firstNameFr || '?').charAt(0)}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-[#0F172A] truncate" dir="rtl">{s.lastNameAr} {s.firstNameAr}</p>
-                    <p className="text-xs text-slate-400">{s.studentNumber}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium text-[#0F172A] truncate" dir="rtl">{s.lastNameAr} {s.firstNameAr}</p>
+                      {s.wasInDebt ? (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-red-100 text-red-700 border border-red-200 shrink-0">
+                          ⚠️ {lang === 'ar' ? `رصيد سالب: ${s.creditBalance} د.ج` : `Solde: ${s.creditBalance} DA`}
+                        </span>
+                      ) : s.creditBalance !== undefined && s.creditBalance !== null ? (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
+                          {lang === 'ar' ? `المتبقي: ${s.creditBalance} د.ج (${s.remainingSessions} حصص)` : `Reste: ${s.creditBalance} DA (${s.remainingSessions} s)`}
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className="text-xs text-slate-400 font-mono">#{s.studentNumber}</p>
                   </div>
                   <div className="flex gap-1.5 shrink-0">
                     {(['present', 'late', 'absent'] as const).map(st => (
