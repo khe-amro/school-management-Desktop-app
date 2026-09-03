@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ScanLine, Search, Calendar, CheckCircle2, Clock, XCircle, Volume2, VolumeX, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ScanLine, Search, Calendar, CheckCircle2, Clock, XCircle, Volume2, VolumeX, ChevronLeft, ChevronRight, AlertCircle, CreditCard } from 'lucide-react'
 
 type Tab = 'scanner' | 'roster' | 'calendar'
 type StatusType = 'present' | 'absent' | 'late' | null
@@ -93,13 +93,17 @@ function SmartScanner({ lang }: { lang: string }) {
     setShowDropdown(false)
     try {
       const res = await window.schoolApp.attendance.resolveStudent(token.trim(), today())
-      if (res.success && res.data && !res.data.error) {
+      if (res && res.success && res.data && !res.data.error) {
         setResolved(res.data)
         setSelectedIdx(0)
       } else {
-        showFeedback('err', t('attendance.studentNotFound'))
+        showFeedback('err', res?.error || t('attendance.studentNotFound'))
         beep(false)
       }
+    } catch (err: any) {
+      console.error('Resolve student error:', err)
+      showFeedback('err', err?.message || t('common.error'))
+      beep(false)
     } finally { setLoading(false) }
   }
 
@@ -116,10 +120,10 @@ function SmartScanner({ lang }: { lang: string }) {
     setMarking(true)
     try {
       const res = await window.schoolApp.attendance.markSession(session.id, resolved.student.id, 'present')
-      if (res.success) {
+      if (res && res.success) {
         const d = res.data ?? {}
         const status = d.status ?? 'present'
-        const name = `${resolved.student.lastNameAr} ${resolved.student.firstNameAr}`
+        const name = `${resolved.student.lastNameAr || ''} ${resolved.student.firstNameAr || ''}`.trim()
 
         // Build feedback message with credit info
         let msg = `${name} — ${t(`attendance.${status}`)}`
@@ -138,9 +142,13 @@ function SmartScanner({ lang }: { lang: string }) {
         setInput('')
         setTimeout(() => inputRef.current?.focus(), 100)
       } else {
-        showFeedback('err', res.error ?? t('common.error'))
+        showFeedback('err', res?.error ?? t('common.error'))
         beep(false)
       }
+    } catch (err: any) {
+      console.error('Confirm attendance error:', err)
+      showFeedback('err', err?.message || t('common.error'))
+      beep(false)
     } finally { setMarking(false) }
   }
 
@@ -335,12 +343,22 @@ function SmartScanner({ lang }: { lang: string }) {
           {/* Sessions chooser */}
           <div>
             <p className="text-xs font-semibold text-slate-500 mb-2">
-              {resolved.todaySessions?.length === 0 ? t('attendance.noSessionsToday')
+              {resolved.todaySessions?.length === 0 ? (lang === 'ar' ? 'حصص اليوم:' : "Séances d'aujourd'hui:")
                 : resolved.todaySessions?.length === 1 ? t('attendance.oneSessionToday')
                 : t('attendance.multipleSessionsToday')}
             </p>
             {resolved.todaySessions?.length === 0 ? (
-              <p className="text-sm text-slate-400 text-center py-4">{t('attendance.noSessionsToday')}</p>
+              <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-4 text-center space-y-1 my-2">
+                <div className="flex items-center justify-center gap-2 font-bold text-sm">
+                  <AlertCircle size={18} className="text-amber-600 shrink-0" />
+                  <span>{lang === 'ar' ? 'لا توجد حصص مجدولة لهذا الطالب اليوم' : "Cet étudiant n'a pas de séances aujourd'hui"}</span>
+                </div>
+                <p className="text-xs text-amber-700">
+                  {lang === 'ar'
+                    ? 'جميع بيانات الطالب ورصيد الاشتراكات موضحة أعلاه.'
+                    : "Toutes les informations et le solde de l'étudiant sont affichés ci-dessus."}
+                </p>
+              </div>
             ) : (
               <div className="space-y-2">
                 {resolved.todaySessions.map((s: any, i: number) => (

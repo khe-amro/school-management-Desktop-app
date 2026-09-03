@@ -611,19 +611,29 @@ export async function resolveStudentSessions(rawToken: string, date: string): Pr
   const stdMatch = token.match(/STD-[a-f0-9A-F]+/i)
   if (stdMatch) token = stdMatch[0]
 
-  // Find student by QR token, student number, or name
+  // Find student by QR token, student number, numeric ID, or combined name
   let student = await db.query.students.findFirst({ where: eq(schema.students.qrToken, token) })
   if (!student) {
     student = await db.query.students.findFirst({ where: eq(schema.students.studentNumber, token.toUpperCase()) })
   }
   if (!student) {
-    // Name search — raw SQL for partial match
+    const num = Number(token)
+    if (!isNaN(num) && num > 0) {
+      student = await db.query.students.findFirst({ where: eq(schema.students.id, num) })
+    }
+  }
+  if (!student) {
+    // Name search — raw SQL for partial & combined name match
     const rows = sqlite.prepare(`
-      SELECT * FROM students
+      SELECT id FROM students
       WHERE status = 'active'
-        AND (first_name_ar LIKE ? OR last_name_ar LIKE ? OR first_name_fr LIKE ? OR last_name_fr LIKE ?)
+        AND (
+          first_name_ar LIKE ? OR last_name_ar LIKE ? OR first_name_fr LIKE ? OR last_name_fr LIKE ?
+          OR (last_name_ar || ' ' || first_name_ar) LIKE ? OR (first_name_ar || ' ' || last_name_ar) LIKE ?
+          OR (last_name_fr || ' ' || first_name_fr) LIKE ? OR (first_name_fr || ' ' || last_name_fr) LIKE ?
+        )
       LIMIT 1
-    `).get(`%${token}%`, `%${token}%`, `%${token}%`, `%${token}%`) as any
+    `).get(`%${token}%`, `%${token}%`, `%${token}%`, `%${token}%`, `%${token}%`, `%${token}%`, `%${token}%`, `%${token}%`) as any
     if (rows) student = await db.query.students.findFirst({ where: eq(schema.students.id, rows.id) })
   }
   if (!student) return null
@@ -669,28 +679,34 @@ export async function resolveStudentSessions(rawToken: string, date: string): Pr
       `).all(groupId, weekday) as any[]
 
       for (const slot of slots) {
-        const res = sqlite.prepare(`
+        sqlite.prepare(`
           INSERT OR IGNORE INTO attendance_sessions (group_id, session_date, planned_start_time, end_time, room, status, session_type, schedule_slot_id, created_by, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, 'open', 'regular', ?, 1, datetime('now'), datetime('now'))
         `).run(groupId, date, slot.start_time, slot.end_time, slot.room, slot.id)
 
-        const groupRow = sqlite.prepare(`
-          SELECT g.name as group_name, c.name_ar as course_name_ar, c.name_fr as course_name_fr
-          FROM groups g JOIN courses c ON g.course_id = c.id WHERE g.id = ?
-        `).get(groupId) as any
+        const sessRow = sqlite.prepare(`
+          SELECT s.*, g.name as group_name, c.name_ar as course_name_ar, c.name_fr as course_name_fr
+          FROM attendance_sessions s
+          JOIN groups g ON s.group_id = g.id
+          JOIN courses c ON g.course_id = c.id
+          WHERE s.group_id = ? AND s.session_date = ? AND (s.schedule_slot_id = ? OR (s.planned_start_time = ? AND s.end_time = ?))
+          LIMIT 1
+        `).get(groupId, date, slot.id, slot.start_time, slot.end_time) as any
 
-        todaySessions.push({
-          id: Number(res.lastInsertRowid),
-          groupId,
-          groupName: groupRow?.group_name,
-          courseNameAr: groupRow?.course_name_ar,
-          courseNameFr: groupRow?.course_name_fr,
-          sessionDate: date,
-          plannedStartTime: slot.start_time,
-          endTime: slot.end_time,
-          room: slot.room,
-          status: 'open',
-        })
+        if (sessRow) {
+          todaySessions.push({
+            id: sessRow.id,
+            groupId,
+            groupName: sessRow.group_name,
+            courseNameAr: sessRow.course_name_ar,
+            courseNameFr: sessRow.course_name_fr,
+            sessionDate: date,
+            plannedStartTime: sessRow.planned_start_time,
+            endTime: sessRow.end_time,
+            room: sessRow.room,
+            status: sessRow.status || 'open',
+          })
+        }
       }
     }
   }
