@@ -287,7 +287,7 @@ export default function Courses() {
         startTime: extraSessionForm.startTime,
         endTime: extraSessionForm.endTime,
         room: extraSessionForm.room || undefined,
-        price: finalPrice,
+        price: finalPrice ?? undefined,
       })
       if (res.success) {
         setShowExtraSessionModal(null)

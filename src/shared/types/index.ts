@@ -4,7 +4,7 @@
 export type StudentStatus = 'active' | 'inactive' | 'archived'
 export type PaymentStatus = 'paid' | 'unpaid' | 'partial' | 'overdue'
 export type PaymentMethodType = 'cash' | 'transfer' | 'check'
-export type AttendanceStatusType = 'present' | 'absent' | 'late'
+export type AttendanceStatusType = 'present' | 'absent' | 'late' | 'not_active'
 export type AttendanceSource = 'qr' | 'manual'
 export type TeacherStatus = 'active' | 'inactive' | 'archived'
 export type CourseStatus = 'active' | 'inactive'
@@ -241,7 +241,13 @@ export type QRScanResultCode =
 export interface QRScanResult {
   code: QRScanResultCode
   studentId?: number
+  studentNumber?: string
   studentName?: string
+  phone?: string | null
+  creditBalance?: number | null
+  sessionPrice?: number | null
+  remainingSessions?: number | null
+  wasInDebt?: boolean
   scannedAt?: string
   attendanceStatus?: AttendanceStatusType
 }

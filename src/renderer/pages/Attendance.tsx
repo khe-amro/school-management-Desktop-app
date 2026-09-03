@@ -98,7 +98,7 @@ function SmartScanner({ lang }: { lang: string }) {
         setResolved(res.data)
         setSelectedIdx(0)
       } else {
-        showFeedback('err', res?.error || t('attendance.studentNotFound'))
+        showFeedback('err', (res as any)?.error || t('attendance.studentNotFound'))
         beep(false)
       }
     } catch (err: any) {
@@ -477,7 +477,7 @@ function RosterView({ lang, initialSession }: { lang: string; initialSession?: {
     if (!confirm(confirmMsg)) return
 
     try {
-      const res = await window.schoolApp.sessions.cancel({ sessionId, reason: 'Cancelled from attendance page' })
+      const res = await window.schoolApp.sessions.cancel(sessionId, 'Cancelled from attendance page')
       if (res.success) {
         setRoster(null)
         setSelectedSession(null)
