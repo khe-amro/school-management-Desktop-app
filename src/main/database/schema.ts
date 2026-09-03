@@ -58,6 +58,7 @@ export const teachers = sqliteTable('teachers', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   firstName: text('first_name').notNull(),
   lastName: text('last_name').notNull(),
+  courseId: integer('course_id').references(() => courses.id),
   phone: text('phone'),
   email: text('email'),
   address: text('address'),
@@ -69,6 +70,7 @@ export const teachers = sqliteTable('teachers', {
 }, (table) => ({
   nameIdx: index('idx_teachers_name').on(table.lastName),
   statusIdx: index('idx_teachers_status').on(table.status),
+  courseIdx: index('idx_teachers_course').on(table.courseId),
 }))
 
 // ─── Courses ─────────────────────────────────────────────────────────────────

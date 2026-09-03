@@ -88,6 +88,7 @@ const MIGRATIONS: { version: number; name: string; sql: string }[] = [
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         first_name TEXT NOT NULL,
         last_name TEXT NOT NULL,
+        course_id INTEGER REFERENCES courses(id),
         phone TEXT,
         email TEXT,
         address TEXT,
@@ -100,6 +101,7 @@ const MIGRATIONS: { version: number; name: string; sql: string }[] = [
 
       CREATE INDEX IF NOT EXISTS idx_teachers_name ON teachers(last_name);
       CREATE INDEX IF NOT EXISTS idx_teachers_status ON teachers(status);
+      CREATE INDEX IF NOT EXISTS idx_teachers_course ON teachers(course_id);
 
       CREATE TABLE IF NOT EXISTS courses (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -339,6 +341,15 @@ const MIGRATIONS: { version: number; name: string; sql: string }[] = [
 
     -- Update schema version
     INSERT OR REPLACE INTO app_metadata(key, value, updated_at) VALUES('schema_version', '5', datetime('now'));
+  `,
+},
+{
+  version: 6,
+  name: 'add_course_id_to_teachers',
+  sql: `
+    ALTER TABLE teachers ADD COLUMN course_id INTEGER REFERENCES courses(id);
+    CREATE INDEX IF NOT EXISTS idx_teachers_course ON teachers(course_id);
+    INSERT OR REPLACE INTO app_metadata(key, value, updated_at) VALUES('schema_version', '6', datetime('now'));
   `,
 },
 ]

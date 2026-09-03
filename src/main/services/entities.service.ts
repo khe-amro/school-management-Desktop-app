@@ -6,36 +6,130 @@ import type { Teacher, Course, Group, Enrollment } from '../../shared/types/inde
 
 // ─── Teachers ────────────────────────────────────────────────────────────────
 
-export async function listTeachers(opts: { status?: string } = {}): Promise<Teacher[]> {
+export async function listTeachers(opts: { status?: string; courseId?: number } = {}): Promise<Teacher[]> {
   const db = getDb()
   const rows = await db.select().from(schema.teachers)
     .orderBy(desc(schema.teachers.createdAt))
-  const filtered = opts.status === 'all'
+  let filtered = opts.status === 'all'
     ? rows
     : (opts.status ? rows.filter(r => r.status === opts.status) : rows.filter(r => r.status !== 'archived'))
-  return filtered.map(r => ({
-    id: r.id, firstName: r.firstName, lastName: r.lastName, phone: r.phone ?? null,
-    email: r.email ?? null, address: r.address ?? null, photoPath: r.photoPath ?? null,
-    status: r.status as Teacher['status'], createdAt: r.createdAt, updatedAt: r.updatedAt,
-  }))
+  
+  if (opts.courseId) {
+    filtered = filtered.filter(r => r.courseId === opts.courseId)
+  }
+
+  const allCourses = await db.select().from(schema.courses)
+  const courseMap = new Map(allCourses.map(c => [c.id, c]))
+
+  return filtered.map(r => {
+    const course = r.courseId ? courseMap.get(r.courseId) : null
+    return {
+      id: r.id,
+      firstName: r.firstName,
+      lastName: r.lastName,
+      courseId: r.courseId ?? null,
+      courseNameAr: course?.nameAr ?? null,
+      courseNameFr: course?.nameFr ?? null,
+      phone: r.phone ?? null,
+      email: r.email ?? null,
+      address: r.address ?? null,
+      photoPath: r.photoPath ?? null,
+      status: r.status as Teacher['status'],
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+    }
+  })
 }
 
-export async function createTeacher(data: { firstName: string; lastName: string; phone?: string | null; email?: string | null; address?: string | null }): Promise<Teacher> {
+export async function createTeacher(data: {
+  firstName: string
+  lastName: string
+  courseId?: number | null
+  phone?: string | null
+  email?: string | null
+  address?: string | null
+}): Promise<Teacher> {
   requireSession()
   const db = getDb()
   const now = new Date().toISOString()
-  const result = await db.insert(schema.teachers).values({ ...data, phone: data.phone ?? null, email: data.email ?? null, address: data.address ?? null, updatedAt: now }).returning()
+  const result = await db.insert(schema.teachers).values({
+    firstName: data.firstName,
+    lastName: data.lastName,
+    courseId: data.courseId ?? null,
+    phone: data.phone ?? null,
+    email: data.email ?? null,
+    address: data.address ?? null,
+    updatedAt: now,
+  }).returning()
   const r = result[0]!
-  return { id: r.id, firstName: r.firstName, lastName: r.lastName, phone: r.phone ?? null, email: r.email ?? null, address: r.address ?? null, photoPath: r.photoPath ?? null, status: r.status as Teacher['status'], createdAt: r.createdAt, updatedAt: r.updatedAt }
+
+  let courseNameAr: string | null = null
+  let courseNameFr: string | null = null
+  if (r.courseId) {
+    const c = await db.query.courses.findFirst({ where: eq(schema.courses.id, r.courseId) })
+    if (c) {
+      courseNameAr = c.nameAr
+      courseNameFr = c.nameFr
+    }
+  }
+
+  return {
+    id: r.id,
+    firstName: r.firstName,
+    lastName: r.lastName,
+    courseId: r.courseId ?? null,
+    courseNameAr,
+    courseNameFr,
+    phone: r.phone ?? null,
+    email: r.email ?? null,
+    address: r.address ?? null,
+    photoPath: r.photoPath ?? null,
+    status: r.status as Teacher['status'],
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  }
 }
 
-export async function updateTeacher(id: number, data: Partial<{ firstName: string; lastName: string; phone: string | null; email: string | null; address: string | null; status: Teacher['status'] }>): Promise<Teacher> {
+export async function updateTeacher(id: number, data: Partial<{
+  firstName: string
+  lastName: string
+  courseId: number | null
+  phone: string | null
+  email: string | null
+  address: string | null
+  status: Teacher['status']
+}>): Promise<Teacher> {
   requireSession()
   const db = getDb()
   const result = await db.update(schema.teachers).set({ ...data, updatedAt: new Date().toISOString() }).where(eq(schema.teachers.id, id)).returning()
   if (!result[0]) throw new AppError(ErrorCode.NOT_FOUND, 'Teacher not found')
   const r = result[0]
-  return { id: r.id, firstName: r.firstName, lastName: r.lastName, phone: r.phone ?? null, email: r.email ?? null, address: r.address ?? null, photoPath: r.photoPath ?? null, status: r.status as Teacher['status'], createdAt: r.createdAt, updatedAt: r.updatedAt }
+
+  let courseNameAr: string | null = null
+  let courseNameFr: string | null = null
+  if (r.courseId) {
+    const c = await db.query.courses.findFirst({ where: eq(schema.courses.id, r.courseId) })
+    if (c) {
+      courseNameAr = c.nameAr
+      courseNameFr = c.nameFr
+    }
+  }
+
+  return {
+    id: r.id,
+    firstName: r.firstName,
+    lastName: r.lastName,
+    courseId: r.courseId ?? null,
+    courseNameAr,
+    courseNameFr,
+    phone: r.phone ?? null,
+    email: r.email ?? null,
+    address: r.address ?? null,
+    photoPath: r.photoPath ?? null,
+    status: r.status as Teacher['status'],
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  }
 }
 
 export async function archiveTeacher(id: number): Promise<void> {
