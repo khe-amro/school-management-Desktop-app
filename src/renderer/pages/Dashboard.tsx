@@ -250,17 +250,99 @@ export default function Dashboard() {
   const todayWd = todayWeekday()
   const dayLabel = (wd: number) => (lang === 'ar' ? WEEKDAY_AR[wd]! : WEEKDAY_FR[wd]!)
 
-  // Options for filters
+  // ─── Cascaded Filter Handlers & Auto-fill Logic ──────────────────────────────
+  const handleModuleChange = (newMod: string) => {
+    setSelectedModule(newMod)
+    if (!newMod) {
+      setSelectedTeacher('')
+      setSelectedGroup('')
+      return
+    }
+    if (selectedTeacher) {
+      const teacherBelongs = weeklySlots.some(s => {
+        const cName = (lang === 'ar' ? s.courseNameAr || s.courseNameFr : s.courseNameFr || s.courseNameAr) || ''
+        const tName = (lang === 'ar' ? s.teacherNameAr || s.teacherNameFr : s.teacherNameFr || s.teacherNameAr) || ''
+        return (cName.toLowerCase() === newMod.toLowerCase()) && (tName.toLowerCase() === selectedTeacher.toLowerCase())
+      })
+      if (!teacherBelongs) {
+        setSelectedTeacher('')
+        setSelectedGroup('')
+      }
+    }
+  }
+
+  const handleTeacherChange = (newTeacher: string) => {
+    setSelectedTeacher(newTeacher)
+    if (!newTeacher) {
+      setSelectedGroup('')
+      return
+    }
+    // Auto-fill module if skipped directly to teacher!
+    const matchingSlot = weeklySlots.find(s => {
+      const tName = (lang === 'ar' ? s.teacherNameAr || s.teacherNameFr : s.teacherNameFr || s.teacherNameAr) || ''
+      return tName.toLowerCase() === newTeacher.toLowerCase()
+    })
+    if (matchingSlot) {
+      const modName = (lang === 'ar' ? matchingSlot.courseNameAr || matchingSlot.courseNameFr : matchingSlot.courseNameFr || matchingSlot.courseNameAr) || ''
+      if (modName) setSelectedModule(modName)
+    }
+
+    if (selectedGroup) {
+      const groupBelongs = weeklySlots.some(s => {
+        const tName = (lang === 'ar' ? s.teacherNameAr || s.teacherNameFr : s.teacherNameFr || s.teacherNameAr) || ''
+        return (tName.toLowerCase() === newTeacher.toLowerCase()) && (s.groupName === selectedGroup)
+      })
+      if (!groupBelongs) {
+        setSelectedGroup('')
+      }
+    }
+  }
+
+  const handleGroupChange = (newGroup: string) => {
+    setSelectedGroup(newGroup)
+    if (!newGroup) return
+
+    // Auto-fill teacher and module if skipped directly to group!
+    const matchingSlot = weeklySlots.find(s => s.groupName.toLowerCase() === newGroup.toLowerCase())
+    if (matchingSlot) {
+      const modName = (lang === 'ar' ? matchingSlot.courseNameAr || matchingSlot.courseNameFr : matchingSlot.courseNameFr || matchingSlot.courseNameAr) || ''
+      const tchName = (lang === 'ar' ? matchingSlot.teacherNameAr || matchingSlot.teacherNameFr : matchingSlot.teacherNameFr || matchingSlot.teacherNameAr) || ''
+      if (modName) setSelectedModule(modName)
+      if (tchName) setSelectedTeacher(tchName)
+    }
+  }
+
+  // Options for filters with dynamic dependent filtering
   const availableModules = Array.from(
     new Set(weeklySlots.map(s => (lang === 'ar' ? s.courseNameAr || s.courseNameFr : s.courseNameFr || s.courseNameAr)).filter(Boolean))
   ).sort()
 
   const availableTeachers = Array.from(
-    new Set(weeklySlots.map(s => (lang === 'ar' ? s.teacherNameAr || s.teacherNameFr : s.teacherNameFr || s.teacherNameAr)).filter(Boolean))
+    new Set(
+      weeklySlots
+        .filter(s => {
+          if (!selectedModule) return true
+          const cName = (lang === 'ar' ? s.courseNameAr || s.courseNameFr : s.courseNameFr || s.courseNameAr) || ''
+          return cName.toLowerCase() === selectedModule.toLowerCase()
+        })
+        .map(s => (lang === 'ar' ? s.teacherNameAr || s.teacherNameFr : s.teacherNameFr || s.teacherNameAr))
+        .filter(Boolean)
+    )
   ).sort()
 
   const availableGroups = Array.from(
-    new Set(weeklySlots.map(s => s.groupName).filter(Boolean))
+    new Set(
+      weeklySlots
+        .filter(s => {
+          const cName = (lang === 'ar' ? s.courseNameAr || s.courseNameFr : s.courseNameFr || s.courseNameAr) || ''
+          const tName = (lang === 'ar' ? s.teacherNameAr || s.teacherNameFr : s.teacherNameFr || s.teacherNameAr) || ''
+          if (selectedTeacher && tName.toLowerCase() !== selectedTeacher.toLowerCase()) return false
+          if (selectedModule && cName.toLowerCase() !== selectedModule.toLowerCase()) return false
+          return true
+        })
+        .map(s => s.groupName)
+        .filter(Boolean)
+    )
   ).sort()
 
   // Filtered Slots
@@ -530,7 +612,7 @@ export default function Dashboard() {
                 label={lang === 'ar' ? 'جميع المواد (Modules)' : 'Tous les modules'}
                 placeholder={lang === 'ar' ? 'اختر أو اكتب المادة...' : 'Module...'}
                 value={selectedModule}
-                onChange={setSelectedModule}
+                onChange={handleModuleChange}
                 options={availableModules}
               />
 
@@ -539,7 +621,7 @@ export default function Dashboard() {
                 label={lang === 'ar' ? 'جميع الأساتذة (Enseignants)' : 'Tous les enseignants'}
                 placeholder={lang === 'ar' ? 'اختر أو اكتب الأستاذ...' : 'Enseignant...'}
                 value={selectedTeacher}
-                onChange={setSelectedTeacher}
+                onChange={handleTeacherChange}
                 options={availableTeachers}
               />
 
@@ -548,7 +630,7 @@ export default function Dashboard() {
                 label={lang === 'ar' ? 'جميع الأفواج (Groupes)' : 'Tous les groupes'}
                 placeholder={lang === 'ar' ? 'اختر أو اكتب الفوج...' : 'Groupe...'}
                 value={selectedGroup}
-                onChange={setSelectedGroup}
+                onChange={handleGroupChange}
                 options={availableGroups}
               />
 
