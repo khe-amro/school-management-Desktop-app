@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import {
   Users, ScanLine, CreditCard, UserPlus, BookOpen,
-  Calendar, Clock, ChevronRight, Maximize2, Filter, RotateCcw, X, User, Search
+  Calendar, Clock, ChevronRight, ChevronDown, Maximize2, Filter, RotateCcw, X, User, Search
 } from 'lucide-react'
 
 const WEEKDAY_AR = ['الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت', 'الأحد']
@@ -62,6 +62,89 @@ function getCourseStyle(name: string) {
   let hash = 0
   for (let i = 0; i < (name || '').length; i++) hash += name.charCodeAt(i)
   return COURSE_COLORS[Math.abs(hash) % COURSE_COLORS.length]
+}
+
+function FilterCombobox({
+  label,
+  placeholder,
+  value,
+  onChange,
+  options,
+}: {
+  label: string
+  placeholder: string
+  value: string
+  onChange: (val: string) => void
+  options: string[]
+}) {
+  const [open, setOpen] = useState(false)
+
+  const filteredOptions = options.filter(opt =>
+    opt.toLowerCase().includes(value.toLowerCase().trim())
+  )
+
+  return (
+    <div className="relative min-w-[160px] flex-1">
+      <div className="relative flex items-center">
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => {
+            onChange(e.target.value)
+            setOpen(true)
+          }}
+          onFocus={() => setOpen(true)}
+          placeholder={placeholder}
+          className="w-full text-xs bg-white border border-slate-300 rounded-lg ps-3 pe-7 py-2 font-medium focus:ring-2 focus:ring-[#2563EB] focus:outline-none shadow-xs"
+        />
+        {value ? (
+          <button
+            type="button"
+            onClick={() => { onChange(''); setOpen(false); }}
+            className="absolute right-2 text-slate-400 hover:text-slate-600 p-0.5"
+          >
+            <X size={12} />
+          </button>
+        ) : (
+          <ChevronDown
+            size={14}
+            className="absolute right-2 text-slate-400 pointer-events-none"
+          />
+        )}
+      </div>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
+          <div className="absolute top-full left-0 right-0 mt-1 max-h-52 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 text-xs">
+            <div
+              onClick={() => { onChange(''); setOpen(false); }}
+              className="px-3 py-1.5 cursor-pointer hover:bg-slate-100 font-bold text-slate-400 border-b border-slate-100"
+            >
+              -- {label} --
+            </div>
+            {filteredOptions.length === 0 ? (
+              <div className="px-3 py-2 text-slate-400 italic">
+                لا توجد نتائج
+              </div>
+            ) : (
+              filteredOptions.map(opt => (
+                <div
+                  key={opt}
+                  onClick={() => { onChange(opt); setOpen(false); }}
+                  className={`px-3 py-1.5 cursor-pointer hover:bg-blue-50 hover:text-[#2563EB] font-medium transition-colors ${
+                    value === opt ? 'bg-blue-50 text-[#2563EB] font-bold' : 'text-slate-700'
+                  }`}
+                >
+                  {opt}
+                </div>
+              ))
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
 }
 
 export default function Dashboard() {
@@ -442,47 +525,32 @@ export default function Dashboard() {
                 <span>{lang === 'ar' ? 'تصفية وحصر الحصص:' : 'Filtrer les séances:'}</span>
               </div>
 
-              {/* Module Filter */}
-              <div className="relative min-w-[160px]">
-                <select
-                  value={selectedModule}
-                  onChange={(e) => setSelectedModule(e.target.value)}
-                  className="w-full text-xs bg-white border border-slate-300 rounded-lg px-3 py-2 font-medium focus:ring-2 focus:ring-[#2563EB] focus:outline-none"
-                >
-                  <option value="">{lang === 'ar' ? 'جميع المواد (Modules)' : 'Tous les modules'}</option>
-                  {availableModules.map(m => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </select>
-              </div>
+              {/* Module Filter (Choose + Typing) */}
+              <FilterCombobox
+                label={lang === 'ar' ? 'جميع المواد (Modules)' : 'Tous les modules'}
+                placeholder={lang === 'ar' ? 'اختر أو اكتب المادة...' : 'Module...'}
+                value={selectedModule}
+                onChange={setSelectedModule}
+                options={availableModules}
+              />
 
-              {/* Teacher Filter */}
-              <div className="relative min-w-[160px]">
-                <select
-                  value={selectedTeacher}
-                  onChange={(e) => setSelectedTeacher(e.target.value)}
-                  className="w-full text-xs bg-white border border-slate-300 rounded-lg px-3 py-2 font-medium focus:ring-2 focus:ring-[#2563EB] focus:outline-none"
-                >
-                  <option value="">{lang === 'ar' ? 'جميع الأساتذة (Enseignants)' : 'Tous les enseignants'}</option>
-                  {availableTeachers.map(t => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
-              </div>
+              {/* Teacher Filter (Choose + Typing) */}
+              <FilterCombobox
+                label={lang === 'ar' ? 'جميع الأساتذة (Enseignants)' : 'Tous les enseignants'}
+                placeholder={lang === 'ar' ? 'اختر أو اكتب الأستاذ...' : 'Enseignant...'}
+                value={selectedTeacher}
+                onChange={setSelectedTeacher}
+                options={availableTeachers}
+              />
 
-              {/* Group Filter */}
-              <div className="relative min-w-[150px]">
-                <select
-                  value={selectedGroup}
-                  onChange={(e) => setSelectedGroup(e.target.value)}
-                  className="w-full text-xs bg-white border border-slate-300 rounded-lg px-3 py-2 font-medium focus:ring-2 focus:ring-[#2563EB] focus:outline-none"
-                >
-                  <option value="">{lang === 'ar' ? 'جميع الأفواج (Groupes)' : 'Tous les groupes'}</option>
-                  {availableGroups.map(g => (
-                    <option key={g} value={g}>{g}</option>
-                  ))}
-                </select>
-              </div>
+              {/* Group Filter (Choose + Typing) */}
+              <FilterCombobox
+                label={lang === 'ar' ? 'جميع الأفواج (Groupes)' : 'Tous les groupes'}
+                placeholder={lang === 'ar' ? 'اختر أو اكتب الفوج...' : 'Groupe...'}
+                value={selectedGroup}
+                onChange={setSelectedGroup}
+                options={availableGroups}
+              />
 
               {/* Live Search Input */}
               <div className="relative flex-1 min-w-[200px]">
@@ -562,20 +630,19 @@ export default function Dashboard() {
                                         <div
                                           key={i}
                                           onClick={() => setInspectSlot(slot)}
-                                          className={`p-2 rounded-xl border shadow-xs transition-all cursor-pointer ${styleCls}`}
+                                          className={`p-2 rounded-xl border shadow-xs hover:shadow-md transition-all cursor-pointer ${styleCls}`}
                                         >
-                                          <div className="font-bold text-slate-950 text-xs leading-tight">
-                                            {courseName}
+                                          <div className="font-bold text-slate-950 text-xs leading-tight flex items-center justify-between">
+                                            <span>{courseName}</span>
                                           </div>
-                                          <div className="text-[11px] font-semibold text-blue-700 mt-0.5">
-                                            👥 {slot.groupName}
+                                          <div className="text-[11px] font-bold text-blue-700 mt-0.5 flex items-center gap-1">
+                                            <span>👥 {slot.groupName}</span>
                                           </div>
-                                          {teacherName && (
-                                            <div className="text-[10px] text-slate-600 mt-0.5 flex items-center gap-1 font-medium">
-                                              👤 {teacherName}
-                                            </div>
-                                          )}
-                                          <div className="mt-1 flex flex-wrap items-center justify-between text-[10px] font-mono text-slate-500 pt-1 border-t border-slate-200/60">
+                                          <div className="text-[10px] text-slate-800 mt-1 flex items-center gap-1 font-semibold bg-white/80 px-1.5 py-0.5 rounded-md border border-slate-200/70 w-fit">
+                                            <User size={10} className="text-slate-600 shrink-0" />
+                                            <span className="truncate">{teacherName || (lang === 'ar' ? 'أستاذ غير محدد' : 'Enseignant non spécifié')}</span>
+                                          </div>
+                                          <div className="mt-1.5 flex flex-wrap items-center justify-between text-[10px] font-mono text-slate-500 pt-1 border-t border-slate-200/60">
                                             <span>⏱ {slot.startTime}–{slot.endTime}</span>
                                             {slot.room && <span className="bg-white/80 px-1 rounded border">🏛 {slot.room}</span>}
                                           </div>

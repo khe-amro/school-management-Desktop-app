@@ -229,8 +229,7 @@ export function registerSchedulesHandlers(): void {
       const rows = sqlite.prepare(`
         SELECT s.*, g.name as group_name, g.course_id, g.teacher_id,
                c.name_ar as course_name_ar, c.name_fr as course_name_fr,
-               t.first_name_ar as teacher_first_name_ar, t.last_name_ar as teacher_last_name_ar,
-               t.first_name_fr as teacher_first_name_fr, t.last_name_fr as teacher_last_name_fr
+               t.first_name as teacher_first_name, t.last_name as teacher_last_name
         FROM group_schedule_slots s
         JOIN groups g ON s.group_id = g.id
         JOIN courses c ON g.course_id = c.id
@@ -245,8 +244,8 @@ export function registerSchedulesHandlers(): void {
         courseNameAr: r.course_name_ar,
         courseNameFr: r.course_name_fr,
         teacherId: r.teacher_id,
-        teacherNameAr: r.teacher_last_name_ar ? `${r.teacher_last_name_ar} ${r.teacher_first_name_ar || ''}`.trim() : null,
-        teacherNameFr: r.teacher_last_name_fr ? `${r.teacher_last_name_fr} ${r.teacher_first_name_fr || ''}`.trim() : null,
+        teacherNameAr: r.teacher_last_name ? `${r.teacher_last_name} ${r.teacher_first_name || ''}`.trim() : null,
+        teacherNameFr: r.teacher_last_name ? `${r.teacher_last_name} ${r.teacher_first_name || ''}`.trim() : null,
         weekday: r.weekday,
         startTime: r.start_time,
         endTime: r.end_time,
