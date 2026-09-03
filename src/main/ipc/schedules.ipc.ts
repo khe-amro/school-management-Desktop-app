@@ -227,11 +227,13 @@ export function registerSchedulesHandlers(): void {
     const sqlite = getSqlite()
     try {
       const rows = sqlite.prepare(`
-        SELECT s.*, g.name as group_name, g.course_id,
-               c.name_ar as course_name_ar, c.name_fr as course_name_fr
+        SELECT s.*, g.name as group_name, g.course_id, g.teacher_id,
+               c.name_ar as course_name_ar, c.name_fr as course_name_fr,
+               t.first_name as teacher_first_name, t.last_name as teacher_last_name
         FROM group_schedule_slots s
         JOIN groups g ON s.group_id = g.id
         JOIN courses c ON g.course_id = c.id
+        LEFT JOIN teachers t ON g.teacher_id = t.id
         WHERE s.is_active = 1 AND g.status = 'active'
         ORDER BY s.weekday ASC, s.start_time ASC
       `).all() as any[]
@@ -241,6 +243,9 @@ export function registerSchedulesHandlers(): void {
         groupName: r.group_name,
         courseNameAr: r.course_name_ar,
         courseNameFr: r.course_name_fr,
+        teacherId: r.teacher_id,
+        teacherNameAr: r.teacher_last_name ? `${r.teacher_last_name} ${r.teacher_first_name || ''}`.trim() : null,
+        teacherNameFr: r.teacher_last_name ? `${r.teacher_last_name} ${r.teacher_first_name || ''}`.trim() : null,
         weekday: r.weekday,
         startTime: r.start_time,
         endTime: r.end_time,

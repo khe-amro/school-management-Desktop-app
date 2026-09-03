@@ -172,6 +172,31 @@ export async function scanQRToken(sessionId: number, rawToken: string): Promise<
     }
   }
 
+  // Fetch enrollment details & balance info
+  let creditBalance: number | null = null
+  let sessionPrice: number = 0
+  let remainingSessions: number = 0
+  let wasInDebt = false
+
+  if (enrollment) {
+    try {
+      const { getEnrollmentBalance } = await import('./payment.service')
+      if (attendanceSession.price !== null && attendanceSession.price !== undefined) {
+        sessionPrice = attendanceSession.price
+      } else {
+        const group = await db.query.groups.findFirst({ where: eq(schema.groups.id, attendanceSession.groupId) })
+        const price = enrollment.agreedPrice || group?.monthlyPrice || 0
+        sessionPrice = Math.round((price / 4) * 100) / 100
+      }
+      const bal = await getEnrollmentBalance(enrollment.id)
+      creditBalance = bal.balance
+      wasInDebt = bal.balance < 0
+      remainingSessions = sessionPrice > 0 ? Math.floor(bal.balance / sessionPrice) : 0
+    } catch (err) {
+      log.warn('Failed to fetch balance in scanQRToken:', err)
+    }
+  }
+
   // 6. Check for duplicate scan
   const existingRecord = await db.query.attendanceRecords.findFirst({
     where: and(
@@ -183,9 +208,15 @@ export async function scanQRToken(sessionId: number, rawToken: string): Promise<
     return {
       code: 'already_scanned',
       studentId: matchedStudent.id,
-      studentName: `${matchedStudent.firstNameAr} ${matchedStudent.lastNameAr}`,
+      studentName: `${matchedStudent.lastNameAr ?? ''} ${matchedStudent.firstNameAr ?? ''}`.trim() || matchedStudent.studentNumber,
+      studentNumber: matchedStudent.studentNumber,
+      phone: matchedStudent.phone,
       scannedAt: existingRecord.scannedAt ?? undefined,
       attendanceStatus: existingRecord.attendanceStatus as 'present' | 'absent' | 'late',
+      creditBalance,
+      sessionPrice,
+      remainingSessions,
+      wasInDebt,
     }
   }
 
@@ -216,12 +247,42 @@ export async function scanQRToken(sessionId: number, rawToken: string): Promise<
   const record = result[0]!
   log.info(`Attendance recorded: student ${matchedStudent.studentNumber}, session ${sessionId}, status: ${attendanceStatus}`)
 
+  // Deduct 1 session from enrollment credit
+  if (enrollment) {
+    try {
+      const { deductSession, getEnrollmentBalance } = await import('./payment.service')
+      await deductSession({
+        studentId: matchedStudent.id,
+        enrollmentId: enrollment.id,
+        sessionId,
+        sessionDate: attendanceSession.sessionDate,
+        sessionPrice,
+      })
+      const newBal = await getEnrollmentBalance(enrollment.id)
+      creditBalance = newBal.balance
+      wasInDebt = newBal.balance < 0
+      remainingSessions = sessionPrice > 0 ? Math.floor(newBal.balance / sessionPrice) : 0
+    } catch (err) {
+      log.warn('Session credit deduction failed on QR scan (non-fatal):', err)
+    }
+  }
+
+  const studentNameAr = `${matchedStudent.lastNameAr ?? ''} ${matchedStudent.firstNameAr ?? ''}`.trim()
+  const studentNameFr = `${matchedStudent.lastNameFr ?? ''} ${matchedStudent.firstNameFr ?? ''}`.trim()
+  const studentName = studentNameAr || studentNameFr || matchedStudent.studentNumber
+
   return {
     code: 'recorded',
     studentId: matchedStudent.id,
-    studentName: `${matchedStudent.firstNameAr} ${matchedStudent.lastNameAr}`,
+    studentName,
+    studentNumber: matchedStudent.studentNumber,
+    phone: matchedStudent.phone,
     scannedAt: record.scannedAt ?? undefined,
     attendanceStatus,
+    creditBalance,
+    sessionPrice,
+    remainingSessions,
+    wasInDebt,
   }
 }
 
@@ -567,19 +628,29 @@ export async function resolveStudentSessions(rawToken: string, date: string): Pr
   const stdMatch = token.match(/STD-[a-f0-9A-F]+/i)
   if (stdMatch) token = stdMatch[0]
 
-  // Find student by QR token, student number, or name
+  // Find student by QR token, student number, numeric ID, or combined name
   let student = await db.query.students.findFirst({ where: eq(schema.students.qrToken, token) })
   if (!student) {
     student = await db.query.students.findFirst({ where: eq(schema.students.studentNumber, token.toUpperCase()) })
   }
   if (!student) {
-    // Name search — raw SQL for partial match
+    const num = Number(token)
+    if (!isNaN(num) && num > 0) {
+      student = await db.query.students.findFirst({ where: eq(schema.students.id, num) })
+    }
+  }
+  if (!student) {
+    // Name search — raw SQL for partial & combined name match
     const rows = sqlite.prepare(`
-      SELECT * FROM students
+      SELECT id FROM students
       WHERE status = 'active'
-        AND (first_name_ar LIKE ? OR last_name_ar LIKE ? OR first_name_fr LIKE ? OR last_name_fr LIKE ?)
+        AND (
+          first_name_ar LIKE ? OR last_name_ar LIKE ? OR first_name_fr LIKE ? OR last_name_fr LIKE ?
+          OR (last_name_ar || ' ' || first_name_ar) LIKE ? OR (first_name_ar || ' ' || last_name_ar) LIKE ?
+          OR (last_name_fr || ' ' || first_name_fr) LIKE ? OR (first_name_fr || ' ' || last_name_fr) LIKE ?
+        )
       LIMIT 1
-    `).get(`%${token}%`, `%${token}%`, `%${token}%`, `%${token}%`) as any
+    `).get(`%${token}%`, `%${token}%`, `%${token}%`, `%${token}%`, `%${token}%`, `%${token}%`, `%${token}%`, `%${token}%`) as any
     if (rows) student = await db.query.students.findFirst({ where: eq(schema.students.id, rows.id) })
   }
   if (!student) return null
@@ -594,17 +665,19 @@ export async function resolveStudentSessions(rawToken: string, date: string): Pr
   const todaySessions: any[] = []
   for (const groupId of groupIds) {
     // Check for existing session instances
-    const existing = sqlite.prepare(`
+    const allExisting = sqlite.prepare(`
       SELECT s.*, g.name as group_name, c.name_ar as course_name_ar, c.name_fr as course_name_fr
       FROM attendance_sessions s
       JOIN groups g ON s.group_id = g.id
       JOIN courses c ON g.course_id = c.id
-      WHERE s.group_id = ? AND s.session_date = ? AND s.session_type != 'cancelled'
-      LIMIT 5
+      WHERE s.group_id = ? AND s.session_date = ?
     `).all(groupId, date) as any[]
 
-    if (existing.length > 0) {
-      todaySessions.push(...existing.map(r => ({
+    const activeExisting = allExisting.filter(r => r.session_type !== 'cancelled')
+    const hasCancelled = allExisting.some(r => r.session_type === 'cancelled')
+
+    if (activeExisting.length > 0) {
+      todaySessions.push(...activeExisting.map(r => ({
         id: r.id,
         groupId: r.group_id,
         groupName: r.group_name,
@@ -616,8 +689,8 @@ export async function resolveStudentSessions(rawToken: string, date: string): Pr
         room: r.room,
         status: r.status,
       })))
-    } else {
-      // Auto-create from schedule slots if today matches weekday
+    } else if (!hasCancelled) {
+      // Auto-create from schedule slots if today matches weekday and not cancelled
       const jsDay = new Date(date + 'T00:00:00Z').getUTCDay()
       const weekday = jsDay === 0 ? 6 : jsDay - 1
       const slots = sqlite.prepare(`
@@ -625,30 +698,62 @@ export async function resolveStudentSessions(rawToken: string, date: string): Pr
       `).all(groupId, weekday) as any[]
 
       for (const slot of slots) {
-        const res = sqlite.prepare(`
-          INSERT INTO attendance_sessions (group_id, session_date, planned_start_time, end_time, room, status, session_type, schedule_slot_id, created_by, created_at, updated_at)
+        sqlite.prepare(`
+          INSERT OR IGNORE INTO attendance_sessions (group_id, session_date, planned_start_time, end_time, room, status, session_type, schedule_slot_id, created_by, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, 'open', 'regular', ?, 1, datetime('now'), datetime('now'))
         `).run(groupId, date, slot.start_time, slot.end_time, slot.room, slot.id)
 
-        const groupRow = sqlite.prepare(`
-          SELECT g.name as group_name, c.name_ar as course_name_ar, c.name_fr as course_name_fr
-          FROM groups g JOIN courses c ON g.course_id = c.id WHERE g.id = ?
-        `).get(groupId) as any
+        const sessRow = sqlite.prepare(`
+          SELECT s.*, g.name as group_name, c.name_ar as course_name_ar, c.name_fr as course_name_fr
+          FROM attendance_sessions s
+          JOIN groups g ON s.group_id = g.id
+          JOIN courses c ON g.course_id = c.id
+          WHERE s.group_id = ? AND s.session_date = ? AND s.session_type != 'cancelled' AND (s.schedule_slot_id = ? OR (s.planned_start_time = ? AND s.end_time = ?))
+          LIMIT 1
+        `).get(groupId, date, slot.id, slot.start_time, slot.end_time) as any
 
-        todaySessions.push({
-          id: Number(res.lastInsertRowid),
-          groupId,
-          groupName: groupRow?.group_name,
-          courseNameAr: groupRow?.course_name_ar,
-          courseNameFr: groupRow?.course_name_fr,
-          sessionDate: date,
-          plannedStartTime: slot.start_time,
-          endTime: slot.end_time,
-          room: slot.room,
-          status: 'open',
-        })
+        if (sessRow) {
+          todaySessions.push({
+            id: sessRow.id,
+            groupId,
+            groupName: sessRow.group_name,
+            courseNameAr: sessRow.course_name_ar,
+            courseNameFr: sessRow.course_name_fr,
+            sessionDate: date,
+            plannedStartTime: sessRow.planned_start_time,
+            endTime: sessRow.end_time,
+            room: sessRow.room,
+            status: sessRow.status || 'open',
+          })
+        }
       }
     }
+  }
+
+  // Calculate balance & remaining sessions for each active enrollment
+  const { getEnrollmentBalance } = await import('./payment.service')
+  const enrollmentsWithBalance: any[] = []
+  for (const en of enrollments) {
+    const bal = await getEnrollmentBalance(en.id)
+    const grp = sqlite.prepare(`
+      SELECT g.name as group_name, g.monthly_price, c.name_ar as course_name_ar, c.name_fr as course_name_fr
+      FROM groups g JOIN courses c ON g.course_id = c.id WHERE g.id = ?
+    `).get(en.groupId) as any
+    const price = en.agreedPrice || grp?.monthly_price || 0
+    const sessPrice = Math.round((price / 4) * 100) / 100
+    const remSessions = sessPrice > 0 ? Math.floor(bal.balance / sessPrice) : 0
+    enrollmentsWithBalance.push({
+      enrollmentId: en.id,
+      groupId: en.groupId,
+      groupName: grp?.group_name,
+      courseNameAr: grp?.course_name_ar,
+      courseNameFr: grp?.course_name_fr,
+      agreedPrice: price,
+      sessionPrice: sessPrice,
+      balance: bal.balance,
+      remainingSessions: remSessions,
+      wasInDebt: bal.balance < 0,
+    })
   }
 
   // Payment summary
@@ -681,6 +786,7 @@ export async function resolveStudentSessions(rawToken: string, date: string): Pr
       status: student.status,
       phone: student.phone,
     },
+    enrollmentsWithBalance,
     todaySessions,
     paymentsSummary: {
       totalPaid,
@@ -801,10 +907,11 @@ export async function getSessionWithRoster(sessionId: number): Promise<{
 
   const enrolled = sqlite.prepare(`
     SELECT st.id, st.student_number, st.first_name_ar, st.last_name_ar, st.first_name_fr, st.last_name_fr,
-           st.status as student_status,
+           st.status as student_status, e.id as enrollment_id, e.agreed_price, g.monthly_price,
            ar.attendance_status, ar.source, ar.scanned_at, ar.id as record_id
     FROM enrollments e
     JOIN students st ON e.student_id = st.id
+    JOIN groups g ON e.group_id = g.id
     LEFT JOIN attendance_records ar ON ar.session_id = ? AND ar.student_id = st.id
     WHERE e.group_id = ? AND e.status = 'active'
     ORDER BY st.last_name_ar, st.first_name_ar
@@ -813,6 +920,32 @@ export async function getSessionWithRoster(sessionId: number): Promise<{
   const presentCount = enrolled.filter(s => s.attendance_status === 'present').length
   const lateCount = enrolled.filter(s => s.attendance_status === 'late').length
   const absentCount = enrolled.filter(s => s.attendance_status === 'absent').length
+
+  const { getEnrollmentBalance } = await import('./payment.service')
+  const studentsWithBalance = await Promise.all(enrolled.map(async s => {
+    const bal = s.enrollment_id ? await getEnrollmentBalance(s.enrollment_id) : { balance: 0 }
+    const price = s.agreed_price || s.monthly_price || 0
+    const sessPrice = Math.round((price / 4) * 100) / 100
+    const remSessions = sessPrice > 0 ? Math.floor(bal.balance / sessPrice) : 0
+    return {
+      id: s.id,
+      enrollmentId: s.enrollment_id,
+      studentNumber: s.student_number,
+      firstNameAr: s.first_name_ar,
+      lastNameAr: s.last_name_ar,
+      firstNameFr: s.first_name_fr,
+      lastNameFr: s.last_name_fr,
+      status: s.student_status,
+      attendanceStatus: s.attendance_status ?? null,
+      recordId: s.record_id ?? null,
+      source: s.source ?? null,
+      scannedAt: s.scanned_at ?? null,
+      creditBalance: bal.balance,
+      sessionPrice: sessPrice,
+      remainingSessions: remSessions,
+      wasInDebt: bal.balance < 0,
+    }
+  }))
 
   return {
     session: {
@@ -829,19 +962,7 @@ export async function getSessionWithRoster(sessionId: number): Promise<{
       sessionType: session.session_type,
       stats: { present: presentCount, late: lateCount, absent: absentCount, total: enrolled.length },
     },
-    students: enrolled.map(s => ({
-      id: s.id,
-      studentNumber: s.student_number,
-      firstNameAr: s.first_name_ar,
-      lastNameAr: s.last_name_ar,
-      firstNameFr: s.first_name_fr,
-      lastNameFr: s.last_name_fr,
-      status: s.student_status,
-      attendanceStatus: s.attendance_status ?? null,
-      recordId: s.record_id ?? null,
-      source: s.source ?? null,
-      scannedAt: s.scanned_at ?? null,
-    })),
+    students: studentsWithBalance,
   }
 }
 

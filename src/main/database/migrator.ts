@@ -357,60 +357,77 @@ const MIGRATIONS: { version: number; name: string; sql: string }[] = [
     INSERT OR REPLACE INTO app_metadata(key, value, updated_at) VALUES('schema_version', '4', datetime('now'));
   `,
 },
-{
-  version: 5,
-  name: 'session_dedup_and_debt_tracking',
-  sql: `
-    -- 1. Merge and clean duplicate attendance sessions for same group, date and start time
-    DELETE FROM attendance_records
-    WHERE id IN (
-      SELECT ar_dup.id
-      FROM attendance_records ar_dup
-      JOIN attendance_sessions s_dup ON ar_dup.session_id = s_dup.id
-      JOIN attendance_sessions s_canon ON s_canon.group_id = s_dup.group_id
-        AND s_canon.session_date = s_dup.session_date
-        AND COALESCE(s_canon.planned_start_time, '') = COALESCE(s_dup.planned_start_time, '')
-        AND s_canon.id < s_dup.id
-      JOIN attendance_records ar_canon ON ar_canon.session_id = s_canon.id
-        AND ar_canon.student_id = ar_dup.student_id
-    );
+  {
+    version: 5,
+    name: 'session_dedup_and_debt_tracking',
+    sql: `
+      -- 1. Merge and clean duplicate attendance sessions for same group, date and start time
+      DELETE FROM attendance_records
+      WHERE id IN (
+        SELECT ar_dup.id
+        FROM attendance_records ar_dup
+        JOIN attendance_sessions s_dup ON ar_dup.session_id = s_dup.id
+        JOIN attendance_sessions s_canon ON s_canon.group_id = s_dup.group_id
+          AND s_canon.session_date = s_dup.session_date
+          AND COALESCE(s_canon.planned_start_time, '') = COALESCE(s_dup.planned_start_time, '')
+          AND s_canon.id < s_dup.id
+        JOIN attendance_records ar_canon ON ar_canon.session_id = s_canon.id
+          AND ar_canon.student_id = ar_dup.student_id
+      );
 
-    UPDATE attendance_records
-    SET session_id = (
-      SELECT MIN(s_canon.id)
-      FROM attendance_sessions s_canon
-      JOIN attendance_sessions s_dup ON s_canon.group_id = s_dup.group_id
-        AND s_canon.session_date = s_dup.session_date
-        AND COALESCE(s_canon.planned_start_time, '') = COALESCE(s_dup.planned_start_time, '')
-      WHERE s_dup.id = attendance_records.session_id
-    )
-    WHERE session_id IN (
-      SELECT id FROM attendance_sessions
-      WHERE id NOT IN (
-        SELECT MIN(id) FROM attendance_sessions
-        GROUP BY group_id, session_date, COALESCE(planned_start_time, '')
+      UPDATE attendance_records
+      SET session_id = (
+        SELECT MIN(s_canon.id)
+        FROM attendance_sessions s_canon
+        JOIN attendance_sessions s_dup ON s_canon.group_id = s_dup.group_id
+          AND s_canon.session_date = s_dup.session_date
+          AND COALESCE(s_canon.planned_start_time, '') = COALESCE(s_dup.planned_start_time, '')
+        WHERE s_dup.id = attendance_records.session_id
       )
-    );
+      WHERE session_id IN (
+        SELECT id FROM attendance_sessions
+        WHERE id NOT IN (
+          SELECT MIN(id) FROM attendance_sessions
+          GROUP BY group_id, session_date, COALESCE(planned_start_time, '')
+        )
+      );
 
-    DELETE FROM attendance_sessions
-    WHERE id NOT IN (
-      SELECT MIN(id)
-      FROM attendance_sessions
-      GROUP BY group_id, session_date, COALESCE(planned_start_time, '')
-    );
+      DELETE FROM attendance_sessions
+      WHERE id NOT IN (
+        SELECT MIN(id)
+        FROM attendance_sessions
+        GROUP BY group_id, session_date, COALESCE(planned_start_time, '')
+      );
 
-    -- 2. Create unique index to guarantee no duplicate session per group, date and start time
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_group_date_time
-      ON attendance_sessions(group_id, session_date, COALESCE(planned_start_time, '00:00'));
+      -- 2. Create unique index to guarantee no duplicate session per group, date and start time
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_group_date_time
+        ON attendance_sessions(group_id, session_date, COALESCE(planned_start_time, ''));
 
-    -- 3. Add search indexes for payments and student lookups
-    CREATE INDEX IF NOT EXISTS idx_payments_status_period ON payments(status, billing_period);
-    CREATE INDEX IF NOT EXISTS idx_enrollments_student_status ON enrollments(student_id, status);
+      -- 3. Add search indexes for payments and student lookups
+      CREATE INDEX IF NOT EXISTS idx_payments_status_period ON payments(status, billing_period);
+      CREATE INDEX IF NOT EXISTS idx_enrollments_student_status ON enrollments(student_id, status);
 
-    -- 4. Update schema version
-    INSERT OR REPLACE INTO app_metadata(key, value, updated_at) VALUES('schema_version', '5', datetime('now'));
-  `,
-},
+      -- 4. Update schema version
+      INSERT OR REPLACE INTO app_metadata(key, value, updated_at) VALUES('schema_version', '5', datetime('now'));
+    `,
+  },
+  {
+    version: 6,
+    name: 'add_course_id_to_teachers',
+    sql: `
+      ALTER TABLE teachers ADD COLUMN course_id INTEGER REFERENCES courses(id);
+      CREATE INDEX IF NOT EXISTS idx_teachers_course ON teachers(course_id);
+      INSERT OR REPLACE INTO app_metadata(key, value, updated_at) VALUES('schema_version', '6', datetime('now'));
+    `,
+  },
+  {
+    version: 7,
+    name: 'add_price_to_attendance_sessions',
+    sql: `
+      ALTER TABLE attendance_sessions ADD COLUMN price INTEGER;
+      INSERT OR REPLACE INTO app_metadata(key, value, updated_at) VALUES('schema_version', '7', datetime('now'));
+    `,
+  },
 ]
 
 // ─── Migration runner ─────────────────────────────────────────────────────────
@@ -453,7 +470,23 @@ export async function runMigrations(): Promise<void> {
     }
 
     const applyMigration = sqlite.transaction(() => {
-      sqlite.exec(migration.sql)
+      const statements = migration.sql
+        .split(';')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0)
+
+      for (const statement of statements) {
+        try {
+          sqlite.exec(statement)
+        } catch (err: any) {
+          if (err?.message?.includes('duplicate column name')) {
+            log.warn(`Column already exists, skipping: ${statement.slice(0, 60)}...`)
+            continue
+          }
+          throw err
+        }
+      }
+
       sqlite.prepare(
         `INSERT OR REPLACE INTO app_metadata(key, value, updated_at) VALUES('schema_version', ?, datetime('now'))`
       ).run(String(migration.version))

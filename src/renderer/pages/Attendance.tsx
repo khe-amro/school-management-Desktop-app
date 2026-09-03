@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ScanLine, Search, Calendar, CheckCircle2, Clock, XCircle, Volume2, VolumeX, ChevronLeft, ChevronRight } from 'lucide-react'
+import { useLocation } from 'react-router-dom'
+import { ScanLine, Search, Calendar, CheckCircle2, Clock, XCircle, Volume2, VolumeX, ChevronLeft, ChevronRight, AlertCircle, CreditCard, Trash2 } from 'lucide-react'
 
 type Tab = 'scanner' | 'roster' | 'calendar'
 type StatusType = 'present' | 'absent' | 'late' | null
@@ -93,13 +94,17 @@ function SmartScanner({ lang }: { lang: string }) {
     setShowDropdown(false)
     try {
       const res = await window.schoolApp.attendance.resolveStudent(token.trim(), today())
-      if (res.success && res.data && !res.data.error) {
+      if (res && res.success && res.data && !res.data.error) {
         setResolved(res.data)
         setSelectedIdx(0)
       } else {
-        showFeedback('err', t('attendance.studentNotFound'))
+        showFeedback('err', res?.error || t('attendance.studentNotFound'))
         beep(false)
       }
+    } catch (err: any) {
+      console.error('Resolve student error:', err)
+      showFeedback('err', err?.message || t('common.error'))
+      beep(false)
     } finally { setLoading(false) }
   }
 
@@ -116,10 +121,10 @@ function SmartScanner({ lang }: { lang: string }) {
     setMarking(true)
     try {
       const res = await window.schoolApp.attendance.markSession(session.id, resolved.student.id, 'present')
-      if (res.success) {
+      if (res && res.success) {
         const d = res.data ?? {}
         const status = d.status ?? 'present'
-        const name = `${resolved.student.lastNameAr} ${resolved.student.firstNameAr}`
+        const name = `${resolved.student.lastNameAr || ''} ${resolved.student.firstNameAr || ''}`.trim()
 
         // Build feedback message with credit info
         let msg = `${name} — ${t(`attendance.${status}`)}`
@@ -138,9 +143,13 @@ function SmartScanner({ lang }: { lang: string }) {
         setInput('')
         setTimeout(() => inputRef.current?.focus(), 100)
       } else {
-        showFeedback('err', res.error ?? t('common.error'))
+        showFeedback('err', res?.error ?? t('common.error'))
         beep(false)
       }
+    } catch (err: any) {
+      console.error('Confirm attendance error:', err)
+      showFeedback('err', err?.message || t('common.error'))
+      beep(false)
     } finally { setMarking(false) }
   }
 
@@ -221,7 +230,10 @@ function SmartScanner({ lang }: { lang: string }) {
               {suggestions.map((s, idx) => (
                 <div
                   key={s.id}
-                  onClick={() => selectSuggestion(s)}
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    selectSuggestion(s)
+                  }}
                   onMouseEnter={() => setActiveSugIdx(idx)}
                   className={`px-4 py-2.5 flex items-center justify-between cursor-pointer transition-colors ${
                     activeSugIdx === idx ? 'bg-blue-50 text-[#2563EB]' : 'hover:bg-slate-50 text-[#0F172A]'
@@ -259,21 +271,61 @@ function SmartScanner({ lang }: { lang: string }) {
 
       {resolved && (
         <div className="bg-white rounded-2xl border border-border p-5 shadow-lg animate-fade-in space-y-4">
-          {/* Student info */}
+          {/* Student General Info Header */}
           <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
             <div className="w-12 h-12 rounded-full bg-blue-50 border-2 border-blue-200 flex items-center justify-center text-blue-700 font-bold text-lg shrink-0">
               {(resolved.student.firstNameAr || resolved.student.firstNameFr || '?').charAt(0)}
             </div>
-            <div className="flex-1">
-              <p className="font-bold text-[#0F172A]" dir="rtl">{resolved.student.lastNameAr} {resolved.student.firstNameAr}</p>
-              <p className="text-xs text-slate-400">{resolved.student.studentNumber}</p>
-            </div>
-            <div className="text-right space-y-1">
-              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${resolved.paymentsSummary?.status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                {resolved.paymentsSummary?.status === 'paid' ? t('attendance.upToDate') : t('attendance.pending')}
-              </span>
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-[#0F172A] text-base truncate" dir="rtl">
+                {resolved.student.lastNameAr} {resolved.student.firstNameAr}
+                {resolved.student.lastNameFr && <span className="text-xs text-slate-400 font-normal ms-2">({resolved.student.lastNameFr} {resolved.student.firstNameFr})</span>}
+              </p>
+              <div className="flex items-center gap-3 text-xs text-slate-400 font-mono mt-0.5">
+                <span>#{resolved.student.studentNumber}</span>
+                {resolved.student.phone && <span>• 📞 {resolved.student.phone}</span>}
+              </div>
             </div>
           </div>
+
+          {/* Student Abonments & Money Left Breakdown */}
+          {resolved.enrollmentsWithBalance?.length > 0 && (
+            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+              <p className="text-xs font-bold text-slate-600 flex items-center gap-1.5">
+                <CreditCard size={14} className="text-[#2563EB]" />
+                <span>{lang === 'ar' ? 'معلومات الاشتراك والمسح المالي:' : 'Solde des abonnements:'}</span>
+              </p>
+              <div className="space-y-1.5">
+                {resolved.enrollmentsWithBalance.map((en: any) => (
+                  <div
+                    key={en.enrollmentId}
+                    className={`p-2.5 rounded-lg border text-xs flex flex-wrap items-center justify-between gap-2 ${
+                      en.wasInDebt
+                        ? 'bg-red-50 border-red-200 text-red-800'
+                        : 'bg-white border-slate-200 text-slate-700'
+                    }`}
+                  >
+                    <div>
+                      <span className="font-bold">{en.courseNameAr || en.courseNameFr}</span>
+                      <span className="text-slate-500 ms-1">({en.groupName})</span>
+                    </div>
+
+                    <div className="flex items-center gap-2 font-mono">
+                      {en.wasInDebt ? (
+                        <span className="px-2 py-0.5 bg-red-600 text-white font-bold rounded-md animate-pulse text-[11px]">
+                          ⚠️ {lang === 'ar' ? `رصيد سالب: ${en.balance} د.ج (دين)` : `Solde négatif: ${en.balance} DA`}
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 font-bold rounded-md text-[11px]">
+                          ✓ {lang === 'ar' ? `المتبقي: ${en.balance} د.ج (${en.remainingSessions} حصص)` : `Reste: ${en.balance} DA (${en.remainingSessions} s)`}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Recent attendance */}
           {resolved.recentAttendance?.length > 0 && (
@@ -292,12 +344,22 @@ function SmartScanner({ lang }: { lang: string }) {
           {/* Sessions chooser */}
           <div>
             <p className="text-xs font-semibold text-slate-500 mb-2">
-              {resolved.todaySessions?.length === 0 ? t('attendance.noSessionsToday')
+              {resolved.todaySessions?.length === 0 ? (lang === 'ar' ? 'حصص اليوم:' : "Séances d'aujourd'hui:")
                 : resolved.todaySessions?.length === 1 ? t('attendance.oneSessionToday')
                 : t('attendance.multipleSessionsToday')}
             </p>
             {resolved.todaySessions?.length === 0 ? (
-              <p className="text-sm text-slate-400 text-center py-4">{t('attendance.noSessionsToday')}</p>
+              <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-4 text-center space-y-1 my-2">
+                <div className="flex items-center justify-center gap-2 font-bold text-sm">
+                  <AlertCircle size={18} className="text-amber-600 shrink-0" />
+                  <span>{lang === 'ar' ? 'لا توجد حصص مجدولة لهذا الطالب اليوم' : "Cet étudiant n'a pas de séances aujourd'hui"}</span>
+                </div>
+                <p className="text-xs text-amber-700">
+                  {lang === 'ar'
+                    ? 'جميع بيانات الطالب ورصيد الاشتراكات موضحة أعلاه.'
+                    : "Toutes les informations et le solde de l'étudiant sont affichés ci-dessus."}
+                </p>
+              </div>
             ) : (
               <div className="space-y-2">
                 {resolved.todaySessions.map((s: any, i: number) => (
@@ -340,7 +402,7 @@ function SmartScanner({ lang }: { lang: string }) {
 }
 
 // ── Roster Tab ─────────────────────────────────────────────────────────────────
-function RosterView({ lang, initialSession }: { lang: string; initialSession?: { id: number; date: string } | null }) {
+function RosterView({ lang, initialSession }: { lang: string; initialSession?: { id?: number; groupId?: number; date?: string; startTime?: string } | null }) {
   const { t } = useTranslation()
   const [date, setDate] = useState(initialSession?.date || today())
   const [sessions, setSessions] = useState<any[]>([])
@@ -360,18 +422,45 @@ function RosterView({ lang, initialSession }: { lang: string; initialSession?: {
   const loadSessions = useCallback(async () => {
     setLoadingSessions(true)
     const res = await window.schoolApp.sessions.byDate(date, date)
-    if (res.success && res.data) setSessions(res.data)
-    else setSessions([])
+    if (res.success && res.data) {
+      const list = res.data as any[]
+      setSessions(list)
+
+      if (initialSession) {
+        let match: any = null
+        if (initialSession.id) {
+          match = list.find((s: any) => s.id === initialSession.id)
+        }
+        if (!match && initialSession.groupId) {
+          if (initialSession.startTime) {
+            match = list.find((s: any) => s.groupId === initialSession.groupId && s.plannedStartTime === initialSession.startTime)
+          }
+          if (!match) {
+            match = list.find((s: any) => s.groupId === initialSession.groupId)
+          }
+        }
+        if (match) {
+          setSelectedSession(match.id)
+          loadRoster(match.id)
+        }
+      }
+    } else {
+      setSessions([])
+    }
     setLoadingSessions(false)
-  }, [date])
+  }, [date, initialSession, loadRoster])
 
   useEffect(() => { loadSessions() }, [loadSessions])
 
   useEffect(() => {
     if (initialSession) {
-      setDate(initialSession.date)
-      setSelectedSession(initialSession.id)
-      loadRoster(initialSession.id)
+      if (initialSession.date && initialSession.date !== date) {
+        setDate(initialSession.date)
+      }
+      if (initialSession.id) {
+        setSelectedSession(initialSession.id)
+        loadRoster(initialSession.id)
+      }
     }
   }, [initialSession, loadRoster])
 
@@ -381,14 +470,43 @@ function RosterView({ lang, initialSession }: { lang: string; initialSession?: {
     await loadRoster(selectedSession)
   }
 
+  const handleCancelSession = async (sessionId: number) => {
+    const confirmMsg = lang === 'ar'
+      ? 'هل أنت تأكد من إلغاء هذه الحصة؟ سيتم إغلاق الحصة وإعادة كافة المبالغ والأرصدة المقتطعة للطالب، وإلغاء تسجيل الحضور.'
+      : 'Voulez-vous vraiment annuler cette séance ? Les présences et déductions financières seront annulées.'
+    if (!confirm(confirmMsg)) return
+
+    try {
+      const res = await window.schoolApp.sessions.cancel({ sessionId, reason: 'Cancelled from attendance page' })
+      if (res.success) {
+        setRoster(null)
+        setSelectedSession(null)
+        await loadSessions()
+      } else {
+        alert(res.error || 'Failed to cancel session')
+      }
+    } catch (err) {
+      console.error('Failed to cancel session:', err)
+    }
+  }
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
       {/* Sessions list */}
       <div className="lg:col-span-2 space-y-3">
         <div className="bg-white rounded-xl border border-border p-4">
-          <label className="block text-xs font-medium text-slate-500 mb-1">{t('attendance.date')}</label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-xs font-medium text-slate-500">{t('attendance.date')}</label>
+            <button
+              onClick={() => { setDate(today()); setSelectedSession(null); setRoster(null) }}
+              className="text-xs text-[#2563EB] hover:underline font-semibold flex items-center gap-1"
+            >
+              <Calendar size={12} />
+              <span>{lang === 'ar' ? 'اليوم' : 'Aujourd\'hui'}</span>
+            </button>
+          </div>
           <input type="date" value={date} onChange={e => { setDate(e.target.value); setSelectedSession(null); setRoster(null) }}
-            className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20" />
+            className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 bg-white" />
         </div>
         {loadingSessions ? (
           <div className="flex justify-center py-8"><div className="w-5 h-5 border-2 border-[#2563EB] border-t-transparent rounded-full animate-spin" /></div>
@@ -421,16 +539,25 @@ function RosterView({ lang, initialSession }: { lang: string; initialSession?: {
           <div className="flex justify-center py-16"><div className="w-6 h-6 border-2 border-[#2563EB] border-t-transparent rounded-full animate-spin" /></div>
         ) : roster ? (
           <div className="bg-white rounded-xl border border-border overflow-hidden">
-            <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+            <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
               <div>
                 <p className="font-bold text-sm text-[#0F172A]">{roster.session.groupName}</p>
-                <p className="text-xs text-slate-400">{roster.session.sessionDate} · {roster.session.plannedStartTime}</p>
+                <p className="text-xs text-slate-500">{roster.session.sessionDate} · {roster.session.plannedStartTime}</p>
               </div>
-              <div className="flex gap-3 text-xs font-medium">
-                <span className="text-green-600">{roster.session.stats.present} ✓</span>
-                <span className="text-amber-600">{roster.session.stats.late} ⏱</span>
-                <span className="text-red-500">{roster.session.stats.absent} ✗</span>
-                <span className="text-slate-400">{roster.session.stats.total - roster.session.stats.present - roster.session.stats.late - roster.session.stats.absent} —</span>
+              <div className="flex items-center gap-3">
+                <div className="flex gap-2 text-xs font-medium">
+                  <span className="text-green-600 font-bold">{roster.session.stats.present} ✓</span>
+                  <span className="text-amber-600 font-bold">{roster.session.stats.late} ⏱</span>
+                  <span className="text-red-500 font-bold">{roster.session.stats.absent} ✗</span>
+                </div>
+                <button
+                  onClick={() => handleCancelSession(roster.session.id)}
+                  className="px-2.5 py-1.5 bg-red-50 border border-red-200 hover:bg-red-100 text-red-700 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs"
+                  title={lang === 'ar' ? 'إلغاء/حذف الحصة وإرجاع الأرصدة' : 'Annuler la séance'}
+                >
+                  <Trash2 size={13} />
+                  <span>{lang === 'ar' ? 'إلغاء الحصة' : 'Annuler'}</span>
+                </button>
               </div>
             </div>
             <div className="divide-y divide-slate-50 max-h-[60vh] overflow-y-auto">
@@ -440,8 +567,19 @@ function RosterView({ lang, initialSession }: { lang: string; initialSession?: {
                     {(s.firstNameAr || s.firstNameFr || '?').charAt(0)}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-[#0F172A] truncate" dir="rtl">{s.lastNameAr} {s.firstNameAr}</p>
-                    <p className="text-xs text-slate-400">{s.studentNumber}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium text-[#0F172A] truncate" dir="rtl">{s.lastNameAr} {s.firstNameAr}</p>
+                      {s.wasInDebt ? (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-red-100 text-red-700 border border-red-200 shrink-0">
+                          ⚠️ {lang === 'ar' ? `رصيد سالب: ${s.creditBalance} د.ج` : `Solde: ${s.creditBalance} DA`}
+                        </span>
+                      ) : s.creditBalance !== undefined && s.creditBalance !== null ? (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
+                          {lang === 'ar' ? `المتبقي: ${s.creditBalance} د.ج (${s.remainingSessions} حصص)` : `Reste: ${s.creditBalance} DA (${s.remainingSessions} s)`}
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className="text-xs text-slate-400 font-mono">#{s.studentNumber}</p>
                   </div>
                   <div className="flex gap-1.5 shrink-0">
                     {(['present', 'late', 'absent'] as const).map(st => (
@@ -489,19 +627,95 @@ function CalendarView({ lang, onSessionClick }: { lang: string; onSessionClick: 
 
   const dayLabel = `${year}-${String(month + 1).padStart(2, '0')}`
   const daySessions = selectedDay ? (sessionsByDay[selectedDay] ?? []) : []
-  const monthNames = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc']
+  const monthNamesAr = [
+    '01 - جانفي / يناير', '02 - فيفري / فبراير', '03 - مارس', '04 - أبريل / أفريل',
+    '05 - ماي / مايو', '06 - جوان / يونيو', '07 - جويلية / يوليو', '08 - أوت / أغسطس',
+    '09 - سبتمبر', '10 - أكتوبر', '11 - نوفمبر', '12 - ديسمبر'
+  ]
+  const monthNamesFr = [
+    '01 - Janvier', '02 - Février', '03 - Mars', '04 - Avril',
+    '05 - Mai', '06 - Juin', '07 - Juillet', '08 - Août',
+    '09 - Septembre', '10 - Octobre', '11 - Novembre', '12 - Décembre'
+  ]
+  const monthNamesEn = [
+    '01 - January', '02 - February', '03 - March', '04 - April',
+    '05 - May', '06 - June', '07 - July', '08 - August',
+    '09 - September', '10 - October', '11 - November', '12 - December'
+  ]
+  const monthsList = lang === 'ar' ? monthNamesAr : lang === 'en' ? monthNamesEn : monthNamesFr
+  const years = Array.from({ length: 9 }, (_, i) => now.getFullYear() - 4 + i)
+  const weekDays = lang === 'ar'
+    ? ['إثنين', 'ثلاثاء', 'أربعاء', 'خميس', 'جمعة', 'سبت', 'أحد']
+    : lang === 'en'
+    ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+    : ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim']
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-      <div className="lg:col-span-2 bg-white rounded-xl border border-border p-4">
-        <div className="flex items-center justify-between mb-4">
-          <button onClick={prev} className="p-1.5 hover:bg-slate-100 rounded-lg"><ChevronLeft size={18} /></button>
-          <span className="font-bold text-sm text-[#0F172A]">{monthNames[month]} {year}</span>
-          <button onClick={next} className="p-1.5 hover:bg-slate-100 rounded-lg"><ChevronRight size={18} /></button>
+      <div className="lg:col-span-2 bg-white rounded-xl border border-border p-4 shadow-xs">
+        {/* Navigation Toolbar */}
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={prev}
+              className="p-1.5 bg-white border border-border hover:bg-slate-100 text-slate-700 rounded-lg transition-colors shadow-2xs"
+              title={lang === 'ar' ? 'الشهر السابق' : 'Mois précédent'}
+            >
+              <ChevronLeft size={18} />
+            </button>
+            <button
+              onClick={next}
+              className="p-1.5 bg-white border border-border hover:bg-slate-100 text-slate-700 rounded-lg transition-colors shadow-2xs"
+              title={lang === 'ar' ? 'الشهر التالي' : 'Mois suivant'}
+            >
+              <ChevronRight size={18} />
+            </button>
+
+            <button
+              onClick={() => {
+                const todayDate = new Date()
+                setYear(todayDate.getFullYear())
+                setMonth(todayDate.getMonth())
+                setSelectedDay(today())
+              }}
+              className="px-3 py-1.5 bg-white border border-border hover:bg-blue-50 hover:border-blue-200 text-[#2563EB] text-xs font-bold rounded-lg transition-all shadow-2xs flex items-center gap-1.5"
+            >
+              <Calendar size={13} />
+              <span>{lang === 'ar' ? 'اليوم' : 'Aujourd\'hui'}</span>
+            </button>
+          </div>
+
+          {/* Month & Year Jump Selectors */}
+          <div className="flex items-center gap-2">
+            <select
+              value={month}
+              onChange={(e) => setMonth(Number(e.target.value))}
+              className="px-3 py-1.5 bg-white border border-border rounded-lg text-xs font-bold text-[#0F172A] focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 outline-none shadow-2xs cursor-pointer"
+            >
+              {monthsList.map((name, idx) => (
+                <option key={idx} value={idx}>
+                  {name}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={year}
+              onChange={(e) => setYear(Number(e.target.value))}
+              className="px-3 py-1.5 bg-white border border-border rounded-lg text-xs font-bold text-[#0F172A] focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 outline-none shadow-2xs cursor-pointer"
+            >
+              {years.map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
+
         <div className="grid grid-cols-7 gap-1 mb-1">
-          {['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((d, i) => (
-            <div key={i} className="text-center text-xs text-slate-400 font-medium py-1">{d}</div>
+          {weekDays.map((d, i) => (
+            <div key={i} className="text-center text-xs text-slate-500 font-semibold py-1">{d}</div>
           ))}
         </div>
         <div className="grid grid-cols-7 gap-1">
@@ -557,11 +771,28 @@ function CalendarView({ lang, onSessionClick }: { lang: string; onSessionClick: 
 // ── Main Page ──────────────────────────────────────────────────────────────────
 export default function Attendance() {
   const { t, i18n } = useTranslation()
-  const [tab, setTab] = useState<Tab>('scanner')
-  const [rosterSession, setRosterSession] = useState<{ id: number; date: string } | null>(null)
+  const location = useLocation()
+  const locState = location.state as {
+    tab?: Tab
+    initialSession?: { id?: number; groupId?: number; date?: string; startTime?: string }
+  } | undefined
+
+  const [tab, setTab] = useState<Tab>(locState?.tab || 'scanner')
+  const [rosterSession, setRosterSession] = useState<{ id?: number; groupId?: number; date?: string; startTime?: string } | null>(
+    locState?.initialSession || null
+  )
+
+  useEffect(() => {
+    if (locState?.tab) {
+      setTab(locState.tab)
+    }
+    if (locState?.initialSession) {
+      setRosterSession(locState.initialSession)
+    }
+  }, [location.state])
 
   const handleCalendarSessionClick = (session: any) => {
-    setRosterSession({ id: session.id, date: session.sessionDate })
+    setRosterSession({ id: session.id, date: session.sessionDate, groupId: session.groupId })
     setTab('roster')
   }
 

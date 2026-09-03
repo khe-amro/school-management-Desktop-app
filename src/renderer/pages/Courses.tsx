@@ -28,8 +28,8 @@ const WEEKDAYS = [
 ]
 
 const Modal = ({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) => (
-  <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-    <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fade-in">
+  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4" onClick={onClose}>
+    <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fade-in relative z-[101]" onClick={(e) => e.stopPropagation()}>
       <div className="flex justify-between items-center mb-4">
         <h3 className="font-bold text-[#0F172A]">{title}</h3>
         <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
@@ -85,7 +85,21 @@ export default function Courses() {
   const [courseForm, setCourseForm] = useState({ nameAr: '', nameFr: '', defaultPrice: '' })
   const [groupForm, setGroupForm] = useState({ name: '', teacherId: '', capacity: '30', monthlyPrice: '', startDate: '', endDate: '', room: '' })
   const [slotForm, setSlotForm] = useState({ weekday: 0, startTime: '09:00', endTime: '11:00', room: '' })
-  const [extraSessionForm, setExtraSessionForm] = useState({ date: new Date().toISOString().slice(0, 10), startTime: '14:00', endTime: '16:00', room: '' })
+  const [extraSessionForm, setExtraSessionForm] = useState<{
+    date: string
+    startTime: string
+    endTime: string
+    room: string
+    priceType: 'default' | 'free' | 'custom'
+    customPrice: string
+  }>({
+    date: new Date().toISOString().slice(0, 10),
+    startTime: '14:00',
+    endTime: '16:00',
+    room: '',
+    priceType: 'default',
+    customPrice: '',
+  })
 
   const loadData = useCallback(async () => {
     try {
@@ -260,12 +274,20 @@ export default function Courses() {
   const handleAddExtraSession = async (groupId: number) => {
     setSaving(true)
     try {
+      let finalPrice: number | null = null
+      if (extraSessionForm.priceType === 'free') {
+        finalPrice = 0
+      } else if (extraSessionForm.priceType === 'custom') {
+        finalPrice = parseFloat(extraSessionForm.customPrice) || 0
+      }
+
       const res = await window.schoolApp.sessions.createExtra({
         groupId,
         sessionDate: extraSessionForm.date,
         startTime: extraSessionForm.startTime,
         endTime: extraSessionForm.endTime,
         room: extraSessionForm.room || undefined,
+        price: finalPrice,
       })
       if (res.success) {
         setShowExtraSessionModal(null)
@@ -479,18 +501,62 @@ export default function Courses() {
 
                   {/* Expanded: Teacher → Groups tree */}
                   {isExpanded && (() => {
-                    // Group by teacher
-                    const teacherIds = [...new Set(courseGroups.map(g => g.teacherId))]
+                    const courseAssignedTeachers = teachers.filter(t => t.courseId === course.id)
+                    const groupTeacherIds = [...new Set(courseGroups.map(g => g.teacherId))]
+                    const allTeacherIds = [...new Set([...courseAssignedTeachers.map(t => t.id), ...groupTeacherIds])]
+
                     return (
-                      <div className="border-t border-[#F1F5F9] p-3 bg-slate-50/50 space-y-2">
-                        {teacherIds.length === 0 ? (
+                      <div className="border-t border-[#F1F5F9] p-3 bg-slate-50/50 space-y-3">
+                        {/* Course Teachers Summary Bar */}
+                        <div className="flex items-center justify-between bg-white border border-slate-200 p-3 rounded-xl shadow-xs">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <BookOpen size={15} className="text-[#2563EB]" />
+                            <span className="text-xs font-bold text-[#0F172A]">
+                              {lang === 'ar' ? 'أساتذة هذه المادة:' : 'Enseignants du module:'}
+                            </span>
+                            {courseAssignedTeachers.length === 0 ? (
+                              <span className="text-xs text-amber-700 bg-amber-50 px-2.5 py-0.5 rounded border border-amber-200 font-medium">
+                                {lang === 'ar' ? 'لا يوجد أساتذة مسجلون هذه المادة' : 'Aucun enseignant'}
+                              </span>
+                            ) : (
+                              courseAssignedTeachers.map(t => (
+                                <span key={t.id} className="text-xs bg-blue-50 text-[#2563EB] font-bold px-2.5 py-0.5 rounded-lg border border-blue-200">
+                                  {t.lastName} {t.firstName}
+                                </span>
+                              ))
+                            )}
+                          </div>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setShowGroupModal(course.id)
+                              setGroupForm({
+                                name: '',
+                                teacherId: courseAssignedTeachers[0] ? String(courseAssignedTeachers[0].id) : '',
+                                capacity: '30',
+                                monthlyPrice: String(course.defaultPrice || 0),
+                                startDate: new Date().toISOString().slice(0, 10),
+                                endDate: '',
+                                room: '',
+                              })
+                              setError('')
+                            }}
+                            className="flex items-center gap-1.5 bg-[#2563EB] text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-[#1D4ED8] transition-colors shrink-0"
+                          >
+                            <Plus size={13} /> {lang === 'ar' ? 'إضافة فوج جديد' : 'Ajouter un groupe'}
+                          </button>
+                        </div>
+
+                        {allTeacherIds.length === 0 ? (
                           <p className="text-xs text-slate-400 text-center py-3">{t('courses.noGroups')}</p>
-                        ) : teacherIds.map(tid => {
+                        ) : allTeacherIds.map(tid => {
                           const teacher = teachers.find(t => t.id === tid)
                           const teacherGroups = courseGroups.filter(g => g.teacherId === tid)
                           const tKey = `${course.id}-${tid}`
                           const tExpanded = expandedTeacher === tKey
                           const teacherName = teacher ? `${teacher.lastName} ${teacher.firstName}` : t('courses.noTeacher')
+                          const courseTitle = course.nameAr || course.nameFr
+
                           return (
                             <div key={tKey} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                               {/* Teacher row */}
@@ -503,7 +569,7 @@ export default function Courses() {
                                     {teacherName.charAt(0)}
                                   </div>
                                   <div>
-                                    <p className="text-xs font-bold text-[#0F172A]">{teacherName}</p>
+                                    <p className="text-xs font-bold text-[#0F172A]">{teacherName} <span className="text-slate-400 font-normal">({courseTitle})</span></p>
                                     <p className="text-[10px] text-slate-400">{lang === 'ar' ? `${teacherGroups.length} فوج` : `${teacherGroups.length} groupe(s)`}</p>
                                   </div>
                                 </div>
@@ -727,87 +793,131 @@ export default function Courses() {
       )}
 
       {/* ── Modal: Create Group ── */}
-      {showGroupModal !== null && (
-        <Modal title={t('courses.addGroup')} onClose={() => setShowGroupModal(null)}>
-          <div>
-            <label className={labelCls}>{t('common.name')} *</label>
-            <input className={inputCls} value={groupForm.name} onChange={(e) => setGroupForm(f => ({ ...f, name: e.target.value }))} />
-          </div>
-          <div>
-            <label className={labelCls}>{lang === 'ar' ? 'الأستاذ' : 'Enseignant'} *</label>
-            <select className={inputCls} value={groupForm.teacherId} onChange={e => setGroupForm(f => ({ ...f, teacherId: e.target.value }))}>
-              <option value="">{lang === 'ar' ? '— اختر أستاذاً —' : '— Choisir un enseignant —'}</option>
-              {teachers.map(tch => <option key={tch.id} value={tch.id}>{tch.lastName} {tch.firstName}</option>)}
-            </select>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className={labelCls}>{lang === 'ar' ? 'سعر الشهر (DA)' : 'Prix mensuel (DA)'}</label>
-              <input
-                type="number"
-                min="0"
-                className={inputCls}
-                value={groupForm.monthlyPrice}
-                onChange={(e) => setGroupForm(f => ({ ...f, monthlyPrice: e.target.value }))}
-                onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault() }}
-                dir="ltr"
-              />
-              <p className="text-[10px] text-slate-400 mt-0.5">
-                {lang === 'ar' ? `الحصة: ${Math.round(Number(groupForm.monthlyPrice || 0) / 4).toLocaleString()} DA` : `Par séance: ${Math.round(Number(groupForm.monthlyPrice || 0) / 4).toLocaleString()} DA`}
-              </p>
-            </div>
-            <div>
-              <label className={labelCls}>{t('courses.capacity')}</label>
-              <input
-                type="number"
-                min="1"
-                className={inputCls}
-                value={groupForm.capacity}
-                onChange={(e) => setGroupForm(f => ({ ...f, capacity: e.target.value }))}
-                onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault() }}
-                dir="ltr"
-              />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className={labelCls}>{t('courses.startDate')} *</label>
-              <input type="date" className={inputCls} value={groupForm.startDate} onChange={(e) => setGroupForm(f => ({ ...f, startDate: e.target.value }))} dir="ltr" />
-            </div>
-            <div>
-              <label className={labelCls}>{lang === 'ar' ? 'تاريخ الانتهاء (اختياري)' : 'Date de fin (optionnel)'}</label>
-              <input type="date" className={inputCls} value={groupForm.endDate} onChange={(e) => setGroupForm(f => ({ ...f, endDate: e.target.value }))} dir="ltr" />
-            </div>
-          </div>
-          <div>
-            <label className={labelCls}>{t('courses.roomOptional')}</label>
-            <input className={inputCls} value={groupForm.room} onChange={(e) => setGroupForm(f => ({ ...f, room: e.target.value }))} placeholder={t('courses.roomPlaceholder')} />
-          </div>
-          {error && <p className="text-xs text-red-600">{error}</p>}
-          <div className="flex justify-end gap-2 pt-3">
-            <button onClick={() => setShowGroupModal(null)} className="px-4 py-2 border border-border rounded-lg text-xs text-slate-600">{t('common.cancel')}</button>
-            <button onClick={() => handleCreateGroup(showGroupModal!)} disabled={saving} className="px-4 py-2 bg-[#2563EB] text-white rounded-lg text-xs font-semibold hover:bg-[#1D4ED8]">
-              {saving ? t('common.saving') : t('common.save')}
-            </button>
-          </div>
-        </Modal>
-      )}
+      {showGroupModal !== null && (() => {
+        const targetCourse = courses.find(c => c.id === showGroupModal)
+        const courseTeachers = teachers.filter(t => t.courseId === showGroupModal)
+        const courseTitle = targetCourse ? (lang === 'ar' ? targetCourse.nameAr : targetCourse.nameFr) : ''
+
+        return (
+          <Modal title={lang === 'ar' ? `إضافة فوج لمادة: ${courseTitle}` : `Ajouter un groupe : ${courseTitle}`} onClose={() => setShowGroupModal(null)}>
+            {courseTeachers.length === 0 ? (
+              <div className="bg-amber-50 border border-amber-200 text-amber-900 text-xs p-4 rounded-xl space-y-3">
+                <p className="font-bold text-sm flex items-center gap-1.5">
+                  <span>⚠️</span>
+                  <span>{lang === 'ar' ? 'لا يوجد أساتذة مسجلين لهذه المادة' : 'Aucun enseignant pour ce module'}</span>
+                </p>
+                <p className="leading-relaxed">
+                  {lang === 'ar'
+                    ? `مادة (${courseTitle}) ليس لديها أي أستاذ مخصص بعد. يجب أولاً إضافة أستاذ جديد وتحديد هذه المادة له.`
+                    : `Le module (${courseTitle}) n'a aucun enseignant. Ajoutez d'abord un enseignant.`}
+                </p>
+                <button
+                  onClick={() => {
+                    setShowGroupModal(null)
+                    navigate('/teachers')
+                  }}
+                  className="w-full bg-[#2563EB] text-white py-2 rounded-lg font-bold text-xs hover:bg-[#1D4ED8] transition-colors flex items-center justify-center gap-1.5 shadow-xs"
+                >
+                  <Plus size={14} />
+                  <span>{lang === 'ar' ? 'الانتقال لصفحة الأساتذة وإضافة أستاذ' : 'Aller aux enseignants'}</span>
+                </button>
+              </div>
+            ) : (
+              <>
+                <div>
+                  <label className={labelCls}>{t('common.name')} *</label>
+                  <input className={inputCls} value={groupForm.name} onChange={(e) => setGroupForm(f => ({ ...f, name: e.target.value }))} placeholder="مثال: فوج 1 (Groupe 1)" />
+                </div>
+                <div>
+                  <label className={labelCls}>
+                    {lang === 'ar' ? `أستاذ المادة (${courseTitle}) *` : `Enseignant (${courseTitle}) *`}
+                  </label>
+                  <select className={inputCls} value={groupForm.teacherId} onChange={e => setGroupForm(f => ({ ...f, teacherId: e.target.value }))}>
+                    <option value="">{lang === 'ar' ? '— اختر أستاذ المادة —' : '— Choisir un enseignant —'}</option>
+                    {courseTeachers.map(tch => (
+                      <option key={tch.id} value={tch.id}>
+                        {tch.lastName} {tch.firstName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className={labelCls}>{lang === 'ar' ? 'سعر الشهر (DA)' : 'Prix mensuel (DA)'}</label>
+                    <input
+                      type="number"
+                      min="0"
+                      className={inputCls}
+                      value={groupForm.monthlyPrice}
+                      onChange={(e) => setGroupForm(f => ({ ...f, monthlyPrice: e.target.value }))}
+                      onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault() }}
+                      dir="ltr"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-0.5">
+                      {lang === 'ar' ? `الحصة: ${Math.round(Number(groupForm.monthlyPrice || 0) / 4).toLocaleString()} DA` : `Par séance: ${Math.round(Number(groupForm.monthlyPrice || 0) / 4).toLocaleString()} DA`}
+                    </p>
+                  </div>
+                  <div>
+                    <label className={labelCls}>{t('courses.capacity')}</label>
+                    <input
+                      type="number"
+                      min="1"
+                      className={inputCls}
+                      value={groupForm.capacity}
+                      onChange={(e) => setGroupForm(f => ({ ...f, capacity: e.target.value }))}
+                      onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault() }}
+                      dir="ltr"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className={labelCls}>{t('courses.startDate')} *</label>
+                    <input type="date" className={inputCls} value={groupForm.startDate} onChange={(e) => setGroupForm(f => ({ ...f, startDate: e.target.value }))} dir="ltr" />
+                  </div>
+                  <div>
+                    <label className={labelCls}>{lang === 'ar' ? 'تاريخ الانتهاء (اختياري)' : 'Date de fin (optionnel)'}</label>
+                    <input type="date" className={inputCls} value={groupForm.endDate} onChange={(e) => setGroupForm(f => ({ ...f, endDate: e.target.value }))} dir="ltr" />
+                  </div>
+                </div>
+                <div>
+                  <label className={labelCls}>{t('courses.roomOptional')}</label>
+                  <input className={inputCls} value={groupForm.room} onChange={(e) => setGroupForm(f => ({ ...f, room: e.target.value }))} placeholder={t('courses.roomPlaceholder')} />
+                </div>
+                {error && <p className="text-xs text-red-600 font-semibold">{error}</p>}
+                <div className="flex justify-end gap-2 pt-3">
+                  <button onClick={() => setShowGroupModal(null)} className="px-4 py-2 border border-border rounded-lg text-xs text-slate-600">{t('common.cancel')}</button>
+                  <button onClick={() => handleCreateGroup(showGroupModal!)} disabled={saving} className="px-4 py-2 bg-[#2563EB] text-white rounded-lg text-xs font-semibold hover:bg-[#1D4ED8]">
+                    {saving ? t('common.saving') : t('common.save')}
+                  </button>
+                </div>
+              </>
+            )}
+          </Modal>
+        )
+      })()}
 
       {/* ── Modal: Edit Group ── */}
-      {editingGroup && (
-        <Modal title={lang === 'ar' ? `تعديل الفوج: ${editingGroup.name}` : `Modifier le groupe : ${editingGroup.name}`} onClose={() => setEditingGroup(null)}>
-          <div>
-            <label className={labelCls}>{t('common.name')} *</label>
-            <input className={inputCls} value={groupForm.name} onChange={(e) => setGroupForm(f => ({ ...f, name: e.target.value }))} />
-          </div>
-          <div>
-            <label className={labelCls}>{lang === 'ar' ? 'الأستاذ' : 'Enseignant'} *</label>
-            <select className={inputCls} value={groupForm.teacherId} onChange={e => setGroupForm(f => ({ ...f, teacherId: e.target.value }))}>
-              <option value="">{lang === 'ar' ? '— اختر أستاذاً —' : '— Choisir un enseignant —'}</option>
-              {teachers.map(tch => <option key={tch.id} value={tch.id}>{tch.lastName} {tch.firstName}</option>)}
-            </select>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
+      {editingGroup && (() => {
+        const courseTeachers = teachers.filter(t => t.courseId === editingGroup.courseId)
+        return (
+          <Modal title={lang === 'ar' ? `تعديل الفوج: ${editingGroup.name}` : `Modifier le groupe : ${editingGroup.name}`} onClose={() => setEditingGroup(null)}>
+            <div>
+              <label className={labelCls}>{t('common.name')} *</label>
+              <input className={inputCls} value={groupForm.name} onChange={(e) => setGroupForm(f => ({ ...f, name: e.target.value }))} />
+            </div>
+            <div>
+              <label className={labelCls}>{lang === 'ar' ? 'الأستاذ' : 'Enseignant'} *</label>
+              <select className={inputCls} value={groupForm.teacherId} onChange={e => setGroupForm(f => ({ ...f, teacherId: e.target.value }))}>
+                <option value="">{lang === 'ar' ? '— اختر أستاذ المادة —' : '— Choisir un enseignant —'}</option>
+                {courseTeachers.map(tch => (
+                  <option key={tch.id} value={tch.id}>
+                    {tch.lastName} {tch.firstName}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
             <div>
               <label className={labelCls}>{lang === 'ar' ? 'سعر الشهر (DA)' : 'Prix mensuel (DA)'}</label>
               <input
@@ -858,7 +968,8 @@ export default function Courses() {
             </button>
           </div>
         </Modal>
-      )}
+      )
+    })()}
 
 
       {/* ── Modal: Manage Schedule Slots ── */}
@@ -969,6 +1080,68 @@ export default function Courses() {
             <label className={labelCls}>{t('courses.roomOptional')}</label>
             <input className={inputCls} value={extraSessionForm.room} onChange={e => setExtraSessionForm(f => ({ ...f, room: e.target.value }))} placeholder={t('courses.roomPlaceholder')} />
           </div>
+
+          {/* Price setting */}
+          <div className="space-y-1.5 pt-2 border-t border-slate-100">
+            <label className={labelCls}>
+              {lang === 'ar' ? 'سعر الحصة الإضافية وخيارات الاقتطاع:' : 'Prix de la séance supplémentaire:'}
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => setExtraSessionForm(f => ({ ...f, priceType: 'default' }))}
+                className={`py-2 px-2 rounded-lg border text-xs font-semibold transition-all ${
+                  extraSessionForm.priceType === 'default'
+                    ? 'bg-blue-50 border-[#2563EB] text-[#2563EB]'
+                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {lang === 'ar' ? 'افتراضي (سعر الفوج)' : 'Par défaut (Groupe)'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setExtraSessionForm(f => ({ ...f, priceType: 'free' }))}
+                className={`py-2 px-2 rounded-lg border text-xs font-semibold transition-all ${
+                  extraSessionForm.priceType === 'free'
+                    ? 'bg-emerald-50 border-emerald-600 text-emerald-700 font-bold'
+                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                🎁 {lang === 'ar' ? 'مجانية (0 د.ج)' : 'Gratuite (0 DA)'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setExtraSessionForm(f => ({ ...f, priceType: 'custom' }))}
+                className={`py-2 px-2 rounded-lg border text-xs font-semibold transition-all ${
+                  extraSessionForm.priceType === 'custom'
+                    ? 'bg-amber-50 border-amber-600 text-amber-700 font-bold'
+                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                💰 {lang === 'ar' ? 'سعر مخصص' : 'Prix personnalisé'}
+              </button>
+            </div>
+
+            {extraSessionForm.priceType === 'custom' && (
+              <div className="mt-2 animate-fade-in">
+                <label className="text-[11px] font-bold text-slate-600">
+                  {lang === 'ar' ? 'المبلغ المقتطع من رصيد كل طالب (د.ج):' : 'Montant déduit par étudiant (DA):'}
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="50"
+                  className={inputCls}
+                  placeholder={lang === 'ar' ? 'مثال: 500' : 'Ex: 500'}
+                  value={extraSessionForm.customPrice}
+                  onChange={e => setExtraSessionForm(f => ({ ...f, customPrice: e.target.value }))}
+                />
+              </div>
+            )}
+          </div>
+
           {error && <p className="text-xs text-red-600">{error}</p>}
           <div className="flex justify-end gap-2 pt-3">
             <button onClick={() => setShowExtraSessionModal(null)} className="px-4 py-2 border border-border rounded-lg text-xs text-slate-600">{t('common.cancel')}</button>
@@ -979,76 +1152,10 @@ export default function Courses() {
         </Modal>
       )}
 
-      {/* ── Modal: Enroll Student in Slot / Group ── */}
-      {enrollSessionSlot && selectedGroup && (
-        <Modal
-          title={lang === 'ar' ? `تسجيل طالب في فوج: ${selectedGroup.name}` : `Inscrire un étudiant dans : ${selectedGroup.name}`}
-          onClose={() => { setEnrollSessionSlot(null); setEnrollSearch(''); setEnrollStudents([]) }}
-        >
-          <div className="space-y-3">
-            <div className="bg-blue-50 p-2.5 rounded-lg text-xs text-[#2563EB]">
-              <span className="font-bold">{lang === 'ar' ? 'التوقيت' : 'Horaire'}: </span>
-              {enrollSessionSlot.startTime} – {enrollSessionSlot.endTime} ({enrollSessionSlot.room ?? '—'})
-            </div>
-
-            <div>
-              <label className={labelCls}>{lang === 'ar' ? 'البحث عن طالب (بالاسم أو اللقب)' : 'Rechercher un étudiant (par nom/prénom)'}</label>
-              <input
-                ref={enrollSearchRef}
-                type="text"
-                autoFocus
-                className={inputCls}
-                placeholder={lang === 'ar' ? 'اكتب اسم الطالب...' : 'Tapez le nom de l\'étudiant...'}
-                value={enrollSearch}
-                onChange={(e) => handleSearchStudentsForEnroll(e.target.value)}
-              />
-            </div>
-
-            {/* Results list */}
-            {enrollSearch.trim() && (
-              <div className="max-h-52 overflow-y-auto border border-border rounded-lg divide-y divide-slate-100 bg-white">
-                {enrollStudents.length === 0 ? (
-                  <div className="p-3 text-xs text-slate-400 text-center">
-                    {lang === 'ar' ? 'لم يتم العثور على أي طالب' : 'Aucun étudiant trouvé'}
-                  </div>
-                ) : (
-                  enrollStudents.map((st) => {
-                    const nameAr = `${st.lastNameAr || ''} ${st.firstNameAr || ''}`.trim()
-                    const nameFr = `${st.lastNameFr || ''} ${st.firstNameFr || ''}`.trim()
-                    const displayName = lang === 'ar'
-                      ? (nameAr || nameFr || `${st.lastName || ''} ${st.firstName || ''}`.trim())
-                      : (nameFr || nameAr || `${st.lastName || ''} ${st.firstName || ''}`.trim())
-                    const number = st.studentNumber || st.registrationNumber || ''
-                    return (
-                      <div
-                        key={st.id}
-                        className="p-2.5 flex items-center justify-between hover:bg-slate-50 text-xs cursor-pointer"
-                        onClick={() => handleEnrollStudentToGroup(st.id)}
-                      >
-                        <div>
-                          <p className="font-bold text-[#0F172A]">{displayName || (lang === 'ar' ? 'طالب' : 'Étudiant')}</p>
-                          {number && <p className="text-[10px] text-slate-400 font-mono">#{number}</p>}
-                        </div>
-                        <button
-                          disabled={enrolling}
-                          className="px-3 py-1 bg-[#2563EB] text-white text-[11px] font-semibold rounded hover:bg-[#1D4ED8] disabled:opacity-50"
-                        >
-                          {enrolling ? (lang === 'ar' ? 'جاري...' : '...') : (lang === 'ar' ? 'تسجيل' : 'Inscrire')}
-                        </button>
-                      </div>
-                    )
-                  })
-                )}
-              </div>
-            )}
-          </div>
-        </Modal>
-      )}
-
       {/* ── Side Drawer: Enrolled Students in Group ── */}
       {viewGroupStudents && (
-        <div className="fixed inset-0 z-50 overflow-hidden bg-black/40 animate-fade-in flex justify-end">
-          <div className="w-full max-w-lg bg-white h-full shadow-2xl flex flex-col transform transition-transform duration-300">
+        <div className="fixed inset-0 z-50 overflow-hidden bg-black/40 animate-fade-in flex justify-end" onClick={() => setViewGroupStudents(null)}>
+          <div className="w-full max-w-lg bg-white h-full shadow-2xl flex flex-col transform transition-transform duration-300" onClick={(e) => e.stopPropagation()}>
             {/* Header */}
             <div className="p-5 border-b border-border bg-slate-50 flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -1185,6 +1292,72 @@ export default function Courses() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Modal: Enroll Student in Slot / Group ── */}
+      {enrollSessionSlot && selectedGroup && (
+        <Modal
+          title={lang === 'ar' ? `تسجيل طالب في فوج: ${selectedGroup.name}` : `Inscrire un étudiant dans : ${selectedGroup.name}`}
+          onClose={() => { setEnrollSessionSlot(null); setEnrollSearch(''); setEnrollStudents([]) }}
+        >
+          <div className="space-y-3">
+            <div className="bg-blue-50 p-2.5 rounded-lg text-xs text-[#2563EB]">
+              <span className="font-bold">{lang === 'ar' ? 'التوقيت' : 'Horaire'}: </span>
+              {enrollSessionSlot.startTime} – {enrollSessionSlot.endTime} ({enrollSessionSlot.room ?? '—'})
+            </div>
+
+            <div>
+              <label className={labelCls}>{lang === 'ar' ? 'البحث عن طالب (بالاسم أو اللقب)' : 'Rechercher un étudiant (par nom/prénom)'}</label>
+              <input
+                ref={enrollSearchRef}
+                type="text"
+                autoFocus
+                className={inputCls}
+                placeholder={lang === 'ar' ? 'اكتب اسم الطالب...' : 'Tapez le nom de l\'étudiant...'}
+                value={enrollSearch}
+                onChange={(e) => handleSearchStudentsForEnroll(e.target.value)}
+              />
+            </div>
+
+            {/* Results list */}
+            {enrollSearch.trim() && (
+              <div className="max-h-52 overflow-y-auto border border-border rounded-lg divide-y divide-slate-100 bg-white">
+                {enrollStudents.length === 0 ? (
+                  <div className="p-3 text-xs text-slate-400 text-center">
+                    {lang === 'ar' ? 'لم يتم العثور على أي طالب' : 'Aucun étudiant trouvé'}
+                  </div>
+                ) : (
+                  enrollStudents.map((st) => {
+                    const nameAr = `${st.lastNameAr || ''} ${st.firstNameAr || ''}`.trim()
+                    const nameFr = `${st.lastNameFr || ''} ${st.firstNameFr || ''}`.trim()
+                    const displayName = lang === 'ar'
+                      ? (nameAr || nameFr || `${st.lastName || ''} ${st.firstName || ''}`.trim())
+                      : (nameFr || nameAr || `${st.lastName || ''} ${st.firstName || ''}`.trim())
+                    const number = st.studentNumber || st.registrationNumber || ''
+                    return (
+                      <div
+                        key={st.id}
+                        className="p-2.5 flex items-center justify-between hover:bg-slate-50 text-xs cursor-pointer"
+                        onClick={() => handleEnrollStudentToGroup(st.id)}
+                      >
+                        <div>
+                          <p className="font-bold text-[#0F172A]">{displayName || (lang === 'ar' ? 'طالب' : 'Étudiant')}</p>
+                          {number && <p className="text-[10px] text-slate-400 font-mono">#{number}</p>}
+                        </div>
+                        <button
+                          disabled={enrolling}
+                          className="px-3 py-1 bg-[#2563EB] text-white text-[11px] font-semibold rounded hover:bg-[#1D4ED8] disabled:opacity-50"
+                        >
+                          {enrolling ? (lang === 'ar' ? 'جاري...' : '...') : (lang === 'ar' ? 'تسجيل' : 'Inscrire')}
+                        </button>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            )}
+          </div>
+        </Modal>
       )}
     </div>
   )

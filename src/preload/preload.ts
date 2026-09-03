@@ -177,7 +177,7 @@ const api = {
       invoke<boolean>(IPC_CHANNELS.SESSIONS_COMPLETE, { sessionId }),
     delete: (sessionId: number) =>
       invoke<boolean>(IPC_CHANNELS.SESSIONS_DELETE, { sessionId }),
-    upcoming: (opts?: { groupId?: number; limit?: number }) =>
+    upcoming: (opts?: { groupId?: number; limit?: number; todayOnly?: boolean }) =>
       invoke<any[]>(IPC_CHANNELS.SESSIONS_UPCOMING, opts),
     byDate: (startDate: string, endDate: string) =>
       invoke<any[]>(IPC_CHANNELS.SESSIONS_BY_DATE, { startDate, endDate }),

@@ -56,6 +56,9 @@ export interface Teacher {
   id: number
   firstName: string
   lastName: string
+  courseId?: number | null
+  courseNameAr?: string | null
+  courseNameFr?: string | null
   phone: string | null
   email: string | null
   address: string | null

@@ -70,6 +70,7 @@ export const StudentListSchema = z.object({
 export const CreateTeacherSchema = z.object({
   firstName: z.string().min(1).max(100).trim(),
   lastName: z.string().min(1).max(100).trim(),
+  courseId: z.number().int().positive().optional().nullable(),
   phone: z.string().max(30).trim().optional().nullable(),
   email: z.string().email().max(200).trim().optional().nullable().or(z.literal('')),
   address: z.string().max(500).trim().optional().nullable(),
@@ -78,6 +79,7 @@ export const CreateTeacherSchema = z.object({
 
 export const UpdateTeacherSchema = CreateTeacherSchema.partial().extend({
   id: z.number().int().positive(),
+  courseId: z.number().int().positive().optional().nullable(),
   status: z.enum(['active', 'inactive', 'archived']).optional(),
   photoPath: z.string().max(500).optional().nullable(),
 })

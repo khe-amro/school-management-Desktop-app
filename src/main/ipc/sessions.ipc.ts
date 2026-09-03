@@ -11,6 +11,7 @@ const CreateExtraSessionSchema = z.object({
   endTime: z.string().regex(/^\d{2}:\d{2}$/),
   room: z.string().optional(),
   teacherId: z.number().int().positive().optional(),
+  price: z.number().nullable().optional(),
 })
 
 const GenerateSessionsSchema = z.object({
@@ -203,8 +204,8 @@ export function registerSessionsHandlers(): void {
       const stmt = sqlite.prepare(`
         INSERT INTO attendance_sessions (
           group_id, session_date, planned_start_time, end_time,
-          room, status, session_type, created_by, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, 'open', 'extra', 1, datetime('now'), datetime('now'))
+          room, status, session_type, price, created_by, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, 'open', 'extra', ?, 1, datetime('now'), datetime('now'))
       `)
 
       const result = stmt.run(
@@ -212,7 +213,8 @@ export function registerSessionsHandlers(): void {
         data.sessionDate,
         data.startTime,
         data.endTime,
-        data.room || group.room
+        data.room || group.room,
+        data.price !== undefined ? data.price : null
       )
 
       const session = sqlite.prepare('SELECT * FROM attendance_sessions WHERE id = ?').get(result.lastInsertRowid) as any
@@ -227,6 +229,7 @@ export function registerSessionsHandlers(): void {
         endTime: session.end_time,
         room: session.room,
         sessionType: session.session_type,
+        price: session.price,
         status: session.status,
         dayNameFr: dayInfo.dayNameFr,
         dayNameAr: dayInfo.dayNameAr,
@@ -243,6 +246,11 @@ export function registerSessionsHandlers(): void {
     const sqlite = getSqlite()
 
     try {
+      // Revert financial deductions for this session
+      sqlite.prepare(`DELETE FROM payments WHERE session_id = ? AND payment_type = 'deduction'`).run(sessionId)
+      // Delete attendance records for this session
+      sqlite.prepare(`DELETE FROM attendance_records WHERE session_id = ?`).run(sessionId)
+      // Mark session as cancelled
       sqlite.prepare(`
         UPDATE attendance_sessions
         SET session_type = 'cancelled', status = 'closed', cancelled_reason = ?, updated_at = datetime('now')
@@ -280,7 +288,11 @@ export function registerSessionsHandlers(): void {
     const sqlite = getSqlite()
 
     try {
+      // Revert financial deductions for this session
+      sqlite.prepare(`DELETE FROM payments WHERE session_id = ? AND payment_type = 'deduction'`).run(sessionId)
+      // Delete attendance records for this session
       sqlite.prepare(`DELETE FROM attendance_records WHERE session_id = ?`).run(sessionId)
+      // Delete attendance session
       sqlite.prepare(`DELETE FROM attendance_sessions WHERE id = ?`).run(sessionId)
       return true
     } catch (err) {
@@ -421,6 +433,7 @@ export function registerSessionsHandlers(): void {
     const opts = z.object({
       groupId: z.number().int().positive().optional(),
       limit: z.number().int().min(1).max(100).optional(),
+      todayOnly: z.boolean().optional(),
     }).parse(payload ?? {})
 
     const sqlite = getSqlite()
@@ -448,7 +461,7 @@ export function registerSessionsHandlers(): void {
         FROM attendance_sessions s
         LEFT JOIN groups g ON s.group_id = g.id
         LEFT JOIN courses c ON g.course_id = c.id
-        WHERE s.session_date >= ? AND s.session_type != 'cancelled'
+        WHERE ${opts.todayOnly ? 's.session_date = ?' : 's.session_date >= ?'} AND s.session_type != 'cancelled'
         ORDER BY s.session_date ASC, s.planned_start_time ASC
       `
       const params: any[] = [today]

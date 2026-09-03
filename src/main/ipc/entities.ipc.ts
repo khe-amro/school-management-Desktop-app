@@ -17,7 +17,7 @@ import { z } from 'zod'
 export function registerEntityHandlers(): void {
   // Teachers
   handle(IPC_CHANNELS.TEACHERS_LIST, async (payload) => {
-    const opts = z.object({ status: z.string().optional() }).parse(payload ?? {})
+    const opts = z.object({ status: z.string().optional(), courseId: z.number().int().positive().optional() }).parse(payload ?? {})
     return listTeachers(opts)
   })
   handle(IPC_CHANNELS.TEACHERS_CREATE, async (payload) => {

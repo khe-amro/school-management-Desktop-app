@@ -58,6 +58,7 @@ export const teachers = sqliteTable('teachers', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   firstName: text('first_name').notNull(),
   lastName: text('last_name').notNull(),
+  courseId: integer('course_id').references(() => courses.id),
   phone: text('phone'),
   email: text('email'),
   address: text('address'),
@@ -69,6 +70,7 @@ export const teachers = sqliteTable('teachers', {
 }, (table) => ({
   nameIdx: index('idx_teachers_name').on(table.lastName),
   statusIdx: index('idx_teachers_status').on(table.status),
+  courseIdx: index('idx_teachers_course').on(table.courseId),
 }))
 
 // ─── Courses ─────────────────────────────────────────────────────────────────
@@ -175,6 +177,7 @@ export const attendanceSessions = sqliteTable('attendance_sessions', {
   lateThresholdMinutes: integer('late_threshold_minutes').notNull().default(10),
   status: text('status', { enum: ['open', 'closed'] }).notNull().default('open'),
   sessionType: text('session_type', { enum: ['regular', 'extra', 'makeup', 'cancelled'] }).notNull().default('regular'),
+  price: integer('price'), // null = default group session price (monthly/4), 0 = free, >0 = custom DA
   scheduleSlotId: integer('schedule_slot_id').references(() => groupScheduleSlots.id),
   cancelledReason: text('cancelled_reason'),
   createdBy: integer('created_by').notNull().references(() => administrators.id),
