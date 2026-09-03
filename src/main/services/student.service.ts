@@ -1,6 +1,6 @@
 import { eq, like, and, or, desc, asc, sql, count } from 'drizzle-orm'
 import crypto from 'node:crypto'
-import { getDb, schema } from '../database/connection'
+import { getDb, getSqlite, schema } from '../database/connection'
 import { AppError, ErrorCode } from '../../shared/errors/index'
 import { QR_TOKEN_PREFIX, QR_TOKEN_BYTES, DEFAULT_STUDENT_NUMBER_PREFIX } from '../../shared/constants/index'
 import { requireSession } from './auth.service'
@@ -59,49 +59,95 @@ export async function listStudents(opts: {
   pageSize?: number
   search?: string
   status?: string
+  courseId?: number
+  teacherId?: number
+  groupId?: number
 }): Promise<PaginatedResult<Student>> {
-  const db = getDb()
+  const sqlite = getSqlite()
   const page = Math.max(1, opts.page ?? 1)
   const pageSize = Math.min(200, Math.max(1, opts.pageSize ?? 50))
   const offset = (page - 1) * pageSize
 
-  const conditions = []
+  let whereClauses: string[] = []
+  let params: any[] = []
 
-  if (opts.status && opts.status !== 'all') {
-    conditions.push(eq(schema.students.status, opts.status as 'active' | 'inactive' | 'archived'))
+  // Status filter
+  if (opts.status === 'archived') {
+    whereClauses.push("s.status = 'archived'")
+  } else if (opts.status === 'active' || opts.status === 'inactive') {
+    whereClauses.push(`s.status = '${opts.status}'`)
+  } else if (opts.status !== 'all' && opts.status !== 'paid' && opts.status !== 'in_debt') {
+    whereClauses.push("s.status != 'archived'")
   }
 
-  if (opts.search && opts.search.length > 0) {
-    const q = `%${opts.search}%`
-    conditions.push(
-      or(
-        like(schema.students.firstNameAr, q),
-        like(schema.students.lastNameAr, q),
-        like(schema.students.firstNameFr, q),
-        like(schema.students.lastNameFr, q),
-        like(schema.students.studentNumber, q),
-        like(schema.students.phone, q),
-        like(schema.students.qrToken, q)
-      )
-    )
+  // Hierarchy filters: courseId, teacherId, groupId
+  if (opts.groupId) {
+    whereClauses.push("s.id IN (SELECT student_id FROM enrollments WHERE group_id = ? AND status = 'active')")
+    params.push(opts.groupId)
+  } else if (opts.teacherId) {
+    whereClauses.push("s.id IN (SELECT e.student_id FROM enrollments e JOIN groups g ON e.group_id = g.id WHERE g.teacher_id = ? AND e.status = 'active')")
+    params.push(opts.teacherId)
+  } else if (opts.courseId) {
+    whereClauses.push("s.id IN (SELECT e.student_id FROM enrollments e JOIN groups g ON e.group_id = g.id WHERE g.course_id = ? AND e.status = 'active')")
+    params.push(opts.courseId)
   }
 
-  const whereClause = conditions.length > 0 ? and(...conditions) : undefined
+  // Search query
+  if (opts.search && opts.search.trim()) {
+    const q = `%${opts.search.trim()}%`
+    whereClauses.push("(s.first_name_ar LIKE ? OR s.last_name_ar LIKE ? OR s.first_name_fr LIKE ? OR s.last_name_fr LIKE ? OR s.student_number LIKE ? OR s.phone LIKE ? OR s.qr_token LIKE ?)")
+    params.push(q, q, q, q, q, q, q)
+  }
 
-  const [rows, totalResult] = await Promise.all([
-    db
-      .select()
-      .from(schema.students)
-      .where(whereClause)
-      .orderBy(desc(schema.students.createdAt))
-      .limit(pageSize)
-      .offset(offset),
-    db.select({ count: count() }).from(schema.students).where(whereClause),
-  ])
+  const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : ''
+
+  const query = `
+    SELECT
+      s.*,
+      COALESCE((
+        SELECT SUM(
+          CASE
+            WHEN payment_type IN ('credit', 'top_up', 'transfer_in') THEN amount
+            WHEN payment_type IN ('deduction', 'transfer_out', 'refund') THEN -amount
+            ELSE 0
+          END
+        )
+        FROM payments p
+        WHERE p.student_id = s.id AND p.status = 'paid'
+      ), 0) as net_balance,
+      (
+        SELECT GROUP_CONCAT(g.name, ', ')
+        FROM enrollments e
+        JOIN groups g ON e.group_id = g.id
+        WHERE e.student_id = s.id AND e.status = 'active'
+      ) as group_names
+    FROM students s
+    ${whereSql}
+    ORDER BY s.created_at DESC
+  `
+
+  let allMatchedRows = sqlite.prepare(query).all(...params) as any[]
+
+  // Filter by paymentStatus if requested
+  if (opts.status === 'paid') {
+    allMatchedRows = allMatchedRows.filter(r => (r.net_balance ?? 0) >= 0 && r.status !== 'archived')
+  } else if (opts.status === 'in_debt') {
+    allMatchedRows = allMatchedRows.filter(r => (r.net_balance ?? 0) < 0 && r.status !== 'archived')
+  }
+
+  const total = allMatchedRows.length
+  const pagedRows = allMatchedRows.slice(offset, offset + pageSize)
+
+  const items = pagedRows.map(r => ({
+    ...mapRow(r),
+    netBalance: r.net_balance ?? 0,
+    paymentStatus: (r.net_balance ?? 0) >= 0 ? 'paid' : 'in_debt',
+    groupNames: r.group_names ?? '',
+  }))
 
   return {
-    items: rows.map(mapRow),
-    total: totalResult[0]?.count ?? 0,
+    items: items as any[],
+    total,
     page,
     pageSize,
   }

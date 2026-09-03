@@ -61,7 +61,7 @@ export async function createTeacher(data: {
     address: data.address ?? null,
     updatedAt: now,
   }).returning()
-  const r = result[0]!
+  const r = (result as any[])[0]!
 
   let courseNameAr: string | null = null
   let courseNameFr: string | null = null
@@ -102,8 +102,9 @@ export async function updateTeacher(id: number, data: Partial<{
   requireSession()
   const db = getDb()
   const result = await db.update(schema.teachers).set({ ...data, updatedAt: new Date().toISOString() }).where(eq(schema.teachers.id, id)).returning()
-  if (!result[0]) throw new AppError(ErrorCode.NOT_FOUND, 'Teacher not found')
-  const r = result[0]
+  const rows = result as any[]
+  if (!rows[0]) throw new AppError(ErrorCode.NOT_FOUND, 'Teacher not found')
+  const r = rows[0]
 
   let courseNameAr: string | null = null
   let courseNameFr: string | null = null
@@ -155,7 +156,7 @@ export async function createCourse(data: { nameAr: string; nameFr: string; nameE
   requireSession()
   const db = getDb()
   const result = await db.insert(schema.courses).values({ ...data, nameEn: data.nameEn ?? '', updatedAt: new Date().toISOString() }).returning()
-  const r = result[0]!
+  const r = (result as any[])[0]!
   return { id: r.id, nameAr: r.nameAr, nameFr: r.nameFr, nameEn: r.nameEn, descriptionAr: r.descriptionAr ?? null, descriptionFr: r.descriptionFr ?? null, descriptionEn: r.descriptionEn ?? null, defaultPrice: r.defaultPrice, status: r.status as Course['status'], createdAt: r.createdAt, updatedAt: r.updatedAt }
 }
 
@@ -163,8 +164,9 @@ export async function updateCourse(id: number, data: Partial<{ nameAr: string; n
   requireSession()
   const db = getDb()
   const result = await db.update(schema.courses).set({ ...data, updatedAt: new Date().toISOString() }).where(eq(schema.courses.id, id)).returning()
-  if (!result[0]) throw new AppError(ErrorCode.NOT_FOUND, 'Course not found')
-  const r = result[0]
+  const rows = result as any[]
+  if (!rows[0]) throw new AppError(ErrorCode.NOT_FOUND, 'Course not found')
+  const r = rows[0]
   return { id: r.id, nameAr: r.nameAr, nameFr: r.nameFr, nameEn: r.nameEn, descriptionAr: r.descriptionAr ?? null, descriptionFr: r.descriptionFr ?? null, descriptionEn: r.descriptionEn ?? null, defaultPrice: r.defaultPrice, status: r.status as Course['status'], createdAt: r.createdAt, updatedAt: r.updatedAt }
 }
 

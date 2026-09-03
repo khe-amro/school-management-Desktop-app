@@ -7,7 +7,7 @@ import {
   startAttendanceSession, endAttendanceSession, scanQRToken,
   markManually, getSession, listSessions, lookupStudentByToken,
   getStudentSummary, getRemainingSessionsCount,
-  resolveStudentSessions, markStudentInSession, getSessionWithRoster,
+  resolveStudentSessions, markStudentInSession, getSessionWithRoster, getStudentSessionHistory
 } from '../services/attendance.service'
 import { z } from 'zod'
 
@@ -92,9 +92,16 @@ export function registerAttendanceHandlers(): void {
     const { sessionId, studentId, status } = z.object({
       sessionId: z.number().int().positive(),
       studentId: z.number().int().positive(),
-      status: z.enum(['present', 'absent', 'late']),
+      status: z.enum(['present', 'absent', 'late', 'not_active']),
     }).parse(payload)
     return markStudentInSession(sessionId, studentId, status)
+  })
+
+  // ─── Get complete session history for student ─────────────────────────────
+
+  handle('attendance:studentSessionHistory', async (payload) => {
+    const { studentId } = z.object({ studentId: z.number().int().positive() }).parse(payload)
+    return getStudentSessionHistory(studentId)
   })
 
   // ─── Get session with full enrolled roster ────────────────────────────────

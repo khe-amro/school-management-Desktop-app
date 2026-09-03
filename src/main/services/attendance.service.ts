@@ -600,6 +600,7 @@ export async function getRemainingSessionsCount(enrollmentId: number): Promise<n
 
 export async function resolveStudentSessions(rawToken: string, date: string): Promise<{
   student: any
+  enrollmentsWithBalance?: any[]
   todaySessions: any[]
   paymentsSummary: any
   recentAttendance: any[]
@@ -795,7 +796,7 @@ export async function resolveStudentSessions(rawToken: string, date: string): Pr
 export async function markStudentInSession(
   sessionId: number,
   studentId: number,
-  status: 'present' | 'absent' | 'late',
+  status: 'present' | 'absent' | 'late' | 'not_active',
 ): Promise<{ success: boolean; studentName: string; status: string; wasEnrolled: boolean; creditBalance: number | null; wasInDebt: boolean }> {
   const authSession = requireSession()
   const db = getDb()
@@ -823,16 +824,16 @@ export async function markStudentInSession(
 
   // Check if student was enrolled by session date
   const enrollment = sqlite.prepare(`
-    SELECT e.id, e.enrollment_date, e.agreed_price, g.monthly_price
+    SELECT e.id, e.enrollment_date, e.agreed_price, e.status as enrollment_status, g.monthly_price
     FROM enrollments e
     JOIN groups g ON e.group_id = g.id
-    WHERE e.student_id = ? AND e.group_id = ? AND e.status = 'active'
+    WHERE e.student_id = ? AND e.group_id = ?
     LIMIT 1
   `).get(studentId, session.groupId) as any
 
-  const wasEnrolled = enrollment ? (session.sessionDate >= enrollment.enrollmentDate) : false
+  const wasEnrolled = enrollment ? (session.sessionDate >= enrollment.enrollment_date) : false
 
-  // Upsert attendance record (allows editing from any day)
+  // Upsert attendance record
   sqlite.prepare(`
     INSERT INTO attendance_records (session_id, student_id, attendance_status, source, scanned_at, was_enrolled, created_by, created_at, updated_at)
     VALUES (?, ?, ?, 'manual', ?, ?, ?, datetime('now'), datetime('now'))
@@ -843,25 +844,52 @@ export async function markStudentInSession(
       updated_at = datetime('now')
   `).run(sessionId, studentId, finalStatus, now, wasEnrolled ? 1 : 0, authSession.adminId)
 
-  // Auto-deduct session credit if student was enrolled (present or absent after enrollment)
   let creditBalance: number | null = null
   let wasInDebt = false
-  if (wasEnrolled && enrollment) {
-    try {
-      const { deductSession } = await import('./payment.service')
-      const sessionPrice = Math.round(((enrollment.agreed_price || enrollment.monthly_price) / 4) * 100) / 100
-      const deductResult = await deductSession({
-        studentId,
-        enrollmentId: enrollment.id,
-        sessionId,
-        sessionDate: session.sessionDate,
-        sessionPrice,
-      })
-      creditBalance = deductResult.newBalance
-      wasInDebt = deductResult.wasInDebt
-    } catch (err) {
-      log.warn('Credit deduction failed (non-fatal):', err)
+
+  if (enrollment) {
+    const { getEnrollmentBalance, deductSession } = await import('./payment.service')
+    const sessionPrice = Math.round(((enrollment.agreed_price || enrollment.monthly_price) / 4) * 100) / 100
+
+    if (finalStatus === 'not_active') {
+      // If student is marked as not_active, cancel any session deduction payment for this session
+      sqlite.prepare(`
+        UPDATE payments
+        SET status = 'cancelled', notes = 'Session status changed to not active (refunded)', updated_at = datetime('now')
+        WHERE enrollment_id = ? AND session_id = ? AND payment_type = 'deduction' AND status = 'paid'
+      `).run(enrollment.id, sessionId)
+    } else if (wasEnrolled && (finalStatus === 'present' || finalStatus === 'absent' || finalStatus === 'late')) {
+      // Check if there was a cancelled deduction payment for this session to reactivate
+      const cancelledPayment = sqlite.prepare(`
+        SELECT id FROM payments
+        WHERE enrollment_id = ? AND session_id = ? AND payment_type = 'deduction' AND status = 'cancelled'
+        LIMIT 1
+      `).get(enrollment.id, sessionId) as any
+
+      if (cancelledPayment) {
+        sqlite.prepare(`
+          UPDATE payments
+          SET status = 'paid', notes = NULL, updated_at = datetime('now')
+          WHERE id = ?
+        `).run(cancelledPayment.id)
+      } else {
+        try {
+          await deductSession({
+            studentId,
+            enrollmentId: enrollment.id,
+            sessionId,
+            sessionDate: session.sessionDate,
+            sessionPrice,
+          })
+        } catch (err) {
+          log.warn('Credit deduction failed (non-fatal):', err)
+        }
+      }
     }
+
+    const bal = await getEnrollmentBalance(enrollment.id)
+    creditBalance = bal.balance
+    wasInDebt = bal.balance < 0
   }
 
   return {
@@ -872,6 +900,55 @@ export async function markStudentInSession(
     creditBalance,
     wasInDebt,
   }
+}
+
+// ─── Get complete session history for a student across enrolled groups ──────
+
+export async function getStudentSessionHistory(studentId: number): Promise<any[]> {
+  const sqlite = getSqlite()
+  const rows = sqlite.prepare(`
+    SELECT
+      s.id as session_id,
+      s.session_date,
+      s.planned_start_time,
+      s.end_time,
+      s.status as session_status,
+      s.session_type,
+      g.id as group_id,
+      g.name as group_name,
+      c.name_ar as course_name_ar,
+      c.name_fr as course_name_fr,
+      t.first_name as teacher_first_name,
+      t.last_name as teacher_last_name,
+      ar.attendance_status,
+      ar.scanned_at,
+      ar.source
+    FROM enrollments e
+    JOIN groups g ON e.group_id = g.id
+    JOIN courses c ON g.course_id = c.id
+    LEFT JOIN teachers t ON g.teacher_id = t.id
+    JOIN attendance_sessions s ON s.group_id = g.id
+    LEFT JOIN attendance_records ar ON ar.session_id = s.id AND ar.student_id = ?
+    WHERE e.student_id = ?
+    ORDER BY s.session_date DESC, s.planned_start_time DESC
+  `).all(studentId, studentId) as any[]
+
+  return rows.map(r => ({
+    sessionId: r.session_id,
+    sessionDate: r.session_date,
+    plannedStartTime: r.planned_start_time,
+    endTime: r.end_time,
+    sessionStatus: r.session_status,
+    sessionType: r.session_type,
+    groupId: r.group_id,
+    groupName: r.group_name,
+    courseNameAr: r.course_name_ar,
+    courseNameFr: r.course_name_fr,
+    teacherName: r.teacher_first_name ? `${r.teacher_last_name ?? ''} ${r.teacher_first_name}`.trim() : null,
+    attendanceStatus: r.attendance_status ?? 'unmarked',
+    scannedAt: r.scanned_at,
+    source: r.source,
+  }))
 }
 
 // ─── Get session with full roster (enrolled students + their attendance) ────

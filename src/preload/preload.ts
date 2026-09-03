@@ -51,8 +51,8 @@ const api = {
   },
 
   students: {
-    list: (opts?: { page?: number; pageSize?: number; search?: string; status?: string }) =>
-      invoke<PaginatedResult<Student>>(IPC_CHANNELS.STUDENTS_LIST, opts),
+    list: (opts?: { page?: number; pageSize?: number; search?: string; status?: string; courseId?: number; teacherId?: number; groupId?: number }) =>
+      invoke<PaginatedResult<Student & { paymentStatus?: string; netBalance?: number; groupNames?: string }>>(IPC_CHANNELS.STUDENTS_LIST, opts),
     getById: (id: number) =>
       invoke<Student>(IPC_CHANNELS.STUDENTS_GET, { id }),
     create: (data: {
@@ -77,7 +77,7 @@ const api = {
   },
 
   teachers: {
-    list: (opts?: { status?: string }) =>
+    list: (opts?: { status?: string; courseId?: number }) =>
       invoke<Teacher[]>(IPC_CHANNELS.TEACHERS_LIST, opts),
     create: (data: { firstName: string; lastName: string; phone?: string | null; email?: string | null; address?: string | null; photoPath?: string | null }) =>
       invoke<Teacher>(IPC_CHANNELS.TEACHERS_CREATE, data),
@@ -143,8 +143,10 @@ const api = {
       invoke<{ count: number }>(IPC_CHANNELS.ATTENDANCE_REMAINING_SESSIONS, { enrollmentId }),
     resolveStudent: (token: string, date: string) =>
       invoke<any>(IPC_CHANNELS.ATTENDANCE_RESOLVE_STUDENT, { token, date }),
-    markSession: (sessionId: number, studentId: number, status: 'present' | 'absent' | 'late') =>
+    markSession: (sessionId: number, studentId: number, status: 'present' | 'absent' | 'late' | 'not_active') =>
       invoke<any>(IPC_CHANNELS.ATTENDANCE_MARK_SESSION, { sessionId, studentId, status }),
+    getSessionHistory: (studentId: number) =>
+      invoke<any[]>('attendance:studentSessionHistory', { studentId }),
     withRoster: (sessionId: number) =>
       invoke<any>(IPC_CHANNELS.SESSIONS_WITH_ROSTER, { sessionId }),
   },
@@ -167,7 +169,7 @@ const api = {
       invoke<any[]>(IPC_CHANNELS.SESSIONS_LIST, opts),
     get: (id: number) =>
       invoke<any>(IPC_CHANNELS.SESSIONS_GET, { id }),
-    createExtra: (data: { groupId: number; sessionDate: string; startTime: string; endTime: string; room?: string; teacherId?: number }) =>
+    createExtra: (data: { groupId: number; sessionDate: string; startTime: string; endTime: string; room?: string; teacherId?: number; price?: number }) =>
       invoke<any>(IPC_CHANNELS.SESSIONS_CREATE_EXTRA, data),
     generate: (groupId: number, startDate: string, endDate: string) =>
       invoke<{ generated: number; message: string }>(IPC_CHANNELS.SESSIONS_GENERATE, { groupId, startDate, endDate }),
