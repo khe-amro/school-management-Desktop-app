@@ -15,6 +15,16 @@ function todayWeekday(): number {
   return d === 0 ? 6 : d - 1
 }
 
+/** Returns target ISO date (YYYY-MM-DD) for a weekday index (0=Mon...6=Sun) in current week */
+function getTargetDateForWeekday(weekdayIndex: number): string {
+  const d = new Date()
+  const currentDay = d.getDay() // 0=Sun
+  const currentWeekday = currentDay === 0 ? 6 : currentDay - 1
+  const diff = weekdayIndex - currentWeekday
+  d.setDate(d.getDate() + diff)
+  return d.toISOString().slice(0, 10)
+}
+
 interface WeeklySlot {
   groupId: number
   groupName: string
@@ -314,7 +324,7 @@ export default function Dashboard() {
 
   // Options for filters with dynamic dependent filtering
   const availableModules = Array.from(
-    new Set(weeklySlots.map(s => (lang === 'ar' ? s.courseNameAr || s.courseNameFr : s.courseNameFr || s.courseNameAr)).filter(Boolean))
+    new Set(weeklySlots.map(s => (lang === 'ar' ? s.courseNameAr || s.courseNameFr : s.courseNameFr || s.courseNameAr)).filter((v): v is string => Boolean(v)))
   ).sort()
 
   const availableTeachers = Array.from(
@@ -326,7 +336,7 @@ export default function Dashboard() {
           return cName.toLowerCase() === selectedModule.toLowerCase()
         })
         .map(s => (lang === 'ar' ? s.teacherNameAr || s.teacherNameFr : s.teacherNameFr || s.teacherNameAr))
-        .filter(Boolean)
+        .filter((v): v is string => Boolean(v))
     )
   ).sort()
 
@@ -341,7 +351,7 @@ export default function Dashboard() {
           return true
         })
         .map(s => s.groupName)
-        .filter(Boolean)
+        .filter((v): v is string => Boolean(v))
     )
   ).sort()
 
@@ -550,7 +560,17 @@ export default function Dashboard() {
               {todaySessions.map((sess) => (
                 <div
                   key={sess.id}
-                  onClick={() => navigate('/attendance')}
+                  onClick={() => navigate('/attendance', {
+                    state: {
+                      tab: 'roster',
+                      initialSession: {
+                        id: sess.id,
+                        groupId: sess.groupId,
+                        date: sess.sessionDate || new Date().toISOString().slice(0, 10),
+                        startTime: sess.plannedStartTime,
+                      },
+                    },
+                  })}
                   className="group p-3 bg-slate-50 hover:bg-slate-100/80 rounded-lg flex items-center justify-between text-xs transition-colors cursor-pointer"
                 >
                   <div>
@@ -803,7 +823,21 @@ export default function Dashboard() {
 
             <div className="flex items-center gap-2 pt-2">
               <button
-                onClick={() => { setInspectSlot(null); setIsModalOpen(false); navigate('/attendance'); }}
+                onClick={() => {
+                  const targetDate = getTargetDateForWeekday(inspectSlot.weekday)
+                  setInspectSlot(null)
+                  setIsModalOpen(false)
+                  navigate('/attendance', {
+                    state: {
+                      tab: 'roster',
+                      initialSession: {
+                        groupId: inspectSlot.groupId,
+                        date: targetDate,
+                        startTime: inspectSlot.startTime,
+                      },
+                    },
+                  })
+                }}
                 className="flex-1 py-2 bg-[#2563EB] hover:bg-blue-700 text-white font-bold text-xs rounded-xl transition-colors text-center"
               >
                 {lang === 'ar' ? 'فتح كشف الحضور' : 'Ouvrir la présence'}

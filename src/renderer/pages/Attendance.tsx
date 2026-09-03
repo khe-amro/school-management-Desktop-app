@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useLocation } from 'react-router-dom'
 import { ScanLine, Search, Calendar, CheckCircle2, Clock, XCircle, Volume2, VolumeX, ChevronLeft, ChevronRight, AlertCircle, CreditCard, Trash2 } from 'lucide-react'
 
 type Tab = 'scanner' | 'roster' | 'calendar'
@@ -401,7 +402,7 @@ function SmartScanner({ lang }: { lang: string }) {
 }
 
 // ── Roster Tab ─────────────────────────────────────────────────────────────────
-function RosterView({ lang, initialSession }: { lang: string; initialSession?: { id: number; date: string } | null }) {
+function RosterView({ lang, initialSession }: { lang: string; initialSession?: { id?: number; groupId?: number; date?: string; startTime?: string } | null }) {
   const { t } = useTranslation()
   const [date, setDate] = useState(initialSession?.date || today())
   const [sessions, setSessions] = useState<any[]>([])
@@ -421,18 +422,45 @@ function RosterView({ lang, initialSession }: { lang: string; initialSession?: {
   const loadSessions = useCallback(async () => {
     setLoadingSessions(true)
     const res = await window.schoolApp.sessions.byDate(date, date)
-    if (res.success && res.data) setSessions(res.data)
-    else setSessions([])
+    if (res.success && res.data) {
+      const list = res.data as any[]
+      setSessions(list)
+
+      if (initialSession) {
+        let match: any = null
+        if (initialSession.id) {
+          match = list.find((s: any) => s.id === initialSession.id)
+        }
+        if (!match && initialSession.groupId) {
+          if (initialSession.startTime) {
+            match = list.find((s: any) => s.groupId === initialSession.groupId && s.plannedStartTime === initialSession.startTime)
+          }
+          if (!match) {
+            match = list.find((s: any) => s.groupId === initialSession.groupId)
+          }
+        }
+        if (match) {
+          setSelectedSession(match.id)
+          loadRoster(match.id)
+        }
+      }
+    } else {
+      setSessions([])
+    }
     setLoadingSessions(false)
-  }, [date])
+  }, [date, initialSession, loadRoster])
 
   useEffect(() => { loadSessions() }, [loadSessions])
 
   useEffect(() => {
     if (initialSession) {
-      setDate(initialSession.date)
-      setSelectedSession(initialSession.id)
-      loadRoster(initialSession.id)
+      if (initialSession.date && initialSession.date !== date) {
+        setDate(initialSession.date)
+      }
+      if (initialSession.id) {
+        setSelectedSession(initialSession.id)
+        loadRoster(initialSession.id)
+      }
     }
   }, [initialSession, loadRoster])
 
@@ -743,11 +771,28 @@ function CalendarView({ lang, onSessionClick }: { lang: string; onSessionClick: 
 // ── Main Page ──────────────────────────────────────────────────────────────────
 export default function Attendance() {
   const { t, i18n } = useTranslation()
-  const [tab, setTab] = useState<Tab>('scanner')
-  const [rosterSession, setRosterSession] = useState<{ id: number; date: string } | null>(null)
+  const location = useLocation()
+  const locState = location.state as {
+    tab?: Tab
+    initialSession?: { id?: number; groupId?: number; date?: string; startTime?: string }
+  } | undefined
+
+  const [tab, setTab] = useState<Tab>(locState?.tab || 'scanner')
+  const [rosterSession, setRosterSession] = useState<{ id?: number; groupId?: number; date?: string; startTime?: string } | null>(
+    locState?.initialSession || null
+  )
+
+  useEffect(() => {
+    if (locState?.tab) {
+      setTab(locState.tab)
+    }
+    if (locState?.initialSession) {
+      setRosterSession(locState.initialSession)
+    }
+  }, [location.state])
 
   const handleCalendarSessionClick = (session: any) => {
-    setRosterSession({ id: session.id, date: session.sessionDate })
+    setRosterSession({ id: session.id, date: session.sessionDate, groupId: session.groupId })
     setTab('roster')
   }
 
