@@ -168,9 +168,13 @@ export async function scanQRToken(sessionId: number, rawToken: string): Promise<
   if (enrollment) {
     try {
       const { getEnrollmentBalance } = await import('./payment.service')
-      const group = await db.query.groups.findFirst({ where: eq(schema.groups.id, attendanceSession.groupId) })
-      const price = enrollment.agreedPrice || group?.monthlyPrice || 0
-      sessionPrice = Math.round((price / 4) * 100) / 100
+      if (attendanceSession.price !== null && attendanceSession.price !== undefined) {
+        sessionPrice = attendanceSession.price
+      } else {
+        const group = await db.query.groups.findFirst({ where: eq(schema.groups.id, attendanceSession.groupId) })
+        const price = enrollment.agreedPrice || group?.monthlyPrice || 0
+        sessionPrice = Math.round((price / 4) * 100) / 100
+      }
       const bal = await getEnrollmentBalance(enrollment.id)
       creditBalance = bal.balance
       wasInDebt = bal.balance < 0
@@ -648,17 +652,19 @@ export async function resolveStudentSessions(rawToken: string, date: string): Pr
   const todaySessions: any[] = []
   for (const groupId of groupIds) {
     // Check for existing session instances
-    const existing = sqlite.prepare(`
+    const allExisting = sqlite.prepare(`
       SELECT s.*, g.name as group_name, c.name_ar as course_name_ar, c.name_fr as course_name_fr
       FROM attendance_sessions s
       JOIN groups g ON s.group_id = g.id
       JOIN courses c ON g.course_id = c.id
-      WHERE s.group_id = ? AND s.session_date = ? AND s.session_type != 'cancelled'
-      LIMIT 5
+      WHERE s.group_id = ? AND s.session_date = ?
     `).all(groupId, date) as any[]
 
-    if (existing.length > 0) {
-      todaySessions.push(...existing.map(r => ({
+    const activeExisting = allExisting.filter(r => r.session_type !== 'cancelled')
+    const hasCancelled = allExisting.some(r => r.session_type === 'cancelled')
+
+    if (activeExisting.length > 0) {
+      todaySessions.push(...activeExisting.map(r => ({
         id: r.id,
         groupId: r.group_id,
         groupName: r.group_name,
@@ -670,8 +676,8 @@ export async function resolveStudentSessions(rawToken: string, date: string): Pr
         room: r.room,
         status: r.status,
       })))
-    } else {
-      // Auto-create from schedule slots if today matches weekday
+    } else if (!hasCancelled) {
+      // Auto-create from schedule slots if today matches weekday and not cancelled
       const jsDay = new Date(date + 'T00:00:00Z').getUTCDay()
       const weekday = jsDay === 0 ? 6 : jsDay - 1
       const slots = sqlite.prepare(`
@@ -689,7 +695,7 @@ export async function resolveStudentSessions(rawToken: string, date: string): Pr
           FROM attendance_sessions s
           JOIN groups g ON s.group_id = g.id
           JOIN courses c ON g.course_id = c.id
-          WHERE s.group_id = ? AND s.session_date = ? AND (s.schedule_slot_id = ? OR (s.planned_start_time = ? AND s.end_time = ?))
+          WHERE s.group_id = ? AND s.session_date = ? AND s.session_type != 'cancelled' AND (s.schedule_slot_id = ? OR (s.planned_start_time = ? AND s.end_time = ?))
           LIMIT 1
         `).get(groupId, date, slot.id, slot.start_time, slot.end_time) as any
 

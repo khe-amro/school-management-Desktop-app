@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ScanLine, Search, Calendar, CheckCircle2, Clock, XCircle, Volume2, VolumeX, ChevronLeft, ChevronRight, AlertCircle, CreditCard } from 'lucide-react'
+import { ScanLine, Search, Calendar, CheckCircle2, Clock, XCircle, Volume2, VolumeX, ChevronLeft, ChevronRight, AlertCircle, CreditCard, Trash2 } from 'lucide-react'
 
 type Tab = 'scanner' | 'roster' | 'calendar'
 type StatusType = 'present' | 'absent' | 'late' | null
@@ -442,6 +442,26 @@ function RosterView({ lang, initialSession }: { lang: string; initialSession?: {
     await loadRoster(selectedSession)
   }
 
+  const handleCancelSession = async (sessionId: number) => {
+    const confirmMsg = lang === 'ar'
+      ? 'هل أنت تأكد من إلغاء هذه الحصة؟ سيتم إغلاق الحصة وإعادة كافة المبالغ والأرصدة المقتطعة للطالب، وإلغاء تسجيل الحضور.'
+      : 'Voulez-vous vraiment annuler cette séance ? Les présences et déductions financières seront annulées.'
+    if (!confirm(confirmMsg)) return
+
+    try {
+      const res = await window.schoolApp.sessions.cancel({ sessionId, reason: 'Cancelled from attendance page' })
+      if (res.success) {
+        setRoster(null)
+        setSelectedSession(null)
+        await loadSessions()
+      } else {
+        alert(res.error || 'Failed to cancel session')
+      }
+    } catch (err) {
+      console.error('Failed to cancel session:', err)
+    }
+  }
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
       {/* Sessions list */}
@@ -491,16 +511,25 @@ function RosterView({ lang, initialSession }: { lang: string; initialSession?: {
           <div className="flex justify-center py-16"><div className="w-6 h-6 border-2 border-[#2563EB] border-t-transparent rounded-full animate-spin" /></div>
         ) : roster ? (
           <div className="bg-white rounded-xl border border-border overflow-hidden">
-            <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+            <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
               <div>
                 <p className="font-bold text-sm text-[#0F172A]">{roster.session.groupName}</p>
-                <p className="text-xs text-slate-400">{roster.session.sessionDate} · {roster.session.plannedStartTime}</p>
+                <p className="text-xs text-slate-500">{roster.session.sessionDate} · {roster.session.plannedStartTime}</p>
               </div>
-              <div className="flex gap-3 text-xs font-medium">
-                <span className="text-green-600">{roster.session.stats.present} ✓</span>
-                <span className="text-amber-600">{roster.session.stats.late} ⏱</span>
-                <span className="text-red-500">{roster.session.stats.absent} ✗</span>
-                <span className="text-slate-400">{roster.session.stats.total - roster.session.stats.present - roster.session.stats.late - roster.session.stats.absent} —</span>
+              <div className="flex items-center gap-3">
+                <div className="flex gap-2 text-xs font-medium">
+                  <span className="text-green-600 font-bold">{roster.session.stats.present} ✓</span>
+                  <span className="text-amber-600 font-bold">{roster.session.stats.late} ⏱</span>
+                  <span className="text-red-500 font-bold">{roster.session.stats.absent} ✗</span>
+                </div>
+                <button
+                  onClick={() => handleCancelSession(roster.session.id)}
+                  className="px-2.5 py-1.5 bg-red-50 border border-red-200 hover:bg-red-100 text-red-700 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs"
+                  title={lang === 'ar' ? 'إلغاء/حذف الحصة وإرجاع الأرصدة' : 'Annuler la séance'}
+                >
+                  <Trash2 size={13} />
+                  <span>{lang === 'ar' ? 'إلغاء الحصة' : 'Annuler'}</span>
+                </button>
               </div>
             </div>
             <div className="divide-y divide-slate-50 max-h-[60vh] overflow-y-auto">

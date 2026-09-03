@@ -85,7 +85,21 @@ export default function Courses() {
   const [courseForm, setCourseForm] = useState({ nameAr: '', nameFr: '', defaultPrice: '' })
   const [groupForm, setGroupForm] = useState({ name: '', teacherId: '', capacity: '30', monthlyPrice: '', startDate: '', endDate: '', room: '' })
   const [slotForm, setSlotForm] = useState({ weekday: 0, startTime: '09:00', endTime: '11:00', room: '' })
-  const [extraSessionForm, setExtraSessionForm] = useState({ date: new Date().toISOString().slice(0, 10), startTime: '14:00', endTime: '16:00', room: '' })
+  const [extraSessionForm, setExtraSessionForm] = useState<{
+    date: string
+    startTime: string
+    endTime: string
+    room: string
+    priceType: 'default' | 'free' | 'custom'
+    customPrice: string
+  }>({
+    date: new Date().toISOString().slice(0, 10),
+    startTime: '14:00',
+    endTime: '16:00',
+    room: '',
+    priceType: 'default',
+    customPrice: '',
+  })
 
   const loadData = useCallback(async () => {
     try {
@@ -260,12 +274,20 @@ export default function Courses() {
   const handleAddExtraSession = async (groupId: number) => {
     setSaving(true)
     try {
+      let finalPrice: number | null = null
+      if (extraSessionForm.priceType === 'free') {
+        finalPrice = 0
+      } else if (extraSessionForm.priceType === 'custom') {
+        finalPrice = parseFloat(extraSessionForm.customPrice) || 0
+      }
+
       const res = await window.schoolApp.sessions.createExtra({
         groupId,
         sessionDate: extraSessionForm.date,
         startTime: extraSessionForm.startTime,
         endTime: extraSessionForm.endTime,
         room: extraSessionForm.room || undefined,
+        price: finalPrice,
       })
       if (res.success) {
         setShowExtraSessionModal(null)
@@ -1058,6 +1080,68 @@ export default function Courses() {
             <label className={labelCls}>{t('courses.roomOptional')}</label>
             <input className={inputCls} value={extraSessionForm.room} onChange={e => setExtraSessionForm(f => ({ ...f, room: e.target.value }))} placeholder={t('courses.roomPlaceholder')} />
           </div>
+
+          {/* Price setting */}
+          <div className="space-y-1.5 pt-2 border-t border-slate-100">
+            <label className={labelCls}>
+              {lang === 'ar' ? 'سعر الحصة الإضافية وخيارات الاقتطاع:' : 'Prix de la séance supplémentaire:'}
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => setExtraSessionForm(f => ({ ...f, priceType: 'default' }))}
+                className={`py-2 px-2 rounded-lg border text-xs font-semibold transition-all ${
+                  extraSessionForm.priceType === 'default'
+                    ? 'bg-blue-50 border-[#2563EB] text-[#2563EB]'
+                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {lang === 'ar' ? 'افتراضي (سعر الفوج)' : 'Par défaut (Groupe)'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setExtraSessionForm(f => ({ ...f, priceType: 'free' }))}
+                className={`py-2 px-2 rounded-lg border text-xs font-semibold transition-all ${
+                  extraSessionForm.priceType === 'free'
+                    ? 'bg-emerald-50 border-emerald-600 text-emerald-700 font-bold'
+                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                🎁 {lang === 'ar' ? 'مجانية (0 د.ج)' : 'Gratuite (0 DA)'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setExtraSessionForm(f => ({ ...f, priceType: 'custom' }))}
+                className={`py-2 px-2 rounded-lg border text-xs font-semibold transition-all ${
+                  extraSessionForm.priceType === 'custom'
+                    ? 'bg-amber-50 border-amber-600 text-amber-700 font-bold'
+                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                💰 {lang === 'ar' ? 'سعر مخصص' : 'Prix personnalisé'}
+              </button>
+            </div>
+
+            {extraSessionForm.priceType === 'custom' && (
+              <div className="mt-2 animate-fade-in">
+                <label className="text-[11px] font-bold text-slate-600">
+                  {lang === 'ar' ? 'المبلغ المقتطع من رصيد كل طالب (د.ج):' : 'Montant déduit par étudiant (DA):'}
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="50"
+                  className={inputCls}
+                  placeholder={lang === 'ar' ? 'مثال: 500' : 'Ex: 500'}
+                  value={extraSessionForm.customPrice}
+                  onChange={e => setExtraSessionForm(f => ({ ...f, customPrice: e.target.value }))}
+                />
+              </div>
+            )}
+          </div>
+
           {error && <p className="text-xs text-red-600">{error}</p>}
           <div className="flex justify-end gap-2 pt-3">
             <button onClick={() => setShowExtraSessionModal(null)} className="px-4 py-2 border border-border rounded-lg text-xs text-slate-600">{t('common.cancel')}</button>

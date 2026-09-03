@@ -352,6 +352,14 @@ const MIGRATIONS: { version: number; name: string; sql: string }[] = [
     INSERT OR REPLACE INTO app_metadata(key, value, updated_at) VALUES('schema_version', '6', datetime('now'));
   `,
 },
+{
+  version: 7,
+  name: 'add_price_to_attendance_sessions',
+  sql: `
+    ALTER TABLE attendance_sessions ADD COLUMN price INTEGER;
+    INSERT OR REPLACE INTO app_metadata(key, value, updated_at) VALUES('schema_version', '7', datetime('now'));
+  `,
+},
 ]
 
 // ─── Migration runner ─────────────────────────────────────────────────────────

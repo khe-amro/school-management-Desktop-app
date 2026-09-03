@@ -11,6 +11,7 @@ const CreateExtraSessionSchema = z.object({
   endTime: z.string().regex(/^\d{2}:\d{2}$/),
   room: z.string().optional(),
   teacherId: z.number().int().positive().optional(),
+  price: z.number().nullable().optional(),
 })
 
 const GenerateSessionsSchema = z.object({
@@ -188,8 +189,8 @@ export function registerSessionsHandlers(): void {
       const stmt = sqlite.prepare(`
         INSERT INTO attendance_sessions (
           group_id, session_date, planned_start_time, end_time,
-          room, status, session_type, created_by, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, 'open', 'extra', 1, datetime('now'), datetime('now'))
+          room, status, session_type, price, created_by, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, 'open', 'extra', ?, 1, datetime('now'), datetime('now'))
       `)
 
       const result = stmt.run(
@@ -197,7 +198,8 @@ export function registerSessionsHandlers(): void {
         data.sessionDate,
         data.startTime,
         data.endTime,
-        data.room || group.room
+        data.room || group.room,
+        data.price !== undefined ? data.price : null
       )
 
       const session = sqlite.prepare('SELECT * FROM attendance_sessions WHERE id = ?').get(result.lastInsertRowid) as any
@@ -210,6 +212,7 @@ export function registerSessionsHandlers(): void {
         endTime: session.end_time,
         room: session.room,
         sessionType: session.session_type,
+        price: session.price,
         status: session.status,
         createdAt: session.created_at,
       }
@@ -224,11 +227,16 @@ export function registerSessionsHandlers(): void {
     const sqlite = getSqlite()
 
     try {
+      // Revert financial deductions for this session
+      sqlite.prepare(`DELETE FROM payments WHERE session_id = ? AND payment_type = 'deduction'`).run(sessionId)
+      // Delete attendance records for this session
+      sqlite.prepare(`DELETE FROM attendance_records WHERE session_id = ?`).run(sessionId)
+      // Mark session as cancelled
       sqlite.prepare(`
         UPDATE attendance_sessions
-        SET session_type = 'cancelled', cancelled_reason = ?, updated_at = datetime('now')
+        SET session_type = 'cancelled', cancelled_reason = ?, status = 'closed', updated_at = datetime('now')
         WHERE id = ?
-      `).run(reason || null, sessionId)
+      `).run(reason || 'Cancelled by user', sessionId)
 
       return true
     } catch (err) {
@@ -260,7 +268,11 @@ export function registerSessionsHandlers(): void {
     const sqlite = getSqlite()
 
     try {
+      // Revert financial deductions for this session
+      sqlite.prepare(`DELETE FROM payments WHERE session_id = ? AND payment_type = 'deduction'`).run(sessionId)
+      // Delete attendance records for this session
       sqlite.prepare(`DELETE FROM attendance_records WHERE session_id = ?`).run(sessionId)
+      // Delete attendance session
       sqlite.prepare(`DELETE FROM attendance_sessions WHERE id = ?`).run(sessionId)
       return true
     } catch (err) {

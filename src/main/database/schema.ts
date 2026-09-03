@@ -177,6 +177,7 @@ export const attendanceSessions = sqliteTable('attendance_sessions', {
   lateThresholdMinutes: integer('late_threshold_minutes').notNull().default(10),
   status: text('status', { enum: ['open', 'closed'] }).notNull().default('open'),
   sessionType: text('session_type', { enum: ['regular', 'extra', 'makeup', 'cancelled'] }).notNull().default('regular'),
+  price: integer('price'), // null = default group session price (monthly/4), 0 = free, >0 = custom DA
   scheduleSlotId: integer('schedule_slot_id').references(() => groupScheduleSlots.id),
   cancelledReason: text('cancelled_reason'),
   createdBy: integer('created_by').notNull().references(() => administrators.id),
