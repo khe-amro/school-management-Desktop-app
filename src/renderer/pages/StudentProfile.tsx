@@ -1,13 +1,13 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
   ArrowLeft, Edit2, QrCode, RefreshCw, Archive,
   Phone, MapPin, Calendar, User, Shield, CreditCard,
   BookOpen, Clock, CheckCircle2, XCircle, StickyNote,
-  Plus, Trash2, AlertCircle, ArrowRightLeft, X, Check
+  Plus, Trash2, AlertCircle, ArrowRightLeft, X, Check, ChevronDown, RotateCcw
 } from 'lucide-react'
-import type { Student, Payment, AttendanceRecord, Group, Course } from '@shared/types/index'
+import type { Student, Payment, AttendanceRecord, Group, Course, Teacher } from '@shared/types/index'
 import QRCode from 'qrcode'
 
 // Convert Eastern Arabic numerals (٠-٩) and Persian numerals (۰-۹) to standard ASCII (0-9)
@@ -16,6 +16,90 @@ function normalizeNumberInput(val: string): string {
     .replace(/[٠-٩]/g, (d) => '0123456789'['٠١٢٣٤٥٦٧٨٩'.indexOf(d)])
     .replace(/[۰-۹]/g, (d) => '0123456789'['۰۱۲۳۴۵٦٧٨٩'.indexOf(d)])
   return ascii.replace(/[^0-9.]/g, '')
+}
+
+function FilterCombobox({
+  label,
+  placeholder,
+  value,
+  onChange,
+  options,
+}: {
+  label: string
+  placeholder: string
+  value: string
+  onChange: (val: string) => void
+  options: string[]
+}) {
+  const [open, setOpen] = useState(false)
+
+  const filteredOptions = options.filter(opt =>
+    opt.toLowerCase().includes(value.toLowerCase().trim())
+  )
+
+  return (
+    <div className="relative w-full">
+      <label className="block text-xs font-semibold text-slate-700 mb-1">{label}</label>
+      <div className="relative flex items-center">
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => {
+            onChange(e.target.value)
+            setOpen(true)
+          }}
+          onFocus={() => setOpen(true)}
+          placeholder={placeholder}
+          className="w-full text-xs bg-white border border-slate-300 rounded-xl ps-3 pe-8 py-2.5 font-medium focus:ring-2 focus:ring-[#2563EB] focus:outline-none shadow-2xs"
+        />
+        {value ? (
+          <button
+            type="button"
+            onClick={() => { onChange(''); setOpen(false); }}
+            className="absolute right-2 text-slate-400 hover:text-slate-600 p-1"
+          >
+            <X size={13} />
+          </button>
+        ) : (
+          <ChevronDown
+            size={14}
+            className="absolute right-2 text-slate-400 pointer-events-none"
+          />
+        )}
+      </div>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
+          <div className="absolute top-full left-0 right-0 mt-1 max-h-48 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 text-xs">
+            <div
+              onClick={() => { onChange(''); setOpen(false); }}
+              className="px-3 py-1.5 cursor-pointer hover:bg-slate-100 font-bold text-slate-400 border-b border-slate-100"
+            >
+              -- {label} --
+            </div>
+            {filteredOptions.length === 0 ? (
+              <div className="px-3 py-2 text-slate-400 italic">
+                لا توجد نتائج
+              </div>
+            ) : (
+              filteredOptions.map(opt => (
+                <div
+                  key={opt}
+                  onClick={() => { onChange(opt); setOpen(false); }}
+                  className={`px-3 py-2 cursor-pointer hover:bg-blue-50 hover:text-[#2563EB] font-medium transition-colors ${
+                    value === opt ? 'bg-blue-50 text-[#2563EB] font-bold' : 'text-slate-700'
+                  }`}
+                >
+                  {opt}
+                </div>
+              ))
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
 }
 
 type Tab = 'overview' | 'attendance' | 'payments' | 'enrollments' | 'notes'
@@ -59,14 +143,17 @@ export default function StudentProfile() {
   const [savingNote, setSavingNote] = useState(false)
   const [tabLoading, setTabLoading] = useState(false)
 
-  // Available groups/courses for adding enrollment or transfer
+  // Available groups/courses/teachers for adding enrollment or transfer
   const [availableGroups, setAvailableGroups] = useState<Group[]>([])
   const [availableCourses, setAvailableCourses] = useState<Course[]>([])
+  const [availableTeachers, setAvailableTeachers] = useState<Teacher[]>([])
 
-  // Modal: Add Enrollment
+  // Modal: Add Enrollment with Hierarchical Combobox Filter
   const [showAddEnrollModal, setShowAddEnrollModal] = useState(false)
   const [newEnrollGroupId, setNewEnrollGroupId] = useState('')
-  const [newEnrollPrice, setNewEnrollPrice] = useState('')
+  const [modalModule, setModalModule] = useState('')
+  const [modalTeacher, setModalTeacher] = useState('')
+  const [modalGroup, setModalGroup] = useState('')
   const [savingEnroll, setSavingEnroll] = useState(false)
 
   // Modal: Transfer Credit (Idea Implementation)
@@ -126,12 +213,14 @@ export default function StudentProfile() {
           if (res.success && res.data) {
             setEnrollments(res.data as EnrollmentWithDetails[])
           }
-          const [grpRes, crsRes] = await Promise.all([
+          const [grpRes, crsRes, tchRes] = await Promise.all([
             window.schoolApp.groups.list({ status: 'active' }),
             window.schoolApp.courses.list({ status: 'active' }),
+            window.schoolApp.teachers.list({ status: 'active' }),
           ])
           if (grpRes.success && grpRes.data) setAvailableGroups(grpRes.data)
           if (crsRes.success && crsRes.data) setAvailableCourses(crsRes.data)
+          if (tchRes.success && tchRes.data) setAvailableTeachers(tchRes.data)
         }
         if (activeTab === 'payments') {
           const res = await window.schoolApp.payments.byStudent(student!.id)
@@ -147,6 +236,161 @@ export default function StudentProfile() {
 
     loadTabData()
   }, [activeTab, student])
+
+  // ─── Cascaded Combobox Options & Auto-fill Logic for Enrollment Modal ────────
+  const getCourseName = useCallback((c: Course) => (lang === 'ar' ? c.nameAr || c.nameFr : c.nameFr || c.nameAr), [lang])
+
+  const getTeacherName = useCallback((t: Teacher) => {
+    const nameAr = `${t.lastNameAr ?? ''} ${t.firstNameAr ?? ''}`.trim()
+    const nameFr = `${t.lastNameFr ?? ''} ${t.firstNameFr ?? ''}`.trim()
+    return (lang === 'ar' ? nameAr || nameFr : nameFr || nameAr) || `Prof #${t.id}`
+  }, [lang])
+
+  // Modules list
+  const moduleOptions = useMemo(() => {
+    const set = new Set<string>()
+    availableCourses.forEach(c => {
+      const name = getCourseName(c)
+      if (name) set.add(name)
+    })
+    return Array.from(set).sort()
+  }, [availableCourses, getCourseName])
+
+  // Teachers list (filtered by modalModule if selected)
+  const teacherOptions = useMemo(() => {
+    let filtered = availableTeachers
+    if (modalModule) {
+      const course = availableCourses.find(c => getCourseName(c).toLowerCase() === modalModule.toLowerCase())
+      if (course) {
+        filtered = filtered.filter(t => t.courseId === course.id)
+      }
+    }
+    const set = new Set<string>()
+    filtered.forEach(t => {
+      const name = getTeacherName(t)
+      if (name) set.add(name)
+    })
+    return Array.from(set).sort()
+  }, [availableTeachers, availableCourses, modalModule, getCourseName, getTeacherName])
+
+  // Groups list & map (filtered by modalModule & modalTeacher if selected)
+  const groupOptionsMap = useMemo(() => {
+    let filtered = availableGroups
+    if (modalModule) {
+      const course = availableCourses.find(c => getCourseName(c).toLowerCase() === modalModule.toLowerCase())
+      if (course) {
+        filtered = filtered.filter(g => g.courseId === course.id)
+      }
+    }
+    if (modalTeacher) {
+      const teacher = availableTeachers.find(t => getTeacherName(t).toLowerCase() === modalTeacher.toLowerCase())
+      if (teacher) {
+        filtered = filtered.filter(g => g.teacherId === teacher.id)
+      }
+    }
+    const map = new Map<string, Group>()
+    filtered.forEach(g => {
+      const c = availableCourses.find(crs => crs.id === g.courseId)
+      const cName = c ? getCourseName(c) : ''
+      const label = `${cName ? `${cName} — ` : ''}${g.name}`
+      map.set(label, g)
+    })
+    return map
+  }, [availableGroups, availableCourses, availableTeachers, modalModule, modalTeacher, getCourseName, getTeacherName])
+
+  const groupOptions = useMemo(() => {
+    return Array.from(groupOptionsMap.keys()).sort()
+  }, [groupOptionsMap])
+
+  // Cascading Change Handlers
+  const handleModalModuleChange = (newMod: string) => {
+    setModalModule(newMod)
+    if (!newMod) {
+      setModalTeacher('')
+      setModalGroup('')
+      setNewEnrollGroupId('')
+      return
+    }
+    if (modalTeacher) {
+      const course = availableCourses.find(c => getCourseName(c).toLowerCase() === newMod.toLowerCase())
+      const teacher = availableTeachers.find(t => getTeacherName(t).toLowerCase() === modalTeacher.toLowerCase())
+      if (course && teacher && teacher.courseId !== course.id) {
+        setModalTeacher('')
+        setModalGroup('')
+        setNewEnrollGroupId('')
+      }
+    }
+  }
+
+  const handleModalTeacherChange = (newTeacher: string) => {
+    setModalTeacher(newTeacher)
+    if (!newTeacher) {
+      setModalGroup('')
+      setNewEnrollGroupId('')
+      return
+    }
+    // Auto-fill module if skipped directly to teacher!
+    const teacher = availableTeachers.find(t => getTeacherName(t).toLowerCase() === newTeacher.toLowerCase())
+    if (teacher && teacher.courseId) {
+      const course = availableCourses.find(c => c.id === teacher.courseId)
+      if (course) {
+        setModalModule(getCourseName(course))
+      }
+    }
+    if (modalGroup) {
+      const selectedGrp = groupOptionsMap.get(modalGroup)
+      if (selectedGrp && teacher && selectedGrp.teacherId !== teacher.id) {
+        setModalGroup('')
+        setNewEnrollGroupId('')
+      }
+    }
+  }
+
+  const handleModalGroupChange = (newGroupLabel: string) => {
+    setModalGroup(newGroupLabel)
+    if (!newGroupLabel) {
+      setNewEnrollGroupId('')
+      return
+    }
+    let targetGrp = groupOptionsMap.get(newGroupLabel)
+    if (!targetGrp) {
+      for (const g of availableGroups) {
+        const c = availableCourses.find(crs => crs.id === g.courseId)
+        const cName = c ? getCourseName(c) : ''
+        const label = `${cName ? `${cName} — ` : ''}${g.name}`
+        if (label.toLowerCase() === newGroupLabel.toLowerCase()) {
+          targetGrp = g
+          break
+        }
+      }
+    }
+
+    if (targetGrp) {
+      setNewEnrollGroupId(String(targetGrp.id))
+      // Auto-fill teacher & module if skipped directly to group!
+      if (targetGrp.teacherId) {
+        const teacher = availableTeachers.find(t => t.id === targetGrp.teacherId)
+        if (teacher) {
+          setModalTeacher(getTeacherName(teacher))
+          if (teacher.courseId) {
+            const course = availableCourses.find(c => c.id === teacher.courseId)
+            if (course) setModalModule(getCourseName(course))
+          }
+        }
+      } else if (targetGrp.courseId) {
+        const course = availableCourses.find(c => c.id === targetGrp.courseId)
+        if (course) setModalModule(getCourseName(course))
+      }
+    }
+  }
+
+  const handleOpenAddEnrollModal = () => {
+    setModalModule('')
+    setModalTeacher('')
+    setModalGroup('')
+    setNewEnrollGroupId('')
+    setShowAddEnrollModal(true)
+  }
 
   const handleRegenQR = async () => {
     if (!student) return
@@ -193,25 +437,30 @@ export default function StudentProfile() {
     if (res.success && res.data) setEnrollments(res.data as EnrollmentWithDetails[])
   }
 
-  // Add new enrollment from profile
+  // Add new enrollment from profile (uses group monthlyPrice by default)
   const handleAddEnrollment = async () => {
     if (!student || !newEnrollGroupId) return
     setSavingEnroll(true)
     try {
       const selectedGrp = availableGroups.find((g) => g.id === Number(newEnrollGroupId))
-      const price = Number(newEnrollPrice) || (selectedGrp?.monthlyPrice ?? 0)
+      if (!selectedGrp) {
+        alert(lang === 'ar' ? 'يرجى اختيار الفوج أولاً' : 'Veuillez sélectionner un groupe')
+        return
+      }
 
       const res = await window.schoolApp.enrollments.create({
         studentId: student.id,
         groupId: Number(newEnrollGroupId),
-        agreedPrice: price,
+        agreedPrice: selectedGrp.monthlyPrice || 0,
         enrollmentDate: new Date().toISOString().slice(0, 10),
       })
 
       if (res.success) {
         setShowAddEnrollModal(false)
         setNewEnrollGroupId('')
-        setNewEnrollPrice('')
+        setModalModule('')
+        setModalTeacher('')
+        setModalGroup('')
         const enrRes = await window.schoolApp.enrollments.byStudent(student.id)
         if (enrRes.success && enrRes.data) setEnrollments(enrRes.data as EnrollmentWithDetails[])
       } else {
@@ -598,7 +847,7 @@ export default function StudentProfile() {
                     <div className="flex justify-between items-center mb-4">
                       <h4 className="font-bold text-sm text-[#0F172A]">{t('students.enrollments')}</h4>
                       <button
-                        onClick={() => setShowAddEnrollModal(true)}
+                        onClick={handleOpenAddEnrollModal}
                         className="flex items-center gap-1.5 px-3 py-1.5 bg-[#2563EB] text-white rounded-lg text-xs font-semibold hover:bg-[#1D4ED8] transition-colors shadow-xs"
                       >
                         <Plus size={13} /> {lang === 'ar' ? 'إضافة تسجيل في فوج' : 'Inscrire à un groupe'}
@@ -610,7 +859,7 @@ export default function StudentProfile() {
                         <BookOpen size={36} className="mx-auto mb-2 opacity-30" />
                         <p className="text-sm font-medium">{lang === 'ar' ? 'لا توجد أي تسجيلات' : 'Aucune inscription'}</p>
                         <button
-                          onClick={() => setShowAddEnrollModal(true)}
+                          onClick={handleOpenAddEnrollModal}
                           className="mt-3 text-xs text-[#2563EB] hover:underline font-semibold"
                         >
                           + {lang === 'ar' ? 'تسجيل في أول فوج' : 'Inscrire au premier groupe'}
@@ -755,56 +1004,90 @@ export default function StudentProfile() {
       {/* ── Modal: Add New Enrollment ── */}
       {showAddEnrollModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowAddEnrollModal(false)}>
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fade-in" onClick={(e) => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="font-bold text-[#0F172A]">{lang === 'ar' ? 'تسجيل في فوج جديد' : 'Nouvelle inscription à un groupe'}</h3>
-              <button onClick={() => setShowAddEnrollModal(false)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
+          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fade-in space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+              <h3 className="font-bold text-[#0F172A] text-base">{lang === 'ar' ? 'تسجيل في فوج جديد' : 'Nouvelle inscription à un groupe'}</h3>
+              <button onClick={() => setShowAddEnrollModal(false)} className="text-slate-400 hover:text-slate-600 p-1"><X size={18} /></button>
             </div>
+
             <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">{t('courses.groups')} *</label>
-                <select
-                  className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-white"
-                  value={newEnrollGroupId}
-                  onChange={(e) => {
-                    setNewEnrollGroupId(e.target.value)
-                    const found = availableGroups.find(g => g.id === Number(e.target.value))
-                    if (found) setNewEnrollPrice(String(found.monthlyPrice))
-                  }}
-                >
-                  <option value="">— {lang === 'ar' ? 'اختر الفوج / المادة' : 'Choisir un groupe / cours'} —</option>
-                  {availableGroups.map((g) => {
-                    const c = availableCourses.find(crs => crs.id === g.courseId)
-                    const cName = c ? (lang === 'ar' ? c.nameAr : c.nameFr) : ''
-                    return (
-                      <option key={g.id} value={g.id}>
-                        {cName ? `${cName} — ` : ''}{g.name} ({g.monthlyPrice.toLocaleString()} DA)
-                      </option>
-                    )
-                  })}
-                </select>
-              </div>
+              {/* 1. Module Filter (Choose + Search) */}
+              <FilterCombobox
+                label={lang === 'ar' ? 'المادة (Module)' : 'Module'}
+                placeholder={lang === 'ar' ? 'ابحث أو اختر المادة...' : 'Module...'}
+                value={modalModule}
+                onChange={handleModalModuleChange}
+                options={moduleOptions}
+              />
 
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">{t('courses.monthlyPrice')} (DA) *</label>
-                <input
-                  type="number"
-                  className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-white"
-                  value={newEnrollPrice}
-                  onChange={(e) => setNewEnrollPrice(e.target.value)}
-                  dir="ltr"
-                />
-              </div>
+              {/* 2. Teacher Filter (Choose + Search) */}
+              <FilterCombobox
+                label={lang === 'ar' ? 'الأستاذ (Enseignant)' : 'Enseignant'}
+                placeholder={lang === 'ar' ? 'ابحث أو اختر الأستاذ...' : 'Enseignant...'}
+                value={modalTeacher}
+                onChange={handleModalTeacherChange}
+                options={teacherOptions}
+              />
+
+              {/* 3. Group Filter (Choose + Search) */}
+              <FilterCombobox
+                label={lang === 'ar' ? 'الفوج (Groupe) *' : 'Groupe *'}
+                placeholder={lang === 'ar' ? 'ابحث أو اختر الفوج...' : 'Groupe...'}
+                value={modalGroup}
+                onChange={handleModalGroupChange}
+                options={groupOptions}
+              />
+
+              {/* Selected Group details summary box if group is chosen */}
+              {newEnrollGroupId && (() => {
+                const grp = availableGroups.find(g => g.id === Number(newEnrollGroupId))
+                if (!grp) return null
+                return (
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-900 flex items-center justify-between font-medium animate-fade-in mt-2">
+                    <div>
+                      <span className="font-bold">{grp.name}</span>
+                      <p className="text-[11px] text-blue-700 mt-0.5">{lang === 'ar' ? 'السعر الشهري الإفتراضي:' : 'Tarif mensuel:'}</p>
+                    </div>
+                    <span className="text-sm font-bold text-[#2563EB] font-mono bg-white px-2.5 py-1 rounded-lg border border-blue-200 shadow-2xs">
+                      {grp.monthlyPrice.toLocaleString()} DA
+                    </span>
+                  </div>
+                )
+              })()}
             </div>
 
-            <div className="flex justify-end gap-2 mt-5">
-              <button onClick={() => setShowAddEnrollModal(false)} className="px-4 py-2 border border-border rounded-lg text-xs text-slate-600">{t('common.cancel')}</button>
+            {/* Reset Filters button if any filter is active */}
+            {(modalModule || modalTeacher || modalGroup) && (
+              <div className="flex justify-start">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setModalModule('')
+                    setModalTeacher('')
+                    setModalGroup('')
+                    setNewEnrollGroupId('')
+                  }}
+                  className="flex items-center gap-1 text-[11px] text-slate-500 hover:text-red-600 font-bold hover:underline"
+                >
+                  <RotateCcw size={12} />
+                  <span>{lang === 'ar' ? 'إعادة ضبط الخيارات' : 'Réinitialiser'}</span>
+                </button>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                onClick={() => setShowAddEnrollModal(false)}
+                className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-50"
+              >
+                {t('common.cancel')}
+              </button>
               <button
                 onClick={handleAddEnrollment}
                 disabled={savingEnroll || !newEnrollGroupId}
-                className="px-4 py-2 bg-[#2563EB] text-white rounded-lg text-xs font-semibold hover:bg-[#1D4ED8] disabled:opacity-60"
+                className="px-4 py-2 bg-[#2563EB] hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-colors shadow-xs"
               >
-                {savingEnroll ? t('common.saving') : t('common.save')}
+                {savingEnroll ? t('common.saving') : (lang === 'ar' ? 'حفظ التسجيل' : 'Enregistrer')}
               </button>
             </div>
           </div>
