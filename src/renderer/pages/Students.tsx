@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { Plus, Search, UserX, RotateCcw, X, ChevronDown, CheckCircle2, AlertCircle } from 'lucide-react'
 import type { PaginatedResult, Student, Course, Teacher, Group } from '@shared/types/index'
+import { getCourseName } from '../utils/format'
 
 const PAGE_SIZE = 20
 
@@ -133,7 +134,7 @@ export default function Students() {
   }, [])
 
   // Helper getters
-  const getCourseName = useCallback((c: Course) => (lang === 'ar' ? c.nameAr || c.nameFr : c.nameFr || c.nameAr), [lang])
+  const getCourseNameHelper = useCallback((c: Course) => getCourseName(c, lang), [lang])
   const getTeacherName = useCallback((t: Teacher) => {
     const fullName = `${t.lastName ?? ''} ${t.firstName ?? ''}`.trim()
     return fullName || `Prof #${t.id}`
@@ -350,7 +351,7 @@ export default function Students() {
               statusFilter === 'all' ? 'bg-[#2563EB] text-white' : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
-            {lang === 'ar' ? 'الكل' : 'Tous'}
+            {t('common.all')}
           </button>
           <button
             onClick={() => { setStatusFilter('paid'); setPage(1); }}
@@ -359,7 +360,7 @@ export default function Students() {
             }`}
           >
             <CheckCircle2 size={13} />
-            {lang === 'ar' ? 'خالص (بدون ديون)' : 'Payé (Sans dette)'}
+            {t('students.paidNoDebt')}
           </button>
           <button
             onClick={() => { setStatusFilter('in_debt'); setPage(1); }}
@@ -368,7 +369,7 @@ export default function Students() {
             }`}
           >
             <AlertCircle size={13} />
-            {lang === 'ar' ? 'عليه ديون' : 'En dette'}
+            {t('students.inDebt')}
           </button>
           <button
             onClick={() => { setStatusFilter('archived'); setPage(1); }}
@@ -393,22 +394,22 @@ export default function Students() {
       <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-2xs space-y-2">
         <div className="flex flex-wrap items-center gap-3">
           <FilterCombobox
-            label={lang === 'ar' ? 'المادة' : 'Module'}
-            placeholder={lang === 'ar' ? 'فلترة حسب المادة...' : 'Filtrer par module...'}
+            label={t('students.moduleFilter')}
+            placeholder={t('students.filterModulePlaceholder')}
             value={selectedModule}
             onChange={handleModuleChange}
             options={moduleOptions}
           />
           <FilterCombobox
-            label={lang === 'ar' ? 'الأستاذ' : 'Enseignant'}
-            placeholder={lang === 'ar' ? 'فلترة حسب الأستاذ...' : 'Filtrer par enseignant...'}
+            label={t('students.teacherFilter')}
+            placeholder={t('students.filterTeacherPlaceholder')}
             value={selectedTeacher}
             onChange={handleTeacherChange}
             options={teacherOptions}
           />
           <FilterCombobox
-            label={lang === 'ar' ? 'الفوج' : 'Groupe'}
-            placeholder={lang === 'ar' ? 'فلترة حسب الفوج...' : 'Filtrer par groupe...'}
+            label={t('students.groupFilter')}
+            placeholder={t('students.filterGroupPlaceholder')}
             value={selectedGroup}
             onChange={handleGroupChange}
             options={groupOptions}
@@ -418,10 +419,10 @@ export default function Students() {
             <button
               onClick={handleResetFilters}
               className="flex items-center gap-1 px-3 py-2 text-xs font-bold text-slate-500 hover:text-red-600 transition-colors hover:bg-red-50 rounded-xl border border-slate-200 shrink-0"
-              title={lang === 'ar' ? 'إعادة ضبط الفلاتر' : 'Réinitialiser'}
+              title={t('students.resetFiltersTitle')}
             >
               <RotateCcw size={12} />
-              <span>{lang === 'ar' ? 'إعادة ضبط' : 'Réinitialiser'}</span>
+              <span>{t('students.resetFilters')}</span>
             </button>
           )}
         </div>
@@ -457,9 +458,9 @@ export default function Students() {
                   <th className="text-start px-4 py-3 font-semibold">{t('students.studentNumber')}</th>
                   <th className="text-start px-4 py-3 font-semibold">{t('students.lastNameAr')} / {t('students.firstNameAr')}</th>
                   <th className="text-start px-4 py-3 font-semibold hidden md:table-cell">{t('students.lastNameFr')}</th>
-                  <th className="text-start px-4 py-3 font-semibold hidden sm:table-cell">{lang === 'ar' ? 'الأفواج المسجل فيها' : 'Groupes'}</th>
+                  <th className="text-start px-4 py-3 font-semibold hidden sm:table-cell">{t('students.enrolledGroups')}</th>
                   <th className="text-start px-4 py-3 font-semibold hidden lg:table-cell">{t('students.phone')}</th>
-                  <th className="text-start px-4 py-3 font-semibold">{lang === 'ar' ? 'حالة الدفع / الديون' : 'Statut Paiement'}</th>
+                  <th className="text-start px-4 py-3 font-semibold">{t('students.paymentStatusHeader')}</th>
                   <th className="px-4 py-3" />
                 </tr>
               </thead>
@@ -495,12 +496,12 @@ export default function Students() {
                         {isDebt ? (
                           <span className="inline-flex items-center gap-1 text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-red-100 text-red-700 border border-red-200">
                             <AlertCircle size={11} />
-                            {lang === 'ar' ? `عليه ديون (${absDebt.toLocaleString()} دج)` : `En dette (${absDebt.toLocaleString()} DA)`}
+                            {t('students.inDebtWithAmount', { amount: absDebt.toLocaleString() })}
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
                             <CheckCircle2 size={11} />
-                            {lang === 'ar' ? 'خالص (0 دج ديون)' : 'Payé (0 DA dette)'}
+                            {t('students.paidZeroDebt')}
                           </span>
                         )}
                       </td>

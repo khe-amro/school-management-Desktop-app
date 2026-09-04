@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Plus, Pencil, Archive, Camera, RefreshCw, BookOpen, Filter } from 'lucide-react'
 import type { Teacher, Course } from '@shared/types/index'
+import { getCourseName } from '../utils/format'
 
 function TeacherAvatar({ teacher, onUpload, title }: { teacher: Teacher; onUpload: () => void; title: string }) {
   const [url, setUrl] = useState<string | null>(null)
@@ -36,7 +37,7 @@ function TeacherAvatar({ teacher, onUpload, title }: { teacher: Teacher; onUploa
 
 export default function Teachers() {
   const { t, i18n } = useTranslation()
-  const lang = i18n.language as 'ar' | 'fr' | 'en'
+  const lang = i18n.language
   const [teachers, setTeachers] = useState<Teacher[]>([])
   const [courses, setCourses] = useState<Course[]>([])
   const [loading, setLoading] = useState(true)
@@ -91,7 +92,7 @@ export default function Teachers() {
       return
     }
     if (!form.courseId) {
-      setError(lang === 'ar' ? 'يرجى اختيار المادة التي يدرّسها الأستاذ' : 'Veuillez sélectionner le module enseigné')
+      setError(t('teachers.selectModuleRequired'))
       return
     }
 
@@ -133,7 +134,7 @@ export default function Teachers() {
   }
 
   const handleRestore = async (id: number) => {
-    if (!window.confirm(lang === 'ar' ? 'هل تريد استعادة وتفعيل هذا الأستاذ؟' : 'Voulez-vous restaurer et réactiver cet enseignant ?')) return
+    if (!window.confirm(t('teachers.restoreConfirm'))) return
     await window.schoolApp.teachers.update(id, { status: 'active' } as any)
     await load()
   }
@@ -146,7 +147,7 @@ export default function Teachers() {
         <div>
           <h2 className="text-lg font-bold text-[#0F172A]">{t('nav.teachers')}</h2>
           <p className="text-xs text-slate-400">
-            {lang === 'ar' ? 'إدارة قائمة التدريس وتحديد المادة المخصصة لكل أستاذ' : t('teachers.subtitle')}
+            {t('teachers.subtitle')}
           </p>
         </div>
         <button onClick={openCreate} className="flex items-center gap-2 bg-[#2563EB] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#1D4ED8] transition-colors shadow-xs">
@@ -167,7 +168,7 @@ export default function Teachers() {
                   : 'bg-white border border-border text-slate-600 hover:bg-slate-50'
               }`}
             >
-              {s === 'all' ? (lang === 'ar' ? 'الكل' : 'Tous') : s === 'active' ? t('teachers.active') : (lang === 'ar' ? 'المؤرشفون' : t('students.archived'))}
+              {s === 'all' ? t('common.all') : s === 'active' ? t('teachers.active') : t('teachers.archived')}
             </button>
           ))}
         </div>
@@ -180,10 +181,10 @@ export default function Teachers() {
             onChange={(e) => setCourseFilter(e.target.value)}
             className="text-xs border border-border rounded-lg px-3 py-1.5 font-medium bg-white focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20"
           >
-            <option value="">{lang === 'ar' ? 'جميع المواد (Modules)' : 'Tous les modules'}</option>
+            <option value="">{t('teachers.allModules')}</option>
             {courses.map((c) => (
               <option key={c.id} value={c.id}>
-                {lang === 'ar' ? c.nameAr : c.nameFr}
+                {getCourseName(c, lang)}
               </option>
             ))}
           </select>
@@ -199,7 +200,7 @@ export default function Teachers() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {teachers.map((teacher) => {
-            const courseTitle = (lang === 'ar' ? teacher.courseNameAr || teacher.courseNameFr : teacher.courseNameFr || teacher.courseNameAr) || (lang === 'ar' ? 'غير محدد' : 'Non spécifié')
+            const courseTitle = getCourseName({ nameAr: teacher.courseNameAr, nameFr: teacher.courseNameFr }, lang) || t('teachers.unspecified')
 
             return (
               <div key={teacher.id} className="bg-white rounded-xl border border-border p-5 hover:shadow-md transition-shadow flex flex-col justify-between">
@@ -221,7 +222,7 @@ export default function Teachers() {
                       teacher.status === 'inactive' ? 'bg-amber-100 text-amber-700' :
                       'bg-slate-100 text-slate-500'
                     }`}>
-                      {teacher.status === 'active' ? t('teachers.active') : teacher.status === 'inactive' ? t('teachers.inactive') : t('students.archived')}
+                      {teacher.status === 'active' ? t('teachers.active') : teacher.status === 'inactive' ? t('teachers.inactive') : t('teachers.archived')}
                     </span>
                   </div>
 
@@ -229,7 +230,7 @@ export default function Teachers() {
                   <div className="my-2.5">
                     <span className="inline-flex items-center gap-1.5 text-xs bg-blue-50 border border-blue-200 text-[#2563EB] px-2.5 py-1 rounded-lg font-bold">
                       <BookOpen size={13} />
-                      <span>{lang === 'ar' ? `المادة: ${courseTitle}` : `Module: ${courseTitle}`}</span>
+                      <span>{t('teachers.moduleLabel', { name: courseTitle })}</span>
                     </span>
                   </div>
                 </div>
@@ -240,7 +241,7 @@ export default function Teachers() {
                   </button>
                   {teacher.status === 'archived' ? (
                     <button onClick={() => handleRestore(teacher.id)} className="flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-700 transition-colors ms-auto font-semibold">
-                      <RefreshCw size={11} /> {lang === 'ar' ? 'استعادة' : 'Restaurer'}
+                      <RefreshCw size={11} /> {t('teachers.restore')}
                     </button>
                   ) : (
                     <button onClick={() => handleArchive(teacher.id)} className="flex items-center gap-1 text-xs text-slate-500 hover:text-red-500 transition-colors ms-auto">
@@ -264,24 +265,22 @@ export default function Teachers() {
               {/* Mandatory Module Selection */}
               <div>
                 <label className="block text-xs font-bold text-[#0F172A] mb-1">
-                  {lang === 'ar' ? 'المادة التي يدرّسها الأستاذ *' : 'Module enseigné *'}
+                  {t('teachers.assignedModule')}
                 </label>
                 <select
                   className={inputCls}
                   value={form.courseId}
                   onChange={(e) => setForm((f) => ({ ...f, courseId: e.target.value }))}
                 >
-                  <option value="">-- {lang === 'ar' ? 'اختر المادة (Module)' : 'Sélectionnez un module'} --</option>
+                  <option value="">{t('teachers.selectModulePlaceholder')}</option>
                   {courses.map((c) => (
                     <option key={c.id} value={c.id}>
-                      {lang === 'ar' ? c.nameAr : c.nameFr}
+                      {getCourseName(c, lang)}
                     </option>
                   ))}
                 </select>
                 <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 p-2.5 rounded-lg mt-1.5 leading-tight">
-                  💡 {lang === 'ar'
-                    ? 'كل أستاذ مرتبط بمادة واحدة محددة. إذا كان الأستاذ يدرّس أكثر من مادة، أنشئ ملفاً مستقلاً لكل مادة.'
-                    : 'Chaque profil est lié à un seul module. Si un enseignant enseigne plusieurs modules, créez un profil pour chaque module.'}
+                  💡 {t('teachers.singleModuleNotice')}
                 </p>
               </div>
 

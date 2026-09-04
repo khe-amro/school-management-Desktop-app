@@ -8,6 +8,7 @@ import {
   Plus, AlertCircle, ArrowRightLeft, X, Check, ChevronDown, RotateCcw, AlertTriangle
 } from 'lucide-react'
 import type { Student, Payment, Group, Course, Teacher } from '@shared/types/index'
+import { getCourseName, formatCurrency } from '../utils/format'
 import QRCode from 'qrcode'
 
 // Convert Eastern Arabic numerals (٠-٩) and Persian numerals (۰-۹) to standard ASCII (0-9)
@@ -292,7 +293,7 @@ export default function StudentProfile() {
   }, [activeTab, student, loadEnrollmentsWithBalances, loadSessionHistory])
 
   // ─── Cascaded Combobox Options & Auto-fill Logic for Enrollment Modal ────────
-  const getCourseName = useCallback((c: Course) => (lang === 'ar' ? c.nameAr || c.nameFr : c.nameFr || c.nameAr), [lang])
+  const getCourseNameHelper = useCallback((c: Course) => getCourseName(c, lang), [lang])
 
   const getTeacherName = useCallback((t: Teacher) => {
     const fullName = `${t.lastName ?? ''} ${t.firstName ?? ''}`.trim()
@@ -303,11 +304,11 @@ export default function StudentProfile() {
   const moduleOptions = useMemo(() => {
     const set = new Set<string>()
     availableCourses.forEach(c => {
-      const name = getCourseName(c)
+      const name = getCourseNameHelper(c)
       if (name) set.add(name)
     })
     return Array.from(set).sort()
-  }, [availableCourses, getCourseName])
+  }, [availableCourses, getCourseNameHelper])
 
   // Teachers list (filtered by modalModule if selected)
   const teacherOptions = useMemo(() => {
@@ -481,8 +482,8 @@ export default function StudentProfile() {
   const handleToggleEnrollmentStatus = async (enrollId: number, currentStatus: string) => {
     const nextStatus = currentStatus === 'active' ? 'inactive' : 'active'
     const confirmMsg = nextStatus === 'inactive'
-      ? (lang === 'ar' ? 'هل تريد تعليق تسجيل الطالب في هذه المادة (غير نشط)؟ لن يتم اقتطاع الرصيد عند تسجيل غيابه أو حضوره.' : 'Désactiver cette inscription ?')
-      : (lang === 'ar' ? 'هل تريد إعادة تفعيل تسجيل الطالب في هذه المادة؟' : 'Réactiver cette inscription ?')
+      ? t('students.suspendConfirm')
+      : t('students.reactivateConfirm')
     if (!window.confirm(confirmMsg)) return
 
     await window.schoolApp.enrollments.update(enrollId, { status: nextStatus })
@@ -499,7 +500,7 @@ export default function StudentProfile() {
         await loadEnrollmentsWithBalances(student.id)
       }
     } catch (err: any) {
-      alert(err?.message ?? 'Erreur de mise à jour')
+      alert(err?.message ?? t('common.error'))
     }
   }
 
@@ -510,7 +511,7 @@ export default function StudentProfile() {
     try {
       const selectedGrp = availableGroups.find((g) => g.id === Number(newEnrollGroupId))
       if (!selectedGrp) {
-        alert(lang === 'ar' ? 'يرجى اختيار الفوج أولاً' : 'Veuillez sélectionner un groupe')
+        alert(t('students.selectGroupFirst'))
         return
       }
 
@@ -575,9 +576,9 @@ export default function StudentProfile() {
       const payListRes = await window.schoolApp.payments.byStudent(student.id)
       if (payListRes.success && payListRes.data) setPayments(payListRes.data)
 
-      alert(lang === 'ar' ? 'تم تحويل الرصيد وتسجيل الدفعة بنجاح!' : 'Transfert de crédit enregistré avec succès !')
+      alert(t('students.transferSuccess'))
     } catch (err: any) {
-      alert(err?.message ?? 'Erreur lors du transfert')
+      alert(err?.message ?? t('common.error'))
     } finally {
       setSavingTransfer(false)
     }
@@ -586,7 +587,7 @@ export default function StudentProfile() {
   if (loading) {
     return (
       <div className="flex justify-center py-20">
-        <div className="w-7 h-7 border-2 border-[#2563EB] border-t-transparent rounded-full animate-spin" />
+        <div className="w-7 h-7 border-2 border-[#2563EB] border-[#2563EB] border-t-transparent rounded-full animate-spin" />
       </div>
     )
   }
@@ -598,8 +599,8 @@ export default function StudentProfile() {
   const initials = student.firstNameAr.charAt(0) + student.lastNameAr.charAt(0)
 
   const tabs: { key: Tab; label: string }[] = [
-    { key: 'overview', label: lang === 'ar' ? 'نظرة عامة' : 'Vue d\'ensemble' },
-    { key: 'attendance', label: lang === 'ar' ? 'سجل الحضور والدروس' : 'Historique des cours' },
+    { key: 'overview', label: t('students.overview') },
+    { key: 'attendance', label: t('students.courseHistory') },
     { key: 'payments', label: t('nav.payments') },
     { key: 'enrollments', label: t('students.enrollments') },
     { key: 'notes', label: t('common.notes') },
@@ -642,7 +643,7 @@ export default function StudentProfile() {
           <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
             <div className="flex flex-col items-center">
               {/* Photo */}
-              <div className="relative group cursor-pointer mb-3" onClick={handleChangePhoto} title={lang === 'ar' ? 'تغيير الصورة' : 'Changer la photo'}>
+              <div className="relative group cursor-pointer mb-3" onClick={handleChangePhoto} title={t('students.changePhoto')}>
                 <div className="w-20 h-20 rounded-full overflow-hidden bg-[#EFF6FF] border-2 border-[#2563EB]/20 flex items-center justify-center text-[#2563EB] font-bold text-xl shadow-xs">
                   {photoUrl ? (
                     <img src={photoUrl} alt="" className="w-full h-full object-cover" />
@@ -668,12 +669,12 @@ export default function StudentProfile() {
                   {isStudentInDebt ? (
                     <span className="text-xs px-3 py-1 rounded-full font-bold bg-red-100 text-red-700 border border-red-200 flex items-center gap-1">
                       <AlertCircle size={12} />
-                      {lang === 'ar' ? `عليه ديون (${Math.abs(totalNetBalance).toLocaleString()} دج)` : `En dette (${Math.abs(totalNetBalance).toLocaleString()} DA)`}
+                      {t('students.inDebtWithAmount', { amount: Math.abs(totalNetBalance).toLocaleString() })}
                     </span>
                   ) : (
                     <span className="text-xs px-3 py-1 rounded-full font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
                       <CheckCircle2 size={12} />
-                      {lang === 'ar' ? 'خالص (0 دج ديون)' : 'Payé (0 DA dette)'}
+                      {t('students.paidZeroDebt')}
                     </span>
                   )}
                 </div>
@@ -735,7 +736,7 @@ export default function StudentProfile() {
           {(student.guardianName || student.guardianPhone) && (
             <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
               <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3 flex items-center gap-2">
-                <Shield size={12} /> {lang === 'ar' ? 'ولي الأمر' : 'Tuteur / Parent'}
+                <Shield size={12} /> {t('students.guardianLabel')}
               </h3>
               {student.guardianName && (
                 <div className="mb-2">
@@ -762,22 +763,22 @@ export default function StudentProfile() {
           {student.status === 'archived' ? (
             <div className="bg-white rounded-xl border border-emerald-200 p-4 bg-emerald-50/40 shadow-xs">
               <h3 className="text-xs font-bold text-emerald-700 uppercase tracking-wide mb-2 flex items-center gap-2">
-                <CheckCircle2 size={13} /> {lang === 'ar' ? 'استعادة الطالب' : 'Restaurer l\'étudiant'}
+                <CheckCircle2 size={13} /> {t('students.restoreStudent')}
               </h3>
               <p className="text-xs text-slate-600 mb-3">
-                {lang === 'ar' ? 'هذا الطالب مؤرشف حالياً. يمكنك استعادته لتفعيل بطاقته واستئناف التسجيلات.' : 'Cet étudiant est archivé. Restaurez-le pour réactiver sa carte QR et ses inscriptions.'}
+                {t('students.archivedNotice')}
               </p>
               <button
                 onClick={handleRestore}
                 className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 transition-colors shadow-xs"
               >
-                <RefreshCw size={13} /> {lang === 'ar' ? 'استعادة وتفعيل' : 'Restaurer l\'étudiant'}
+                <RefreshCw size={13} /> {t('students.restoreAndActivate')}
               </button>
             </div>
           ) : (
             <div className="bg-white rounded-xl border border-red-100 p-4 shadow-xs">
               <h3 className="text-xs font-semibold text-red-400 uppercase tracking-wide mb-3 flex items-center gap-2">
-                <AlertCircle size={12} /> {lang === 'ar' ? 'منطقة الحظر / الأرشفة' : 'Zone d\'archivage'}
+                <AlertCircle size={12} /> {t('students.archiveDangerZone')}
               </h3>
               <button
                 onClick={handleArchive}
@@ -824,12 +825,12 @@ export default function StudentProfile() {
                           <BookOpen size={14} className="text-[#2563EB]" />
                           <span>{t('courses.groups')}</span>
                         </div>
-                        <p className="text-xl font-bold text-[#0F172A]">{enrollments.filter(e => e.status === 'active').length} {lang === 'ar' ? 'فوج نشط' : 'actif(s)'}</p>
+                        <p className="text-xl font-bold text-[#0F172A]">{t('students.activeGroupsCount', { count: enrollments.filter(e => e.status === 'active').length })}</p>
                       </div>
                       <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
                         <div className="flex items-center gap-2 text-slate-500 text-xs mb-1">
                           <CreditCard size={14} className="text-emerald-500" />
-                          <span>{lang === 'ar' ? 'المجموع الشهري' : 'Total mensuel'}</span>
+                          <span>{t('students.monthlyTotal')}</span>
                         </div>
                         <p className="text-xl font-bold text-emerald-600">
                           {enrollments.filter(e => e.status === 'active').reduce((acc, e) => acc + (e.agreedPrice || 0), 0).toLocaleString()} DA
@@ -838,9 +839,9 @@ export default function StudentProfile() {
                     </div>
 
                     <div>
-                      <h4 className="font-bold text-sm text-[#0F172A] mb-3">{lang === 'ar' ? 'التسجيلات ورصيد المواد' : 'Inscriptions & Solde par cours'}</h4>
+                      <h4 className="font-bold text-sm text-[#0F172A] mb-3">{t('students.enrollmentsAndBalances')}</h4>
                       {enrollments.length === 0 ? (
-                        <p className="text-xs text-slate-400 italic py-3">{lang === 'ar' ? 'لا توجد تسجيلات بعد' : 'Aucune inscription active'}</p>
+                        <p className="text-xs text-slate-400 italic py-3">{t('students.noEnrollmentsYet')}</p>
                       ) : (
                         <div className="space-y-2.5">
                           {enrollments.map((enr) => {
@@ -857,23 +858,23 @@ export default function StudentProfile() {
                                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
                                       isEnrActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'
                                     }`}>
-                                      {isEnrActive ? (lang === 'ar' ? 'نشط' : 'Actif') : (lang === 'ar' ? 'غير نشط' : 'Inactif')}
+                                      {isEnrActive ? t('teachers.active') : t('teachers.inactive')}
                                     </span>
                                   </div>
-                                  <p className="text-slate-400 mt-0.5">{enr.enrollmentDate} · {enr.agreedPrice.toLocaleString()} DA / {lang === 'ar' ? 'شهر' : 'mois'}</p>
+                                  <p className="text-slate-400 mt-0.5">{enr.enrollmentDate} · {enr.agreedPrice.toLocaleString()} DA / {t('students.perMonth')}</p>
                                 </div>
                                 <div className="text-end">
                                   {bal < 0 ? (
                                     <span className="font-bold text-red-600 text-sm block">
-                                      {lang === 'ar' ? `ديون: ${Math.abs(bal).toLocaleString()} دج` : `Dette: ${Math.abs(bal).toLocaleString()} DA`}
+                                      {t('students.inDebtWithAmount', { amount: Math.abs(bal).toLocaleString() })}
                                     </span>
                                   ) : (
                                     <span className="font-bold text-emerald-600 text-sm block">
-                                      {lang === 'ar' ? `الرصيد: +${bal.toLocaleString()} دج` : `Solde: +${bal.toLocaleString()} DA`}
+                                      +{formatCurrency(bal, lang)}
                                     </span>
                                   )}
                                   <span className="text-[11px] text-slate-500 font-medium">
-                                    {bal >= 0 ? `${remSessions} ${lang === 'ar' ? 'حصص متبقية' : 'séances'}` : `${Math.abs(remSessions)} ${lang === 'ar' ? 'حصص دين' : 'séances dues'}`}
+                                    {remSessions} séances
                                   </span>
                                 </div>
                               </div>
@@ -890,15 +891,15 @@ export default function StudentProfile() {
                   <div className="space-y-4">
                     <div className="flex justify-between items-center">
                       <div>
-                        <h4 className="font-bold text-sm text-[#0F172A]">{lang === 'ar' ? 'سجل الحضور والدروس' : 'Historique des séances'}</h4>
+                        <h4 className="font-bold text-sm text-[#0F172A]">{t('students.sessionHistory')}</h4>
                         <p className="text-xs text-slate-400 mt-0.5">
-                          {lang === 'ar' ? 'عرض وتعديل حالة الطالب في جميع الحصص (تغيير الحالة إلى "غير نشط" يعيد اقتطاع الحصة)' : 'Modifier le statut de la séance'}
+                          {t('students.sessionHistorySubtitle')}
                         </p>
                       </div>
                       <button
                         onClick={() => student && loadSessionHistory(student.id)}
                         className="p-1.5 text-slate-400 hover:text-[#2563EB] hover:bg-slate-100 rounded-lg transition-colors"
-                        title={lang === 'ar' ? 'تحديث السجل' : 'Rafraîchir'}
+                        title={t('common.refresh')}
                       >
                         <RefreshCw size={14} />
                       </button>
@@ -907,7 +908,7 @@ export default function StudentProfile() {
                     {sessionHistory.length === 0 ? (
                       <div className="text-center py-12 text-slate-400">
                         <Clock size={36} className="mx-auto mb-2 opacity-30" />
-                        <p className="text-sm font-medium">{lang === 'ar' ? 'لا توجد حصص مسجلة بعد لهذا الطالب' : 'Aucune séance enregistrée'}</p>
+                        <p className="text-sm font-medium">{t('students.noSessionsRecorded')}</p>
                       </div>
                     ) : (
                       <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
@@ -915,10 +916,10 @@ export default function StudentProfile() {
                           <table className="w-full text-xs">
                             <thead>
                               <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase">
-                                <th className="text-start px-3 py-2.5">{lang === 'ar' ? 'التاريخ والوقت' : 'Date & heure'}</th>
-                                <th className="text-start px-3 py-2.5">{lang === 'ar' ? 'المادة والفوج' : 'Cours & Groupe'}</th>
-                                <th className="text-start px-3 py-2.5">{lang === 'ar' ? 'الأستاذ' : 'Enseignant'}</th>
-                                <th className="text-start px-3 py-2.5">{lang === 'ar' ? 'حالة الطالب في الحصة' : 'Statut dans la séance'}</th>
+                                <th className="text-start px-3 py-2.5">{t('attendance.dateTime')}</th>
+                                <th className="text-start px-3 py-2.5">{t('students.courseAndGroup')}</th>
+                                <th className="text-start px-3 py-2.5">{t('students.teacher')}</th>
+                                <th className="text-start px-3 py-2.5">{t('students.statusInSession')}</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
@@ -946,7 +947,7 @@ export default function StudentProfile() {
                                               : 'bg-slate-100 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700'
                                           }`}
                                         >
-                                          {lang === 'ar' ? 'حاضر' : 'Présent'}
+                                          {t('attendance.present')}
                                         </button>
 
                                         <button
@@ -957,7 +958,7 @@ export default function StudentProfile() {
                                               : 'bg-slate-100 text-slate-600 hover:bg-amber-50 hover:text-amber-700'
                                           }`}
                                         >
-                                          {lang === 'ar' ? 'متأخر' : 'En retard'}
+                                          {t('attendance.late')}
                                         </button>
 
                                         <button
@@ -968,7 +969,7 @@ export default function StudentProfile() {
                                               : 'bg-slate-100 text-slate-600 hover:bg-red-50 hover:text-red-700'
                                           }`}
                                         >
-                                          {lang === 'ar' ? 'غائب' : 'Absent'}
+                                          {t('attendance.absent')}
                                         </button>
 
                                         <button
@@ -978,9 +979,9 @@ export default function StudentProfile() {
                                               ? 'bg-slate-700 text-white shadow-xs'
                                               : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
                                           }`}
-                                          title={lang === 'ar' ? 'غير نشط في هذا الدرس (يعيد اقتطاع الرصيد)' : 'Non actif (rembourse le crédit)'}
+                                          title={t('students.notActiveSessionTooltip')}
                                         >
-                                          {lang === 'ar' ? 'غير نشط' : 'Non actif'}
+                                          {t('teachers.inactive')}
                                         </button>
                                       </div>
                                     </td>
@@ -1046,19 +1047,19 @@ export default function StudentProfile() {
                         onClick={handleOpenAddEnrollModal}
                         className="flex items-center gap-1.5 px-3 py-1.5 bg-[#2563EB] text-white rounded-lg text-xs font-semibold hover:bg-[#1D4ED8] transition-colors shadow-xs"
                       >
-                        <Plus size={13} /> {lang === 'ar' ? 'إضافة تسجيل في فوج' : 'Inscrire à un groupe'}
+                        <Plus size={13} /> {t('students.addEnrollmentToGroup')}
                       </button>
                     </div>
 
                     {enrollments.length === 0 ? (
                       <div className="text-center py-12 text-slate-400">
                         <BookOpen size={36} className="mx-auto mb-2 opacity-30" />
-                        <p className="text-sm font-medium">{lang === 'ar' ? 'لا توجد أي تسجيلات' : 'Aucune inscription'}</p>
+                        <p className="text-sm font-medium">{t('students.noEnrollmentsYet')}</p>
                         <button
                           onClick={handleOpenAddEnrollModal}
                           className="mt-3 text-xs text-[#2563EB] hover:underline font-semibold"
                         >
-                          + {lang === 'ar' ? 'تسجيل في أول فوج' : 'Inscrire au premier groupe'}
+                          + {t('students.enrollInFirstGroup')}
                         </button>
                       </div>
                     ) : (
@@ -1096,14 +1097,14 @@ export default function StudentProfile() {
                                         : 'bg-slate-200 text-slate-600'
                                     }`}>
                                       {isActive
-                                        ? (lang === 'ar' ? 'نشط في المادة' : 'Actif')
+                                        ? t('students.activeInModule')
                                         : isInactive
-                                        ? (lang === 'ar' ? 'غير نشط (متوقف)' : 'Inactif')
+                                        ? t('students.inactiveSuspended')
                                         : t('students.inactive')}
                                     </span>
                                   </div>
                                   <p className="text-xs text-slate-500 mt-1">
-                                    {t('courses.monthlyPrice')}: <span className="font-bold text-[#0F172A]">{enroll.agreedPrice.toLocaleString()} DA</span> / {lang === 'ar' ? 'شهر' : 'mois'}
+                                    {t('courses.monthlyPrice')}: <span className="font-bold text-[#0F172A]">{enroll.agreedPrice.toLocaleString()} DA</span> / {t('students.perMonth')}
                                   </p>
                                   <p className="text-[11px] text-slate-400 mt-0.5">
                                     {t('students.registrationDate')}: {enroll.enrollmentDate}
@@ -1114,13 +1115,13 @@ export default function StudentProfile() {
                                 <div className="text-end">
                                   {bal < 0 ? (
                                     <div className="bg-red-100 border border-red-200 text-red-700 px-3 py-1 rounded-xl text-end">
-                                      <span className="font-extrabold text-xs block">{lang === 'ar' ? `ديون: ${Math.abs(bal).toLocaleString()} دج` : `Dette: ${Math.abs(bal).toLocaleString()} DA`}</span>
-                                      <span className="text-[10px] font-medium text-red-600">{Math.abs(remSessions)} {lang === 'ar' ? 'حصص دين' : 'séances'}</span>
+                                      <span className="font-extrabold text-xs block">{t('students.inDebtWithAmount', { amount: Math.abs(bal).toLocaleString() })}</span>
+                                      <span className="text-[10px] font-medium text-red-600">{Math.abs(remSessions)} séances</span>
                                     </div>
                                   ) : (
                                     <div className="bg-emerald-100 border border-emerald-200 text-emerald-800 px-3 py-1 rounded-xl text-end">
-                                      <span className="font-extrabold text-xs block">{lang === 'ar' ? `الرصيد: +${bal.toLocaleString()} دج` : `Solde: +${bal.toLocaleString()} DA`}</span>
-                                      <span className="text-[10px] font-medium text-emerald-700">{remSessions} {lang === 'ar' ? 'حصص متبقية' : 'séances'}</span>
+                                      <span className="font-extrabold text-xs block">+{formatCurrency(bal, lang)}</span>
+                                      <span className="text-[10px] font-medium text-emerald-700">{remSessions} séances</span>
                                     </div>
                                   )}
                                 </div>
@@ -1138,9 +1139,9 @@ export default function StudentProfile() {
                                       setTransferCloseSource(true)
                                     }}
                                     className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-500 text-white rounded text-xs font-semibold hover:bg-amber-600 transition-colors shadow-xs"
-                                    title={lang === 'ar' ? 'تحويل رصيد متبقي إلى مادة/فوج آخر' : 'Transférer le solde vers un autre cours'}
+                                    title={t('students.transferCreditTooltip')}
                                   >
-                                    <ArrowRightLeft size={12} /> {lang === 'ar' ? 'تحويل رصيد لمادة أخرى' : 'Transférer solde'}
+                                    <ArrowRightLeft size={12} /> {t('students.transferBalanceToAnother')}
                                   </button>
                                 )}
 
@@ -1154,9 +1155,9 @@ export default function StudentProfile() {
                                   }`}
                                 >
                                   {isActive ? (
-                                    <><AlertTriangle size={12} /> {lang === 'ar' ? 'تغيير إلى غير نشط' : 'Marquer inactif'}</>
+                                    <><AlertTriangle size={12} /> {t('students.markInactive')}</>
                                   ) : (
-                                    <><Check size={12} /> {lang === 'ar' ? 'تفعيل التسجيل' : 'Réactiver'}</>
+                                    <><Check size={12} /> {t('students.reactivateEnrollment')}</>
                                   )}
                                 </button>
                               </div>
@@ -1233,15 +1234,15 @@ export default function StudentProfile() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowAddEnrollModal(false)}>
           <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fade-in space-y-4" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center pb-2 border-b border-slate-100">
-              <h3 className="font-bold text-[#0F172A] text-base">{lang === 'ar' ? 'تسجيل في فوج جديد' : 'Nouvelle inscription à un groupe'}</h3>
+              <h3 className="font-bold text-[#0F172A] text-base">{t('students.enrollInNewGroup')}</h3>
               <button onClick={() => setShowAddEnrollModal(false)} className="text-slate-400 hover:text-slate-600 p-1"><X size={18} /></button>
             </div>
 
             <div className="space-y-3">
               {/* 1. Module Filter (Choose + Search) */}
               <FilterCombobox
-                label={lang === 'ar' ? 'المادة (Module)' : 'Module'}
-                placeholder={lang === 'ar' ? 'ابحث أو اختر المادة...' : 'Module...'}
+                label={t('students.moduleFilter')}
+                placeholder={t('students.filterModulePlaceholder')}
                 value={modalModule}
                 onChange={handleModalModuleChange}
                 options={moduleOptions}
@@ -1249,8 +1250,8 @@ export default function StudentProfile() {
 
               {/* 2. Teacher Filter (Choose + Search) */}
               <FilterCombobox
-                label={lang === 'ar' ? 'الأستاذ (Enseignant)' : 'Enseignant'}
-                placeholder={lang === 'ar' ? 'ابحث أو اختر الأستاذ...' : 'Enseignant...'}
+                label={t('students.teacherFilter')}
+                placeholder={t('students.filterTeacherPlaceholder')}
                 value={modalTeacher}
                 onChange={handleModalTeacherChange}
                 options={teacherOptions}
@@ -1258,8 +1259,8 @@ export default function StudentProfile() {
 
               {/* 3. Group Filter (Choose + Search) */}
               <FilterCombobox
-                label={lang === 'ar' ? 'الفوج (Groupe) *' : 'Groupe *'}
-                placeholder={lang === 'ar' ? 'ابحث أو اختر الفوج...' : 'Groupe...'}
+                label={t('students.groupFilter')}
+                placeholder={t('students.filterGroupPlaceholder')}
                 value={modalGroup}
                 onChange={handleModalGroupChange}
                 options={groupOptions}
@@ -1273,7 +1274,7 @@ export default function StudentProfile() {
                   <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-900 flex items-center justify-between font-medium animate-fade-in mt-2">
                     <div>
                       <span className="font-bold">{grp.name}</span>
-                      <p className="text-[11px] text-blue-700 mt-0.5">{lang === 'ar' ? 'السعر الشهري الإفتراضي:' : 'Tarif mensuel:'}</p>
+                      <p className="text-[11px] text-blue-700 mt-0.5">{t('courses.monthlyPrice')}:</p>
                     </div>
                     <span className="text-sm font-bold text-[#2563EB] font-mono bg-white px-2.5 py-1 rounded-lg border border-blue-200 shadow-2xs">
                       {grp.monthlyPrice.toLocaleString()} DA
@@ -1297,7 +1298,7 @@ export default function StudentProfile() {
                   className="flex items-center gap-1 text-[11px] text-slate-500 hover:text-red-600 font-bold hover:underline"
                 >
                   <RotateCcw size={12} />
-                  <span>{lang === 'ar' ? 'إعادة ضبط الخيارات' : 'Réinitialiser'}</span>
+                  <span>{t('students.resetOptions')}</span>
                 </button>
               </div>
             )}
@@ -1314,7 +1315,7 @@ export default function StudentProfile() {
                 disabled={savingEnroll || !newEnrollGroupId}
                 className="px-4 py-2 bg-[#2563EB] hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-colors shadow-xs"
               >
-                {savingEnroll ? t('common.saving') : (lang === 'ar' ? 'حفظ التسجيل' : 'Enregistrer')}
+                {savingEnroll ? t('common.saving') : t('common.save')}
               </button>
             </div>
           </div>
@@ -1328,7 +1329,7 @@ export default function StudentProfile() {
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-bold text-[#0F172A] flex items-center gap-2">
                 <ArrowRightLeft size={16} className="text-amber-500" />
-                {lang === 'ar' ? 'تحويل رصيد مالي بين المواد' : 'Transfert de solde / crédit'}
+                {t('students.transferCreditModalTitle')}
               </h3>
               <button onClick={() => setTransferModalSource(null)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
             </div>
@@ -1336,26 +1337,26 @@ export default function StudentProfile() {
             <div className="space-y-3.5 text-xs text-slate-700">
               {/* Source info */}
               <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
-                <p className="text-[11px] text-slate-400">{lang === 'ar' ? 'المادة المصدر (التي توقف عنها):' : 'Cours source :'}</p>
+                <p className="text-[11px] text-slate-400">{t('students.sourceCourse')}:</p>
                 <p className="font-bold text-[#0F172A] text-sm mt-0.5">
                   {transferModalSource.courseName ?? `Groupe #${transferModalSource.groupId}`}
                 </p>
                 <p className="text-slate-500 mt-0.5">
-                  {lang === 'ar' ? 'السعر الشهري:' : 'Prix convenu :'} {transferModalSource.agreedPrice.toLocaleString()} DA
+                  {t('courses.monthlyPrice')}: {transferModalSource.agreedPrice.toLocaleString()} DA
                 </p>
               </div>
 
               {/* Destination Enrollment */}
               <div>
                 <label className="block font-medium text-slate-600 mb-1">
-                  {lang === 'ar' ? 'المادة / الفوج المستقبل للرصيد *' : 'Cours / Groupe destinataire du crédit *'}
+                  {t('students.targetCourseGroup')} *
                 </label>
                 <select
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs bg-white"
                   value={transferTargetEnrollId}
                   onChange={(e) => setTransferTargetEnrollId(e.target.value)}
                 >
-                  <option value="">— {lang === 'ar' ? 'اختر الفوج المستقبل' : 'Sélectionner le groupe cible'} —</option>
+                  <option value="">— {t('students.selectTargetGroup')} —</option>
                   {enrollments
                     .filter(e => e.id !== transferModalSource.id && e.status === 'active')
                     .map((target) => (
@@ -1369,7 +1370,7 @@ export default function StudentProfile() {
               {/* Amount to transfer */}
               <div>
                 <label className="block font-medium text-slate-600 mb-1">
-                  {lang === 'ar' ? 'المبلغ المراد تحويله (دج) *' : 'Montant à transférer (DA) *'}
+                  {t('students.amountToTransfer')} *
                 </label>
                 <div className="relative">
                   <input
@@ -1400,7 +1401,7 @@ export default function StudentProfile() {
                       onClick={() => setTransferAmount(String(transferModalSource.agreedPrice || 0))}
                       className="px-2 py-0.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded font-bold transition-colors"
                     >
-                      {lang === 'ar' ? 'المبلغ كاملاً' : 'Total'} ({transferModalSource.agreedPrice} DA)
+                      {t('students.fullAmount')} ({transferModalSource.agreedPrice} DA)
                     </button>
                   )}
                 </div>
@@ -1415,20 +1416,20 @@ export default function StudentProfile() {
                   className="rounded text-[#2563EB] focus:ring-0"
                 />
                 <span className="text-slate-700">
-                  {lang === 'ar' ? 'إلغاء/إنهاء تسجيل الطالب في المادة السابقة' : 'Arrêter / clôturer l\'inscription au cours source'}
+                  {t('students.closeSourceGroupCheckbox')}
                 </span>
               </label>
 
               {/* Notes */}
               <div>
                 <label className="block font-medium text-slate-600 mb-1">
-                  {lang === 'ar' ? 'ملاحظة أو سبب التحويل (اختياري)' : 'Motif du transfert (Optionnel)'}
+                  {t('students.transferReasonLabel')}
                 </label>
                 <input
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs bg-white"
                   value={transferReason}
                   onChange={(e) => setTransferReason(e.target.value)}
-                  placeholder={lang === 'ar' ? 'مثال: توقف عن دراسة الرياضيات بعد أسبوعين' : 'Ex: Arrêt de mathématiques après 2 semaines'}
+                  placeholder={t('students.transferReasonPlaceholder')}
                 />
               </div>
             </div>
@@ -1446,7 +1447,7 @@ export default function StudentProfile() {
                 className="px-4 py-2 bg-amber-600 text-white rounded-lg text-xs font-bold hover:bg-amber-700 disabled:opacity-60 flex items-center gap-1.5 shadow-xs"
               >
                 <ArrowRightLeft size={13} />
-                {savingTransfer ? t('common.saving') : (lang === 'ar' ? 'تأكيد التحويل المالي' : 'Confirmer le transfert')}
+                {savingTransfer ? t('common.saving') : t('students.confirmTransfer')}
               </button>
             </div>
           </div>
