@@ -470,7 +470,17 @@ export async function runMigrations(): Promise<void> {
     }
 
     const applyMigration = sqlite.transaction(() => {
-      const statements = migration.sql
+      // Strip single-line SQL comments (-- ...) before splitting on semicolons
+      // to prevent comment text (e.g. "-- we store X; we do Y") from being sent as SQL
+      const stripped = migration.sql
+        .split('\n')
+        .map((line) => {
+          const commentIdx = line.indexOf('--')
+          return commentIdx >= 0 ? line.slice(0, commentIdx) : line
+        })
+        .join('\n')
+
+      const statements = stripped
         .split(';')
         .map((s) => s.trim())
         .filter((s) => s.length > 0)
@@ -479,11 +489,12 @@ export async function runMigrations(): Promise<void> {
         try {
           sqlite.exec(statement)
         } catch (err: any) {
-          if (err?.message?.includes('duplicate column name')) {
-            log.warn(`Column already exists, skipping: ${statement.slice(0, 60)}...`)
-            continue
+          const errMsg = String(err?.message || err).toLowerCase()
+          if (errMsg.includes('duplicate column name') || errMsg.includes('already exists')) {
+            log.warn(`[Migrator] Column or index already exists in migration ${migration.version}: ${statement}`)
+          } else {
+            throw err
           }
-          throw err
         }
       }
 

@@ -145,6 +145,8 @@ const api = {
       invoke<any>(IPC_CHANNELS.ATTENDANCE_RESOLVE_STUDENT, { token, date }),
     markSession: (sessionId: number, studentId: number, status: 'present' | 'absent' | 'late' | 'not_active') =>
       invoke<any>(IPC_CHANNELS.ATTENDANCE_MARK_SESSION, { sessionId, studentId, status }),
+    markNextNotActive: (studentId: number, groupId: number) =>
+      invoke<any>(IPC_CHANNELS.ATTENDANCE_MARK_NEXT_NOT_ACTIVE, { studentId, groupId }),
     getSessionHistory: (studentId: number) =>
       invoke<any[]>('attendance:studentSessionHistory', { studentId }),
     withRoster: (sessionId: number) =>

@@ -23,11 +23,26 @@ function normalizeNumberInput(val: string): string {
 }
 
 // ── Searchable Student Combobox ─────────────────────────────────────────────
+function getStudentLabel(s: Student): string {
+  const ar = `${s?.lastNameAr || ''} ${s?.firstNameAr || ''}`.trim()
+  const fr = `${s?.lastNameFr || ''} ${s?.firstNameFr || ''}`.trim()
+  const name = ar || fr || ''
+  const num = s?.studentNumber || ''
+  if (name && num) return `${name} — #${num}`
+  if (name) return name
+  if (num) return `#${num}`
+  return `ID:${s?.id ?? '?'}`
+}
+
+function getStudentInitial(s: Student): string {
+  const label = getStudentLabel(s)
+  return label.charAt(0).toUpperCase() || '?'
+}
+
 function StudentCombobox({
   students,
   value,
   onChange,
-  inputCls,
   placeholder,
 }: {
   students: Student[]
@@ -36,21 +51,17 @@ function StudentCombobox({
   inputCls: string
   placeholder: string
 }) {
+  const safeStudents = Array.isArray(students) ? students : []
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
   const [isTyping, setIsTyping] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const selectedStudent = students.find((s) => String(s.id) === value)
-  const nameAr = selectedStudent ? `${selectedStudent.lastNameAr || ''} ${selectedStudent.firstNameAr || ''}`.trim() : ''
-  const nameFr = selectedStudent ? `${selectedStudent.lastNameFr || ''} ${selectedStudent.firstNameFr || ''}`.trim() : ''
-  const selectedName = nameAr || nameFr
-  const displayLabel = selectedStudent
-    ? (selectedName ? `${selectedName} — #${selectedStudent.studentNumber}` : selectedStudent.studentNumber)
-    : ''
+  const selectedStudent = safeStudents.find((s) => s?.id != null && String(s.id) === value)
+  const displayLabel = selectedStudent ? getStudentLabel(selectedStudent) : ''
 
-  // Sync input text when value or selected student changes and user is not actively typing
+  // Sync input text when selection changes and user is not actively typing
   useEffect(() => {
     if (!isTyping) {
       setQuery(displayLabel)
@@ -60,26 +71,31 @@ function StudentCombobox({
   // Close on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node) && document.body.contains(e.target as Node)) {
-        setOpen(false)
-        setIsTyping(false)
-        setQuery(displayLabel)
+      try {
+        if (ref.current && !ref.current.contains(e.target as Node) && document.body.contains(e.target as Node)) {
+          setOpen(false)
+          setIsTyping(false)
+          setQuery(displayLabel)
+        }
+      } catch {
+        // ignore
       }
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [displayLabel])
 
-  const q = isTyping ? query.toLowerCase().trim() : ''
+  const q = isTyping ? (query || '').toLowerCase().trim() : ''
   const filtered = q
-    ? students.filter((s) => {
+    ? safeStudents.filter((s) => {
+        if (!s) return false
         const ar = `${s.lastNameAr || ''} ${s.firstNameAr || ''}`.toLowerCase()
         const fr = `${s.lastNameFr || ''} ${s.firstNameFr || ''}`.toLowerCase()
         const num = (s.studentNumber || '').toLowerCase()
         const ph = (s.phone || '').toLowerCase()
         return ar.includes(q) || fr.includes(q) || num.includes(q) || ph.includes(q)
       })
-    : students
+    : safeStudents
 
   const visibleStudents = filtered.slice(0, 30)
 
@@ -154,9 +170,9 @@ function StudentCombobox({
             </div>
           ) : (
             visibleStudents.map((s) => {
-              const stNameAr = `${s.lastNameAr || ''} ${s.firstNameAr || ''}`.trim()
-              const stNameFr = `${s.lastNameFr || ''} ${s.firstNameFr || ''}`.trim()
-              const stName = stNameAr || stNameFr || s.studentNumber
+              if (!s || s.id == null) return null
+              const label = getStudentLabel(s)
+              const initial = getStudentInitial(s)
               const isSelected = String(s.id) === value
 
               return (
@@ -176,16 +192,18 @@ function StudentCombobox({
                     <div className={`w-7 h-7 rounded-full text-[11px] font-bold flex items-center justify-center shrink-0 ${
                       isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'
                     }`}>
-                      {stName.charAt(0)}
+                      {initial}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate font-semibold">{stName}</p>
+                      <p className="truncate font-semibold">{label}</p>
                       {s.phone && <p className="text-[10px] text-slate-400 font-mono dir-ltr">{s.phone}</p>}
                     </div>
                   </div>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 text-slate-600 shrink-0">
-                    #{s.studentNumber}
-                  </span>
+                  {s.studentNumber && (
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 text-slate-600 shrink-0">
+                      #{s.studentNumber}
+                    </span>
+                  )}
                 </div>
               )
             })
@@ -255,13 +273,16 @@ export default function Payments() {
   useEffect(() => { load() }, [load])
 
   // ── Auto-open form with pre-selected student when navigating from StudentProfile ──
+  // Store the preselected ID from URL so we can open the form after load() finishes
+  const preselectedStudentId = new URLSearchParams(location.search).get('studentId')
+  const openedForStudentRef = useRef<string | null>(null)
+
   useEffect(() => {
-    const params = new URLSearchParams(location.search)
-    const preselectedStudentId = params.get('studentId')
-    if (preselectedStudentId) {
+    if (preselectedStudentId && !loading && openedForStudentRef.current !== preselectedStudentId) {
+      openedForStudentRef.current = preselectedStudentId
       openForm(preselectedStudentId)
     }
-  }, [location.search])
+  }, [preselectedStudentId, loading])
 
   const loadBalance = async (enrollmentId: number) => {
     try {
