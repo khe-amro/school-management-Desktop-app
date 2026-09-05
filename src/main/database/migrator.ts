@@ -401,12 +401,39 @@ export async function runMigrations(): Promise<void> {
       await backupBeforeMigration(migration.version)
     }
 
-    const applyMigration = sqlite.transaction(() => {
-      sqlite.exec(migration.sql)
+    const applyMigration = () => {
+      // Strip single-line SQL comments (-- ...) before splitting on semicolons
+      // to prevent comment text (e.g. "-- we store X; we do Y") from being sent as SQL
+      const stripped = migration.sql
+        .split('\n')
+        .map((line) => {
+          const commentIdx = line.indexOf('--')
+          return commentIdx >= 0 ? line.slice(0, commentIdx) : line
+        })
+        .join('\n')
+
+      const statements = stripped
+        .split(';')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0)
+
+      for (const statement of statements) {
+        try {
+          sqlite.exec(statement)
+        } catch (err: any) {
+          const errMsg = String(err?.message || err).toLowerCase()
+          if (errMsg.includes('duplicate column name') || errMsg.includes('already exists')) {
+            log.warn(`[Migrator] Column or index already exists in migration ${migration.version}: ${statement}`)
+          } else {
+            throw err
+          }
+        }
+      }
+
       sqlite.prepare(
         `INSERT OR REPLACE INTO app_metadata(key, value, updated_at) VALUES('schema_version', ?, datetime('now'))`
       ).run(String(migration.version))
-    })
+    }
 
     try {
       applyMigration()
