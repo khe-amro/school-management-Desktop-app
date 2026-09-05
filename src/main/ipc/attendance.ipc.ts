@@ -97,6 +97,17 @@ export function registerAttendanceHandlers(): void {
     return markStudentInSession(sessionId, studentId, status)
   })
 
+  // ─── Mark next session as not_active for student in group ──────────────────
+
+  handle(IPC_CHANNELS.ATTENDANCE_MARK_NEXT_NOT_ACTIVE, async (payload) => {
+    const { studentId, groupId } = z.object({
+      studentId: z.number().int().positive(),
+      groupId: z.number().int().positive(),
+    }).parse(payload)
+    const { markNextSessionNotActive } = await import('../services/attendance.service')
+    return markNextSessionNotActive(studentId, groupId)
+  })
+
   // ─── Get complete session history for student ─────────────────────────────
 
   handle('attendance:studentSessionHistory', async (payload) => {

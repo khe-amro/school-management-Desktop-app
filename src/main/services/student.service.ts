@@ -26,29 +26,29 @@ async function generateStudentNumber(prefix: string): Promise<string> {
   return `${prefix}-${num}`
 }
 
-function mapRow(row: typeof schema.students.$inferSelect): Student {
+function mapRow(row: any): Student {
   return {
     id: row.id,
-    studentNumber: row.studentNumber,
-    firstNameAr: row.firstNameAr,
-    lastNameAr: row.lastNameAr,
-    firstNameFr: row.firstNameFr,
-    lastNameFr: row.lastNameFr,
-    dateOfBirth: row.dateOfBirth ?? null,
-    gender: row.gender as 'male' | 'female',
+    studentNumber: row.studentNumber ?? row.student_number,
+    firstNameAr: row.firstNameAr ?? row.first_name_ar ?? '',
+    lastNameAr: row.lastNameAr ?? row.last_name_ar ?? '',
+    firstNameFr: row.firstNameFr ?? row.first_name_fr ?? '',
+    lastNameFr: row.lastNameFr ?? row.last_name_fr ?? '',
+    dateOfBirth: row.dateOfBirth ?? row.date_of_birth ?? null,
+    gender: (row.gender as 'male' | 'female') ?? 'male',
     phone: row.phone ?? null,
-    guardianName: row.guardianName ?? null,
-    guardianRelationship: row.guardianRelationship ?? null,
-    guardianPhone: row.guardianPhone ?? null,
-    secondaryPhone: row.secondaryPhone ?? null,
+    guardianName: row.guardianName ?? row.guardian_name ?? null,
+    guardianRelationship: row.guardianRelationship ?? row.guardian_relationship ?? null,
+    guardianPhone: row.guardianPhone ?? row.guardian_phone ?? null,
+    secondaryPhone: row.secondaryPhone ?? row.secondary_phone ?? null,
     address: row.address ?? null,
-    photoPath: row.photoPath ?? null,
-    registrationDate: row.registrationDate,
+    photoPath: row.photoPath ?? row.photo_path ?? null,
+    registrationDate: row.registrationDate ?? row.registration_date,
     status: row.status as Student['status'],
-    qrToken: row.qrToken,
-    qrTokenActive: row.qrTokenActive,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
+    qrToken: row.qrToken ?? row.qr_token,
+    qrTokenActive: Boolean(row.qrTokenActive ?? row.qr_token_active),
+    createdAt: row.createdAt ?? row.created_at,
+    updatedAt: row.updatedAt ?? row.updated_at,
   }
 }
 

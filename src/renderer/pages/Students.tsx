@@ -144,16 +144,16 @@ export default function Students() {
   const moduleOptions = useMemo(() => {
     const set = new Set<string>()
     availableCourses.forEach(c => {
-      const name = getCourseName(c)
+      const name = getCourseName(c, lang)
       if (name) set.add(name)
     })
     return Array.from(set).sort()
-  }, [availableCourses, getCourseName])
+  }, [availableCourses, lang])
 
   const teacherOptions = useMemo(() => {
     let filtered = availableTeachers
     if (selectedModule) {
-      const course = availableCourses.find(c => getCourseName(c).toLowerCase() === selectedModule.toLowerCase())
+      const course = availableCourses.find(c => getCourseName(c, lang).toLowerCase() === selectedModule.toLowerCase())
       if (course) filtered = filtered.filter(t => t.courseId === course.id)
     }
     const set = new Set<string>()
@@ -162,12 +162,12 @@ export default function Students() {
       if (name) set.add(name)
     })
     return Array.from(set).sort()
-  }, [availableTeachers, availableCourses, selectedModule, getCourseName, getTeacherName])
+  }, [availableTeachers, availableCourses, selectedModule, getTeacherName, lang])
 
   const groupOptionsMap = useMemo(() => {
     let filtered = availableGroups
     if (selectedModule) {
-      const course = availableCourses.find(c => getCourseName(c).toLowerCase() === selectedModule.toLowerCase())
+      const course = availableCourses.find(c => getCourseName(c, lang).toLowerCase() === selectedModule.toLowerCase())
       if (course) filtered = filtered.filter(g => g.courseId === course.id)
     }
     if (selectedTeacher) {
@@ -177,12 +177,12 @@ export default function Students() {
     const map = new Map<string, Group>()
     filtered.forEach(g => {
       const c = availableCourses.find(crs => crs.id === g.courseId)
-      const cName = c ? getCourseName(c) : ''
+      const cName = c ? getCourseName(c, lang) : ''
       const label = `${cName ? `${cName} — ` : ''}${g.name}`
       map.set(label, g)
     })
     return map
-  }, [availableGroups, availableCourses, availableTeachers, selectedModule, selectedTeacher, getCourseName, getTeacherName])
+  }, [availableGroups, availableCourses, availableTeachers, selectedModule, selectedTeacher, getTeacherName, lang])
 
   const groupOptions = useMemo(() => {
     return Array.from(groupOptionsMap.keys()).sort()
@@ -197,7 +197,7 @@ export default function Students() {
       return
     }
     if (selectedTeacher) {
-      const course = availableCourses.find(c => getCourseName(c).toLowerCase() === val.toLowerCase())
+      const course = availableCourses.find(c => getCourseName(c, lang).toLowerCase() === val.toLowerCase())
       const teacher = availableTeachers.find(t => getTeacherName(t).toLowerCase() === selectedTeacher.toLowerCase())
       if (course && teacher && teacher.courseId !== course.id) {
         setSelectedTeacher('')
@@ -215,7 +215,7 @@ export default function Students() {
     const teacher = availableTeachers.find(t => getTeacherName(t).toLowerCase() === val.toLowerCase())
     if (teacher && teacher.courseId) {
       const course = availableCourses.find(c => c.id === teacher.courseId)
-      if (course) setSelectedModule(getCourseName(course))
+      if (course) setSelectedModule(getCourseName(course, lang))
     }
     if (selectedGroup) {
       const selectedGrp = groupOptionsMap.get(selectedGroup)
@@ -232,7 +232,7 @@ export default function Students() {
     if (!targetGrp) {
       for (const g of availableGroups) {
         const c = availableCourses.find(crs => crs.id === g.courseId)
-        const cName = c ? getCourseName(c) : ''
+        const cName = c ? getCourseName(c, lang) : ''
         const label = `${cName ? `${cName} — ` : ''}${g.name}`
         if (label.toLowerCase() === val.toLowerCase()) {
           targetGrp = g
@@ -248,12 +248,12 @@ export default function Students() {
           setSelectedTeacher(getTeacherName(teacher))
           if (teacher.courseId) {
             const course = availableCourses.find(c => c.id === teacher.courseId)
-            if (course) setSelectedModule(getCourseName(course))
+            if (course) setSelectedModule(getCourseName(course, lang))
           }
         }
       } else if (targetGrp.courseId) {
         const course = availableCourses.find(c => c.id === targetGrp.courseId)
-        if (course) setSelectedModule(getCourseName(course))
+        if (course) setSelectedModule(getCourseName(course, lang))
       }
     }
   }
@@ -270,9 +270,9 @@ export default function Students() {
   // Derive target courseId, teacherId, groupId for API query
   const targetCourseId = useMemo(() => {
     if (!selectedModule) return undefined
-    const c = availableCourses.find(crs => getCourseName(crs).toLowerCase() === selectedModule.toLowerCase())
+    const c = availableCourses.find(crs => getCourseName(crs, lang).toLowerCase() === selectedModule.toLowerCase())
     return c?.id
-  }, [selectedModule, availableCourses, getCourseName])
+  }, [selectedModule, availableCourses, lang])
 
   const targetTeacherId = useMemo(() => {
     if (!selectedTeacher) return undefined

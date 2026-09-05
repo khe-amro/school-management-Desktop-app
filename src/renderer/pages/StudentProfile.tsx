@@ -314,7 +314,7 @@ export default function StudentProfile() {
   const teacherOptions = useMemo(() => {
     let filtered = availableTeachers
     if (modalModule) {
-      const course = availableCourses.find(c => getCourseName(c).toLowerCase() === modalModule.toLowerCase())
+      const course = availableCourses.find(c => getCourseName(c, lang).toLowerCase() === modalModule.toLowerCase())
       if (course) {
         filtered = filtered.filter(t => t.courseId === course.id)
       }
@@ -325,13 +325,13 @@ export default function StudentProfile() {
       if (name) set.add(name)
     })
     return Array.from(set).sort()
-  }, [availableTeachers, availableCourses, modalModule, getCourseName, getTeacherName])
+  }, [availableTeachers, availableCourses, modalModule, getTeacherName, lang])
 
   // Groups list & map (filtered by modalModule & modalTeacher if selected)
   const groupOptionsMap = useMemo(() => {
     let filtered = availableGroups
     if (modalModule) {
-      const course = availableCourses.find(c => getCourseName(c).toLowerCase() === modalModule.toLowerCase())
+      const course = availableCourses.find(c => getCourseName(c, lang).toLowerCase() === modalModule.toLowerCase())
       if (course) {
         filtered = filtered.filter(g => g.courseId === course.id)
       }
@@ -345,12 +345,12 @@ export default function StudentProfile() {
     const map = new Map<string, Group>()
     filtered.forEach(g => {
       const c = availableCourses.find(crs => crs.id === g.courseId)
-      const cName = c ? getCourseName(c) : ''
+      const cName = c ? getCourseName(c, lang) : ''
       const label = `${cName ? `${cName} — ` : ''}${g.name}`
       map.set(label, g)
     })
     return map
-  }, [availableGroups, availableCourses, availableTeachers, modalModule, modalTeacher, getCourseName, getTeacherName])
+  }, [availableGroups, availableCourses, availableTeachers, modalModule, modalTeacher, getTeacherName, lang])
 
   const groupOptions = useMemo(() => {
     return Array.from(groupOptionsMap.keys()).sort()
@@ -366,7 +366,7 @@ export default function StudentProfile() {
       return
     }
     if (modalTeacher) {
-      const course = availableCourses.find(c => getCourseName(c).toLowerCase() === newMod.toLowerCase())
+      const course = availableCourses.find(c => getCourseName(c, lang).toLowerCase() === newMod.toLowerCase())
       const teacher = availableTeachers.find(t => getTeacherName(t).toLowerCase() === modalTeacher.toLowerCase())
       if (course && teacher && teacher.courseId !== course.id) {
         setModalTeacher('')
@@ -388,7 +388,7 @@ export default function StudentProfile() {
     if (teacher && teacher.courseId) {
       const course = availableCourses.find(c => c.id === teacher.courseId)
       if (course) {
-        setModalModule(getCourseName(course))
+        setModalModule(getCourseName(course, lang))
       }
     }
     if (modalGroup) {
@@ -410,7 +410,7 @@ export default function StudentProfile() {
     if (!targetGrp) {
       for (const g of availableGroups) {
         const c = availableCourses.find(crs => crs.id === g.courseId)
-        const cName = c ? getCourseName(c) : ''
+        const cName = c ? getCourseName(c, lang) : ''
         const label = `${cName ? `${cName} — ` : ''}${g.name}`
         if (label.toLowerCase() === newGroupLabel.toLowerCase()) {
           targetGrp = g
@@ -428,12 +428,12 @@ export default function StudentProfile() {
           setModalTeacher(getTeacherName(teacher))
           if (teacher.courseId) {
             const course = availableCourses.find(c => c.id === teacher.courseId)
-            if (course) setModalModule(getCourseName(course))
+            if (course) setModalModule(getCourseName(course, lang))
           }
         }
       } else if (targetGrp.courseId) {
         const course = availableCourses.find(c => c.id === targetGrp.courseId)
-        if (course) setModalModule(getCourseName(course))
+        if (course) setModalModule(getCourseName(course, lang))
       }
     }
   }
@@ -498,6 +498,24 @@ export default function StudentProfile() {
       if (res.success) {
         await loadSessionHistory(student.id)
         await loadEnrollmentsWithBalances(student.id)
+      }
+    } catch (err: any) {
+      alert(err?.message ?? t('common.error'))
+    }
+  }
+
+  // Mark next upcoming session as not_active for student in a group
+  const handleMarkNextSessionNotActive = async (groupId: number) => {
+    if (!student) return
+    try {
+      const res = await window.schoolApp.attendance.markNextNotActive(student.id, groupId)
+      if (res.success) {
+        const sessDate = res.data?.sessionDate ?? ''
+        alert(lang === 'ar' ? `تم تعيين الطالب كغير نشط للحصة القادمة (${sessDate}) وتأجيل اقتطاع الرصيد` : `Prochaine séance marquée non active pour l'étudiant (${sessDate})`)
+        await loadEnrollmentsWithBalances(student.id)
+        await loadSessionHistory(student.id)
+      } else {
+        alert(lang === 'ar' ? 'تعذر العثور على حصة قادمة لهذه المجموعة' : 'Aucune séance future trouvée')
       }
     } catch (err: any) {
       alert(err?.message ?? t('common.error'))
@@ -1142,6 +1160,18 @@ export default function StudentProfile() {
                                     title={t('students.transferCreditTooltip')}
                                   >
                                     <ArrowRightLeft size={12} /> {t('students.transferBalanceToAnother')}
+                                  </button>
+                                )}
+
+                                {/* Mark Next Session Not Active Button */}
+                                {isActive && (
+                                  <button
+                                    onClick={() => handleMarkNextSessionNotActive(enroll.groupId)}
+                                    className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-bold transition-colors bg-slate-700 text-white hover:bg-slate-800 shadow-2xs"
+                                    title={lang === 'ar' ? 'تعيين الطالب كغير نشط للحصة القادمة لإعفائه من اقتطاع الرصيد' : 'Marquer la prochaine séance non active'}
+                                  >
+                                    <XCircle size={12} />
+                                    <span>{lang === 'ar' ? 'غير نشط للحصة القادمة' : 'Non actif (prochaine séance)'}</span>
                                   </button>
                                 )}
 

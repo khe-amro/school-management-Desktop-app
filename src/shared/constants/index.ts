@@ -88,6 +88,7 @@ export const IPC_CHANNELS = {
   // New smart attendance flow
   ATTENDANCE_RESOLVE_STUDENT: 'attendance:resolveStudent',
   ATTENDANCE_MARK_SESSION: 'attendance:markSession',
+  ATTENDANCE_MARK_NEXT_NOT_ACTIVE: 'attendance:markNextNotActive',
   SESSIONS_BY_DATE: 'sessions:byDate',
   SESSIONS_WITH_ROSTER: 'sessions:withRoster',
   STUDENTS_SEARCH_NAME: 'students:searchByName',

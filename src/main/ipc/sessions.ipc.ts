@@ -444,6 +444,9 @@ export function registerSessionsHandlers(): void {
     const sqlite = getSqlite()
 
     try {
+      const { autoInstantiateSessionsForRange } = await import('../services/attendance.service')
+      await autoInstantiateSessionsForRange(startDate, endDate)
+
       const rows = sqlite.prepare(`
         SELECT s.id, s.group_id, s.session_date, s.planned_start_time, s.end_time,
                s.room, s.status, s.session_type,

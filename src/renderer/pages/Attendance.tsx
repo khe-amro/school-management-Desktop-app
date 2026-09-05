@@ -4,12 +4,13 @@ import { useLocation } from 'react-router-dom'
 import { ScanLine, Search, Calendar, CheckCircle2, Clock, XCircle, Volume2, VolumeX, ChevronLeft, ChevronRight, AlertCircle, CreditCard, Trash2 } from 'lucide-react'
 
 type Tab = 'scanner' | 'roster' | 'calendar'
-type StatusType = 'present' | 'absent' | 'late' | null
+type StatusType = 'present' | 'absent' | 'late' | 'not_active' | null
 
 const STATUS_CLS: Record<string, string> = {
-  present: 'bg-green-100 text-green-700',
-  late: 'bg-amber-100 text-amber-700',
-  absent: 'bg-red-100 text-red-700',
+  present: 'bg-emerald-600 text-white font-bold',
+  late: 'bg-amber-500 text-white font-bold',
+  absent: 'bg-red-600 text-white font-bold',
+  not_active: 'bg-slate-700 text-white font-bold',
 }
 
 function today() {
@@ -464,7 +465,7 @@ function RosterView({ lang, initialSession }: { lang: string; initialSession?: {
     }
   }, [initialSession, loadRoster])
 
-  const markStudent = async (studentId: number, status: 'present' | 'absent' | 'late') => {
+  const markStudent = async (studentId: number, status: 'present' | 'absent' | 'late' | 'not_active') => {
     if (!selectedSession) return
     await window.schoolApp.attendance.markSession(selectedSession, studentId, status)
     await loadRoster(selectedSession)
@@ -582,10 +583,12 @@ function RosterView({ lang, initialSession }: { lang: string; initialSession?: {
                     <p className="text-xs text-slate-400 font-mono">#{s.studentNumber}</p>
                   </div>
                   <div className="flex gap-1.5 shrink-0">
-                    {(['present', 'late', 'absent'] as const).map(st => (
+                    {(['present', 'absent', 'not_active'] as const).map(st => (
                       <button key={st} onClick={() => markStudent(s.id, st)}
-                        className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-all ${s.attendanceStatus === st ? STATUS_CLS[st] + ' ring-2 ring-offset-1 ring-current' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
-                        {st === 'present' ? '✓' : st === 'late' ? '⏱' : '✗'}
+                        className={`text-xs px-2.5 py-1 rounded-lg font-bold transition-all ${s.attendanceStatus === st ? STATUS_CLS[st] + ' ring-2 ring-offset-1 ring-current' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                        title={st === 'not_active' ? (lang === 'ar' ? 'إعفاء الطالب من اقتطاع حصة هذه الجلسة وإرجاع الرصيد' : 'Exempter et rembourser la séance') : undefined}
+                      >
+                        {st === 'present' ? (lang === 'ar' ? 'حاضر ✓' : 'Présent ✓') : st === 'absent' ? (lang === 'ar' ? 'غائب ✗' : 'Absent ✗') : (lang === 'ar' ? 'غير نشط' : 'Non actif')}
                       </button>
                     ))}
                   </div>

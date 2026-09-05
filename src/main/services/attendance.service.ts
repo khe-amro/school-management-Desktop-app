@@ -234,23 +234,16 @@ export async function scanQRToken(sessionId: number, rawToken: string): Promise<
   const record = result[0]!
   log.info(`Attendance recorded: student ${matchedStudent.studentNumber}, session ${sessionId}, status: ${attendanceStatus}`)
 
-  // Deduct 1 session from enrollment credit
+  // Fetch updated credit balance (note: session fee deduction happens automatically when session time arrives)
   if (enrollment) {
     try {
-      const { deductSession, getEnrollmentBalance } = await import('./payment.service')
-      await deductSession({
-        studentId: matchedStudent.id,
-        enrollmentId: enrollment.id,
-        sessionId,
-        sessionDate: attendanceSession.sessionDate,
-        sessionPrice,
-      })
-      const newBal = await getEnrollmentBalance(enrollment.id)
-      creditBalance = newBal.balance
-      wasInDebt = newBal.balance < 0
-      remainingSessions = sessionPrice > 0 ? Math.floor(newBal.balance / sessionPrice) : 0
+      const { getEnrollmentBalance } = await import('./payment.service')
+      const currentBal = await getEnrollmentBalance(enrollment.id)
+      creditBalance = currentBal.balance
+      wasInDebt = currentBal.balance < 0
+      remainingSessions = sessionPrice > 0 ? Math.floor(currentBal.balance / sessionPrice) : 0
     } catch (err) {
-      log.warn('Session credit deduction failed on QR scan (non-fatal):', err)
+      log.warn('Failed to fetch balance on QR scan:', err)
     }
   }
 
@@ -1028,6 +1021,154 @@ export async function getSessionWithRoster(sessionId: number): Promise<{
     },
     students: studentsWithBalance,
   }
+}
+
+// ─── Auto-instantiate sessions for a date range & auto-deduct session fees ─────
+
+export async function autoInstantiateSessionsForRange(startDate: string, endDate: string): Promise<void> {
+  const sqlite = getSqlite()
+  const { deductSession } = await import('./payment.service')
+
+  // Generate array of dates from startDate to endDate
+  const start = new Date(startDate + 'T00:00:00Z')
+  const end = new Date(endDate + 'T00:00:00Z')
+
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const dateStr = d.toISOString().slice(0, 10)
+    const jsDay = d.getUTCDay()
+    const weekday = jsDay === 0 ? 6 : jsDay - 1 // Mon=0 .. Sun=6
+
+    // Find active schedule slots on this weekday
+    const slots = sqlite.prepare(`
+      SELECT s.*, g.monthly_price
+      FROM group_schedule_slots s
+      JOIN groups g ON s.group_id = g.id
+      WHERE s.weekday = ? AND s.is_active = 1 AND g.status = 'active'
+    `).all(weekday) as any[]
+
+    for (const slot of slots) {
+      // Check if session already exists or cancelled
+      const existing = sqlite.prepare(`
+        SELECT id, session_type FROM attendance_sessions
+        WHERE group_id = ? AND session_date = ?
+      `).get(slot.group_id, dateStr) as any
+
+      let sessionId: number | null = null
+      if (existing) {
+        if (existing.session_type !== 'cancelled') {
+          sessionId = existing.id
+        }
+      } else {
+        // Auto-create session instance
+        const res = sqlite.prepare(`
+          INSERT INTO attendance_sessions (group_id, session_date, planned_start_time, end_time, room, status, session_type, schedule_slot_id, created_by, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, 'open', 'regular', ?, 1, datetime('now'), datetime('now'))
+        `).run(slot.group_id, dateStr, slot.start_time, slot.end_time, slot.room, slot.id)
+        sessionId = Number(res.lastInsertRowid)
+      }
+
+      if (!sessionId) continue
+
+      // Auto-deduct session price for all active enrolled students in this group
+      const enrolled = sqlite.prepare(`
+        SELECT e.id as enrollment_id, e.student_id, e.agreed_price, g.monthly_price
+        FROM enrollments e
+        JOIN groups g ON e.group_id = g.id
+        JOIN students st ON e.student_id = st.id
+        WHERE e.group_id = ? AND e.status = 'active' AND st.status = 'active'
+      `).all(slot.group_id) as any[]
+
+      for (const en of enrolled) {
+        // Check if student has an attendance record marked as 'not_active'
+        const attRec = sqlite.prepare(`
+          SELECT attendance_status FROM attendance_records
+          WHERE session_id = ? AND student_id = ?
+        `).get(sessionId, en.student_id) as any
+
+        if (attRec && attRec.attendance_status === 'not_active') {
+          // If marked not_active, ensure deduction payment is cancelled
+          sqlite.prepare(`
+            UPDATE payments
+            SET status = 'cancelled', notes = 'Session status changed to not active (refunded)', updated_at = datetime('now')
+            WHERE enrollment_id = ? AND session_id = ? AND payment_type = 'deduction' AND status = 'paid'
+          `).run(en.enrollment_id, sessionId)
+        } else {
+          // Auto-deduct session fee for active enrolled student
+          const price = en.agreed_price || en.monthly_price || 0
+          const sessPrice = Math.round((price / 4) * 100) / 100
+          try {
+            await deductSession({
+              studentId: en.student_id,
+              enrollmentId: en.enrollment_id,
+              sessionId,
+              sessionDate: dateStr,
+              sessionPrice: sessPrice,
+            })
+          } catch (err) {
+            log.warn('Auto credit deduction error:', err)
+          }
+        }
+      }
+    }
+  }
+}
+
+// ─── Mark next session as not_active for a student in a group ────────────────
+
+export async function markNextSessionNotActive(studentId: number, groupId: number): Promise<{ success: boolean; sessionDate?: string }> {
+  const sqlite = getSqlite()
+  const todayStr = new Date().toISOString().slice(0, 10)
+
+  // 1. Check for upcoming session for this group on or after today
+  let nextSession = sqlite.prepare(`
+    SELECT id, session_date FROM attendance_sessions
+    WHERE group_id = ? AND session_date >= ? AND session_type != 'cancelled'
+    ORDER BY session_date ASC, planned_start_time ASC
+    LIMIT 1
+  `).get(groupId, todayStr) as any
+
+  // 2. If no future session instance exists yet, create the next one from schedule slot
+  if (!nextSession) {
+    const slots = sqlite.prepare(`
+      SELECT * FROM group_schedule_slots WHERE group_id = ? AND is_active = 1
+    `).all(groupId) as any[]
+
+    if (slots.length > 0) {
+      // Find the next upcoming date matching any slot
+      const todayObj = new Date()
+      for (let dayOffset = 0; dayOffset <= 14; dayOffset++) {
+        const checkDate = new Date(todayObj)
+        checkDate.setDate(checkDate.getDate() + dayOffset)
+        const dateStr = checkDate.toISOString().slice(0, 10)
+        const jsDay = checkDate.getUTCDay()
+        const weekday = jsDay === 0 ? 6 : jsDay - 1
+
+        const slot = slots.find(s => s.weekday === weekday)
+        if (slot) {
+          sqlite.prepare(`
+            INSERT INTO attendance_sessions (group_id, session_date, planned_start_time, end_time, room, status, session_type, schedule_slot_id, created_by, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, 'open', 'regular', ?, 1, datetime('now'), datetime('now'))
+          `).run(groupId, dateStr, slot.start_time, slot.end_time, slot.room, slot.id)
+
+          nextSession = sqlite.prepare(`
+            SELECT id, session_date FROM attendance_sessions
+            WHERE group_id = ? AND session_date = ?
+            LIMIT 1
+          `).get(groupId, dateStr) as any
+
+          if (nextSession) break
+        }
+      }
+    }
+  }
+
+  if (!nextSession) {
+    return { success: false }
+  }
+
+  // Mark student as not_active in that session
+  const res = await markStudentInSession(nextSession.id, studentId, 'not_active')
+  return { success: res.success, sessionDate: nextSession.session_date }
 }
 
 // ─── Row mappers ──────────────────────────────────────────────────────────────
