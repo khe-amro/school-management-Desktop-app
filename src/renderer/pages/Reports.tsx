@@ -60,6 +60,7 @@ export default function Reports() {
     const to = new Date(toDate)
     to.setHours(23, 59, 59, 999)
     return payments.filter((p) => {
+      if (!p.paymentDate) return false
       const d = new Date(p.paymentDate)
       return d >= from && d <= to
     })
@@ -70,19 +71,23 @@ export default function Reports() {
     const to = new Date(toDate)
     to.setHours(23, 59, 59, 999)
     return sessions.filter((s) => {
+      if (!s.sessionDate) return false
       const d = new Date(s.sessionDate)
       return d >= from && d <= to
     })
   }, [sessions, fromDate, toDate])
 
   const revenueTotal = useMemo(() => {
-    return filteredPayments.reduce((sum, p) => sum + p.amount, 0)
+    return filteredPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0)
   }, [filteredPayments])
 
   const revenueByMonth = useMemo(() => {
     return filteredPayments.reduce<Record<string, number>>((acc, p) => {
-      const m = p.paymentDate.slice(0, 7)
-      acc[m] = (acc[m] ?? 0) + p.amount
+      const m = (p.paymentDate || '').slice(0, 7)
+      if (m) {
+        const amt = Number(p.amount) || 0
+        acc[m] = (acc[m] ?? 0) + amt
+      }
       return acc
     }, {})
   }, [filteredPayments])
@@ -113,41 +118,7 @@ export default function Reports() {
     }
   }
 
-  const handleExportCsv = async () => {
-    setExporting(true)
-    setExportMessage(null)
-    try {
-      let csvContent = ''
-      if (reportType === 'students') {
-        csvContent = 'N_Etudiant,Nom_Ar,Prenom_Ar,Nom_Fr,Prenom_Fr,Genre,Telephone,Statut,Date_Inscription\n'
-        students.forEach((s) => {
-          csvContent += `"${s.studentNumber}","${s.lastNameAr}","${s.firstNameAr}","${s.lastNameFr}","${s.firstNameFr}","${s.gender}","${s.phone ?? ''}","${s.status}","${s.registrationDate}"\n`
-        })
-      } else if (reportType === 'payments') {
-        csvContent = 'N_Recu,Date,Montant_DA,Methode,Periode,Statut\n'
-        filteredPayments.forEach((p) => {
-          csvContent += `"${p.receiptNumber}","${p.paymentDate}",${p.amount},"${p.paymentMethod}","${p.billingPeriod}","${p.status}"\n`
-        })
-      } else if (reportType === 'revenue') {
-        csvContent = 'Mois,Total_Revenue_DA\n'
-        Object.entries(revenueByMonth).forEach(([m, amt]) => {
-          csvContent += `"${m}",${amt}\n`
-        })
-      } else if (reportType === 'attendance') {
-        csvContent = 'ID_Seance,Date,Groupe_ID,Statut,Heure_Debut,Heure_Fin\n'
-        filteredSessions.forEach((s) => {
-          csvContent += `${s.id},"${s.sessionDate}",${s.groupId},"${s.status}","${s.actualStartTime ?? ''}","${s.endTime ?? ''}"\n`
-        })
-      }
 
-      const res = await window.schoolApp.app.openSaveDialog()
-      if (res.success && res.data && !res.data.canceled && res.data.path) {
-        setExportMessage(t('common.success'))
-      }
-    } finally {
-      setExporting(false)
-    }
-  }
 
   const inputCls = 'w-full px-3 py-2 border border-border rounded-lg text-sm bg-white focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20'
   const labelCls = 'block text-xs font-medium text-slate-600 mb-1'
@@ -267,19 +238,33 @@ export default function Reports() {
                 <th className="p-2.5 text-start">{t('students.nameFrSection')}</th>
                 <th className="p-2.5 text-start">{t('students.gender')}</th>
                 <th className="p-2.5 text-start">{t('students.phone')}</th>
-                <th className="p-2.5 text-start">{t('students.registrationDate')}</th>
+                <th className="p-2.5 text-start">{t('students.paymentStatusHeader')}</th>
                 <th className="p-2.5 text-center">{t('common.status')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {filteredStudents.map((st, i) => (
+              {filteredStudents.map((st: any, i) => (
                 <tr key={st.id} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
                   <td className="p-2.5 font-mono font-bold text-[#2563EB]">{st.studentNumber}</td>
                   <td className="p-2.5 font-bold" dir="rtl">{st.lastNameAr} {st.firstNameAr}</td>
                   <td className="p-2.5">{st.lastNameFr} {st.firstNameFr}</td>
                   <td className="p-2.5">{st.gender === 'male' ? t('students.male') : t('students.female')}</td>
-                  <td className="p-2.5">{st.phone || '—'}</td>
-                  <td className="p-2.5">{st.registrationDate}</td>
+                  <td className="p-2.5 font-mono">{st.phone || '—'}</td>
+                  <td className="p-2.5">
+                    {(st.netBalance ?? 0) < 0 ? (
+                      <span className="text-red-700 font-bold">
+                        {t('students.inDebtWithAmount', { amount: Math.abs(st.netBalance ?? 0).toLocaleString() })}
+                      </span>
+                    ) : (st.netBalance ?? 0) > 0 ? (
+                      <span className="text-emerald-700 font-bold">
+                        {t('students.positiveBalance', { amount: (st.netBalance ?? 0).toLocaleString() })}
+                      </span>
+                    ) : (
+                      <span className="text-slate-600">
+                        {t('students.paidZeroDebt')}
+                      </span>
+                    )}
+                  </td>
                   <td className="p-2.5 text-center">
                     <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-green-100 text-green-800">
                       {t(`students.${st.status}`)}
@@ -311,7 +296,7 @@ export default function Reports() {
                   <td className="p-2.5 font-medium">{p.studentName || `#${p.studentId}`}</td>
                   <td className="p-2.5">{p.billingPeriod}</td>
                   <td className="p-2.5 capitalize">{t(`payments.${p.paymentMethod}`)}</td>
-                  <td className="p-2.5 text-end font-bold text-[#0F172A]">{p.amount.toLocaleString()} DA</td>
+                  <td className="p-2.5 text-end font-bold text-[#0F172A]">{(Number(p.amount) || 0).toLocaleString()} DA</td>
                 </tr>
               ))}
               <tr className="bg-slate-100 font-bold border-t-2 border-slate-300">
@@ -336,7 +321,7 @@ export default function Reports() {
                 <tr key={month} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
                   <td className="p-2.5 font-bold">{month}</td>
                   <td className="p-2.5 text-end font-medium">
-                    {filteredPayments.filter(p => p.paymentDate.startsWith(month)).length}
+                    {filteredPayments.filter(p => p.paymentDate && p.paymentDate.startsWith(month)).length}
                   </td>
                   <td className="p-2.5 text-end font-bold text-emerald-700">{total.toLocaleString()} DA</td>
                 </tr>
@@ -454,41 +439,37 @@ export default function Reports() {
         </div>
 
         {/* Filter and Control Panel */}
-        <div className="bg-white rounded-xl border border-border p-5 shadow-sm">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-            <div>
-              <label className={labelCls}>{t('reports.reportType')}</label>
-              <select
-                value={reportType}
-                onChange={(e) => setReportType(e.target.value as ReportType)}
-                className={inputCls}
-              >
-                {reportOptions.map((opt) => (
-                  <option key={opt.id} value={opt.id}>{opt.label}</option>
-                ))}
-              </select>
+        <div className="bg-white rounded-xl border border-border p-4 shadow-xs">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <div>
+                <label className={labelCls}>{t('reports.startDate')}</label>
+                <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className={inputCls} dir="ltr" />
+              </div>
+              <div>
+                <label className={labelCls}>{t('reports.endDate')}</label>
+                <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className={inputCls} dir="ltr" />
+              </div>
             </div>
-            <div>
-              <label className={labelCls}>{t('reports.startDate')}</label>
-              <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className={inputCls} dir="ltr" />
-            </div>
-            <div>
-              <label className={labelCls}>{t('reports.endDate')}</label>
-              <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className={inputCls} dir="ltr" />
-            </div>
-            <div className="flex gap-2">
+
+            <div className="flex items-center gap-2">
               <button
-                onClick={handleExportCsv}
-                disabled={exporting}
-                className="flex-1 bg-emerald-600 text-white py-2 px-3 rounded-lg text-xs font-semibold hover:bg-emerald-700 flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
+                onClick={() => loadData()}
+                className="px-3.5 py-2 border border-slate-300 bg-white text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50 transition-colors shadow-2xs"
               >
-                <Download size={14} /> {t('reports.exportCsv')}
+                {t('common.refresh')}
+              </button>
+              <button
+                onClick={() => setShowPreviewModal(true)}
+                className="bg-[#2563EB] text-white py-2 px-4 rounded-lg text-xs font-semibold hover:bg-[#1D4ED8] flex items-center justify-center gap-1.5 transition-colors shadow-xs"
+              >
+                <Eye size={14} /> {t('reports.previewA4')}
               </button>
             </div>
           </div>
 
           {exportMessage && (
-            <div className="mt-4 p-3 bg-blue-50 border border-blue-200 text-blue-800 rounded-lg text-xs flex justify-between items-center">
+            <div className="mt-3 p-3 bg-blue-50 border border-blue-200 text-blue-800 rounded-lg text-xs flex justify-between items-center">
               <span>{exportMessage}</span>
               <button onClick={() => setExportMessage(null)} className="text-blue-500 hover:text-blue-700">✕</button>
             </div>
@@ -496,7 +477,7 @@ export default function Reports() {
         </div>
 
         {/* 4 Cards Grid of report types */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {reportOptions.map((opt) => {
             const isSelected = reportType === opt.id
             const Icon = opt.id === 'students' ? Users : opt.id === 'payments' ? CreditCard : opt.id === 'attendance' ? CalendarCheck : TrendingUp
@@ -504,18 +485,18 @@ export default function Reports() {
               <div
                 key={opt.id}
                 onClick={() => setReportType(opt.id)}
-                className={`p-5 rounded-xl border cursor-pointer transition-all ${
+                className={`p-4 rounded-xl border cursor-pointer transition-all ${
                   isSelected
                     ? 'border-[#2563EB] bg-[#EFF6FF] ring-2 ring-[#2563EB]/10'
                     : 'border-border bg-white hover:border-slate-300 shadow-xs'
                 }`}
               >
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-3 font-bold ${
+                <div className={`w-9 h-9 rounded-lg flex items-center justify-center mb-2.5 font-bold ${
                   isSelected ? 'bg-[#2563EB] text-white' : 'bg-slate-100 text-slate-600'
                 }`}>
-                  <Icon size={20} />
+                  <Icon size={18} />
                 </div>
-                <h3 className="font-bold text-sm text-[#0F172A] mb-1">{opt.label}</h3>
+                <h3 className="font-bold text-sm text-[#0F172A] mb-0.5">{opt.label}</h3>
                 <p className="text-xs text-slate-400">{opt.description}</p>
               </div>
             )
@@ -524,7 +505,7 @@ export default function Reports() {
 
         {/* Main On-Screen Table Preview Section */}
         <div className="bg-white rounded-xl border border-border overflow-hidden shadow-sm">
-          <div className="flex justify-between items-center p-5 border-b border-[#F1F5F9] bg-slate-50/50">
+          <div className="flex justify-between items-center p-4 border-b border-[#F1F5F9] bg-slate-50/50">
             <div>
               <h3 className="font-bold text-sm text-[#0F172A]">
                 {reportOptions.find(o => o.id === reportType)?.label}
@@ -538,13 +519,13 @@ export default function Reports() {
             </div>
             <button
               onClick={() => setShowPreviewModal(true)}
-              className="px-3 py-1.5 bg-white border border-border text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50 flex items-center gap-1.5 shadow-2xs"
+              className="px-3 py-1.5 bg-white border border-border text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50 flex items-center gap-1.5 shadow-2xs cursor-pointer"
             >
               <Eye size={13} /> {t('reports.viewPrintFormat')}
             </button>
           </div>
 
-          <div className="p-5">
+          <div className="p-4">
             {loading ? (
               <div className="flex justify-center py-12">
                 <div className="w-6 h-6 border-2 border-[#2563EB] border-t-transparent rounded-full animate-spin" />
@@ -560,17 +541,33 @@ export default function Reports() {
                         <th className="p-3 text-start">{t('students.nameFrSection')}</th>
                         <th className="p-3 text-start">{t('students.gender')}</th>
                         <th className="p-3 text-start">{t('students.phone')}</th>
+                        <th className="p-3 text-start">{t('students.paymentStatusHeader')}</th>
                         <th className="p-3 text-center">{t('common.status')}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {students.slice(0, 50).map((st) => (
-                        <tr key={st.id} className="hover:bg-slate-50">
+                      {students.map((st: any) => (
+                        <tr key={st.id} className="hover:bg-slate-50/60 transition-colors">
                           <td className="p-3 font-mono font-bold text-[#2563EB]">{st.studentNumber}</td>
                           <td className="p-3 font-medium text-[#0F172A]" dir="rtl">{st.lastNameAr} {st.firstNameAr}</td>
                           <td className="p-3 text-slate-600">{st.lastNameFr} {st.firstNameFr}</td>
                           <td className="p-3 text-slate-500">{st.gender === 'male' ? t('students.male') : t('students.female')}</td>
-                          <td className="p-3 text-slate-500">{st.phone ?? '—'}</td>
+                          <td className="p-3 text-slate-500 font-mono">{st.phone ?? '—'}</td>
+                          <td className="p-3">
+                            {(st.netBalance ?? 0) < 0 ? (
+                              <span className="text-red-700 font-bold bg-red-50 px-2 py-0.5 rounded border border-red-200">
+                                {t('students.inDebtWithAmount', { amount: Math.abs(st.netBalance ?? 0).toLocaleString() })}
+                              </span>
+                            ) : (st.netBalance ?? 0) > 0 ? (
+                              <span className="text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                                {t('students.positiveBalance', { amount: (st.netBalance ?? 0).toLocaleString() })}
+                              </span>
+                            ) : (
+                              <span className="text-slate-600 font-medium bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
+                                {t('students.paidZeroDebt')}
+                              </span>
+                            )}
+                          </td>
                           <td className="p-3 text-center">
                             <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-semibold text-[10px]">
                               {t(`students.${st.status}`)}
@@ -602,7 +599,7 @@ export default function Reports() {
                           <td className="p-3 font-medium">{p.studentName || `#${p.studentId}`}</td>
                           <td className="p-3 text-slate-600">{p.billingPeriod}</td>
                           <td className="p-3 text-slate-500 capitalize">{t(`payments.${p.paymentMethod}`)}</td>
-                          <td className="p-3 text-end font-bold text-emerald-600">{p.amount.toLocaleString()} DZD</td>
+                          <td className="p-3 text-end font-bold text-emerald-600">{(Number(p.amount) || 0).toLocaleString()} DZD</td>
                         </tr>
                       ))}
                     </tbody>
@@ -633,7 +630,7 @@ export default function Reports() {
                         {Object.entries(revenueByMonth).map(([m, val]) => (
                           <tr key={m} className="hover:bg-slate-50">
                             <td className="p-3 font-bold">{m}</td>
-                            <td className="p-3 text-end">{filteredPayments.filter(p => p.paymentDate.startsWith(m)).length}</td>
+                            <td className="p-3 text-end">{filteredPayments.filter(p => p.paymentDate && p.paymentDate.startsWith(m)).length}</td>
                             <td className="p-3 text-end font-bold text-emerald-700">{val.toLocaleString()} DZD</td>
                           </tr>
                         ))}

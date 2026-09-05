@@ -1,6 +1,6 @@
 interface BadgeProps {
   variant: 'success' | 'error' | 'warning' | 'info' | 'neutral' | 'paid' | 'unpaid' | 'partial' | 'overdue' | 'active' | 'inactive' | 'archived'
-  children: React.ReactNode
+  children?: React.ReactNode
   size?: 'sm' | 'md'
 }
 
@@ -20,18 +20,19 @@ const variants: Record<BadgeProps['variant'], string> = {
 }
 
 const labels: Partial<Record<BadgeProps['variant'], string>> = {
-  paid: 'Payé',
-  unpaid: 'Impayé',
-  partial: 'Partiel',
-  overdue: 'En retard',
-  active: 'Actif',
-  inactive: 'Inactif',
+  paid: 'مدفوع',
+  unpaid: 'غير مدفوع',
+  partial: 'جزئي',
+  overdue: 'متأخر',
+  active: 'نشط',
+  inactive: 'غير نشط',
+  archived: 'مؤرشف',
 }
 
 export default function Badge({ variant, children, size = 'sm' }: BadgeProps) {
   return (
     <span className={`inline-flex items-center rounded-full font-medium ${size === 'sm' ? 'px-2 py-0.5 text-xs' : 'px-2.5 py-1 text-xs'} ${variants[variant]}`}>
-      {labels[variant] ?? children}
+      {children ?? labels[variant]}
     </span>
   )
 }

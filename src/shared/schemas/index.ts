@@ -147,7 +147,7 @@ export const ScanQRSchema = z.object({
 export const ManualAttendanceSchema = z.object({
   sessionId: z.number().int().positive(),
   studentId: z.number().int().positive(),
-  attendanceStatus: z.enum(['present', 'absent', 'late']),
+  attendanceStatus: z.enum(['present', 'absent', 'inactive', 'not_active']),
   notes: z.string().max(500).trim().optional().nullable(),
 })
 

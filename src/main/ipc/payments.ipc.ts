@@ -3,7 +3,8 @@ import { IPC_CHANNELS } from '../../shared/constants/index'
 import {
   listPayments, createPayment, cancelPayment, getPaymentsByStudent,
   topUpCredit, deductSession, transferBalance, refundEnrollment,
-  getEnrollmentBalance, getPaymentsSummary,
+  cancelEnrollment,
+  getEnrollmentBalance, getStudentBalance, getPaymentsSummary,
   getStudentsDebtReport, calculateStudentTuitionDebt,
 } from '../services/payment.service'
 import { z } from 'zod'
@@ -55,6 +56,11 @@ export function registerPaymentHandlers(): void {
   handle('payments:studentDebt', async (payload) => {
     const { studentId } = z.object({ studentId: z.number().int().positive() }).parse(payload)
     return calculateStudentTuitionDebt(studentId)
+  })
+
+  handle('payments:studentBalance', async (payload) => {
+    const { studentId } = z.object({ studentId: z.number().int().positive() }).parse(payload)
+    return getStudentBalance(studentId)
   })
 
   // ─── Credit ledger endpoints ────────────────────────────────────────────────
@@ -109,5 +115,25 @@ export function registerPaymentHandlers(): void {
 
   handle('payments:summary', async () => {
     return getPaymentsSummary()
+  })
+
+  // Cancel enrollment — refund remaining balance + mark completed
+  handle('payments:cancelEnrollment', async (payload) => {
+    const data = z.object({
+      enrollmentId: z.number().int().positive(),
+      studentId: z.number().int().positive(),
+      reason: z.string().optional(),
+    }).parse(payload)
+    return cancelEnrollment(data)
+  })
+
+  // All payment types listing (for reports / transaction log)
+  handle('payments:listAll', async (payload) => {
+    const opts = z.object({
+      page: z.number().int().min(1).optional(),
+      pageSize: z.number().int().min(1).max(2000).optional(),
+      studentId: z.number().int().positive().optional(),
+    }).parse(payload ?? {})
+    return listPayments({ ...opts, allTypes: true })
   })
 }

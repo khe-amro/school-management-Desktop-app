@@ -10,6 +10,7 @@ import {
 } from '../services/student.service'
 import { getPhotoAsDataUrl } from '../services/media.service'
 import { getSqlite } from '../database/connection'
+import { getStudentAttendanceHistory } from '../services/attendance.service'
 import { z } from 'zod'
 
 export function registerStudentHandlers(): void {
@@ -90,5 +91,12 @@ export function registerStudentHandlers(): void {
       lastName: r.last_name_ar || r.last_name_fr || '',
       status: r.status,
     }))
+  })
+
+  // ─── Full attendance history for a student ────────────────────────────────
+
+  handle('students:attendanceHistory', async (payload) => {
+    const { studentId } = z.object({ studentId: z.number().int().positive() }).parse(payload)
+    return getStudentAttendanceHistory(studentId)
   })
 }

@@ -54,11 +54,12 @@ export function getDayName(dayIndex: number, lang: string): string {
 /**
  * Format currency string according to language (DA in DZD / دج)
  */
-export function formatCurrency(amount: number, lang: string): string {
-  const num = Math.abs(amount).toLocaleString()
+export function formatCurrency(amount: number | null | undefined, lang: string): string {
+  const val = typeof amount === 'number' && !isNaN(amount) ? amount : 0
+  const num = Math.abs(val).toLocaleString()
   const suffix = lang === 'ar' ? 'دج' : 'DA'
-  if (amount < 0) {
-    return lang === 'ar' ? `-${num} ${suffix}` : `-${num} ${suffix}`
+  if (val < 0) {
+    return `-${num} ${suffix}`
   }
   return `${num} ${suffix}`
 }

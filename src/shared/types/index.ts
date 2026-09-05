@@ -4,7 +4,7 @@
 export type StudentStatus = 'active' | 'inactive' | 'archived'
 export type PaymentStatus = 'paid' | 'unpaid' | 'partial' | 'overdue'
 export type PaymentMethodType = 'cash' | 'transfer' | 'check'
-export type AttendanceStatusType = 'present' | 'absent' | 'late' | 'not_active'
+export type AttendanceStatusType = 'present' | 'absent' | 'inactive' | 'not_active'
 export type AttendanceSource = 'qr' | 'manual'
 export type TeacherStatus = 'active' | 'inactive' | 'archived'
 export type CourseStatus = 'active' | 'inactive'
@@ -140,6 +140,7 @@ export interface AttendanceRecord {
   studentId: number
   scannedAt: string | null
   attendanceStatus: AttendanceStatusType
+  isInactive?: boolean
   source: AttendanceSource
   notes: string | null
   createdBy: number | null
@@ -157,6 +158,8 @@ export interface Payment {
   enrollmentId: number
   billingPeriod: string
   amount: number
+  paymentType?: string
+  sessionId?: number | null
   paymentMethod: PaymentMethodType
   paymentDate: string
   reference: string | null
@@ -171,6 +174,16 @@ export interface Payment {
   courseName?: string
   groupName?: string
   receivedByName?: string
+}
+
+export interface StudentNote {
+  id: number
+  studentId: number
+  noteText: string
+  createdBy: number
+  createdByName?: string
+  createdAt: string
+  updatedAt: string
 }
 
 export interface SchoolSettings {

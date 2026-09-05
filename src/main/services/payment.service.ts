@@ -34,29 +34,117 @@ export async function getEnrollmentBalance(enrollmentId: number): Promise<{
 }> {
   const sqlite = getSqlite()
   const rows = sqlite.prepare(`
-    SELECT payment_type, SUM(amount) as total
+    SELECT payment_type, session_id, SUM(amount) as total
     FROM payments
     WHERE enrollment_id = ? AND status = 'paid'
-    GROUP BY payment_type
-  `).all(enrollmentId) as { payment_type: string; total: number }[]
+    GROUP BY payment_type, (session_id IS NOT NULL)
+  `).all(enrollmentId) as { payment_type: string; session_id: number | null; total: number }[]
 
-  const byType: Record<string, number> = {}
-  for (const r of rows) byType[r.payment_type] = r.total ?? 0
+  let totalCredit = 0
+  let totalDebit = 0
 
-  const totalCharged = (byType['credit'] ?? 0) + (byType['transfer_in'] ?? 0)
-  const totalDeducted = (byType['deduction'] ?? 0) + (byType['transfer_out'] ?? 0) + (byType['refund'] ?? 0)
-  const balance = totalCharged - totalDeducted
+  for (const r of rows) {
+    const amt = r.total ?? 0
+    switch (r.payment_type) {
+      case 'credit':
+      case 'payment':
+      case 'transfer_in':
+      case 'credit_transfer_in':
+        totalCredit += amt
+        break
+      case 'session_refund':
+        // Session refund adds previously deducted session fee back to student credit
+        totalCredit += amt
+        break
+      case 'refund':
+        // If tied to a session, it is a session refund (adds to balance)
+        // If not tied to a session, it is an enrollment cancellation cash refund (settles balance to 0)
+        if (r.session_id != null) {
+          totalCredit += amt
+        } else {
+          totalDebit += amt
+        }
+        break
+      case 'deduction':
+      case 'session_charge':
+      case 'transfer_out':
+      case 'credit_transfer_out':
+      case 'enrollment_refund':
+        totalDebit += amt
+        break
+      default:
+        break
+    }
+  }
 
+  const balance = totalCredit - totalDebit
   const sessionCount = sqlite.prepare(`
     SELECT COUNT(*) as cnt FROM payments
-    WHERE enrollment_id = ? AND payment_type = 'deduction' AND status = 'paid'
+    WHERE enrollment_id = ? AND payment_type IN ('deduction', 'session_charge') AND status = 'paid'
   `).get(enrollmentId) as { cnt: number }
 
   return {
     balance: Math.round(balance * 100) / 100,
-    totalCharged: Math.round(totalCharged * 100) / 100,
-    totalDeducted: Math.round(totalDeducted * 100) / 100,
+    totalCharged: Math.round(totalCredit * 100) / 100,
+    totalDeducted: Math.round(totalDebit * 100) / 100,
     sessionsUsed: sessionCount?.cnt ?? 0,
+  }
+}
+
+// ─── Get comprehensive balance for a student across all enrollments ───────────
+// Requirement 28, 29, 30: Canonical student balance service & debt breakdown
+
+export async function getStudentBalance(studentId: number): Promise<{
+  studentId: number
+  totalBalance: number
+  isDebt: boolean
+  enrollmentBalances: Array<{
+    enrollmentId: number
+    groupId: number
+    groupName: string
+    courseNameAr: string
+    courseNameFr: string
+    balance: number
+    isDebt: boolean
+    status: string
+  }>
+}> {
+  const sqlite = getSqlite()
+  const enrollments = sqlite.prepare(`
+    SELECT e.id as enrollment_id, e.group_id, g.name as group_name,
+           c.name_ar as course_name_ar, c.name_fr as course_name_fr,
+           e.status as enrollment_status
+    FROM enrollments e
+    JOIN groups g ON e.group_id = g.id
+    JOIN courses c ON g.course_id = c.id
+    WHERE e.student_id = ?
+    ORDER BY e.created_at DESC
+  `).all(studentId) as any[]
+
+  let totalBalance = 0
+  const enrollmentBalances = []
+
+  for (const enr of enrollments) {
+    const bal = await getEnrollmentBalance(enr.enrollment_id)
+    totalBalance += bal.balance
+    enrollmentBalances.push({
+      enrollmentId: enr.enrollment_id,
+      groupId: enr.group_id,
+      groupName: enr.group_name,
+      courseNameAr: enr.course_name_ar ?? '',
+      courseNameFr: enr.course_name_fr ?? '',
+      balance: bal.balance,
+      isDebt: bal.balance < 0,
+      status: enr.enrollment_status,
+    })
+  }
+
+  totalBalance = Math.round(totalBalance * 100) / 100
+  return {
+    studentId,
+    totalBalance,
+    isDebt: totalBalance < 0,
+    enrollmentBalances,
   }
 }
 
@@ -110,6 +198,7 @@ export async function topUpCredit(data: {
 }
 
 // ─── Deduct one session from enrollment credit ────────────────────────────────
+// Requirement 9, 10, 13: Deterministic & idempotent session deduction
 
 export async function deductSession(data: {
   studentId: number
@@ -124,7 +213,9 @@ export async function deductSession(data: {
   // Idempotency: don't deduct twice for same session+enrollment
   const existing = sqlite.prepare(`
     SELECT id FROM payments
-    WHERE enrollment_id = ? AND session_id = ? AND payment_type = 'deduction'
+    WHERE enrollment_id = ? AND session_id = ?
+      AND payment_type IN ('deduction', 'session_charge')
+      AND status = 'paid'
     LIMIT 1
   `).get(data.enrollmentId, data.sessionId)
 
@@ -144,7 +235,7 @@ export async function deductSession(data: {
       receipt_number, student_id, enrollment_id, billing_period, amount,
       payment_type, session_id, payment_method, payment_date, notes,
       received_by, status, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, 'deduction', ?, '', ?, ?, ?, 'paid', datetime('now'), datetime('now'))
+    ) VALUES (?, ?, ?, ?, ?, 'session_charge', ?, 'cash', ?, ?, ?, 'paid', datetime('now'), datetime('now'))
   `).run(
     receiptNumber, data.studentId, data.enrollmentId,
     data.sessionDate.slice(0, 7), data.sessionPrice,
@@ -158,43 +249,285 @@ export async function deductSession(data: {
   return { deducted: true, newBalance: newBal.balance, wasInDebt }
 }
 
+// ─── Refund session charge when session becomes INACTIVE ──────────────────────
+// Requirement 20 & 21: Only refund if an effective charge existed; net effect = 0
+
+export async function refundSessionCharge(
+  enrollmentId: number,
+  sessionId: number,
+  studentId: number,
+  adminId: number
+): Promise<{ refunded: boolean; refundAmount: number }> {
+  const sqlite = getSqlite()
+
+  // Ensure any existing refund rows for this session are cancelled to prevent double-crediting
+  sqlite.prepare(`
+    UPDATE payments SET status = 'cancelled', updated_at = datetime('now')
+    WHERE enrollment_id = ? AND session_id = ?
+      AND payment_type IN ('refund', 'session_refund')
+      AND status = 'paid'
+  `).run(enrollmentId, sessionId)
+
+  // Check if a paid deduction exists
+  const deduction = sqlite.prepare(`
+    SELECT id, amount, billing_period FROM payments
+    WHERE enrollment_id = ? AND session_id = ?
+      AND payment_type IN ('deduction', 'session_charge')
+      AND status = 'paid'
+    LIMIT 1
+  `).get(enrollmentId, sessionId) as { id: number; amount: number; billing_period: string } | undefined
+
+  if (!deduction) {
+    // Critical rule: If never charged, do not refund
+    return { refunded: false, refundAmount: 0 }
+  }
+
+  // Cancelling the session deduction restores the exact session fee back to the student's credit balance.
+  // Note: We do NOT insert an additional 'session_refund' payment row here, because that would double-count
+  // the refund (+1000 credit AND -1000 debit cancelled = +2000 DA net change).
+  sqlite.prepare(`
+    UPDATE payments SET status = 'cancelled', updated_at = datetime('now')
+    WHERE id = ?
+  `).run(deduction.id)
+
+  return { refunded: true, refundAmount: deduction.amount }
+}
+
+// ─── Re-charge session when reversing INACTIVE → ATTENDED/ABSENT ──────────────
+// Requirement 22: Restore session charge if it was previously refunded
+
+export async function rechargeSessionCharge(
+  enrollmentId: number,
+  sessionId: number,
+  studentId: number,
+  sessionDate: string,
+  sessionPrice: number,
+  adminId: number
+): Promise<{ charged: boolean; amount: number }> {
+  const sqlite = getSqlite()
+
+  // Check if an active charge already exists
+  const activeCharge = sqlite.prepare(`
+    SELECT id FROM payments
+    WHERE enrollment_id = ? AND session_id = ?
+      AND payment_type IN ('deduction', 'session_charge')
+      AND status = 'paid'
+    LIMIT 1
+  `).get(enrollmentId, sessionId) as { id: number } | undefined
+
+  if (activeCharge) {
+    // Already actively charged — no new charge
+    return { charged: false, amount: 0 }
+  }
+
+  // Cancel any stale refund records for this session
+  sqlite.prepare(`
+    UPDATE payments SET status = 'cancelled', updated_at = datetime('now')
+    WHERE enrollment_id = ? AND session_id = ?
+      AND payment_type IN ('refund', 'session_refund')
+      AND status = 'paid'
+  `).run(enrollmentId, sessionId)
+
+  const receiptNumber = await generateReceiptNumber()
+
+  sqlite.prepare(`
+    INSERT INTO payments (
+      receipt_number, student_id, enrollment_id, billing_period, amount,
+      payment_type, session_id, payment_method, payment_date, notes,
+      received_by, status, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, 'session_charge', ?, 'cash', ?, 'Session restored from inactive', ?, 'paid', datetime('now'), datetime('now'))
+  `).run(receiptNumber, studentId, enrollmentId, sessionDate.slice(0, 7), sessionPrice, sessionId, sessionDate, adminId)
+
+  return { charged: true, amount: sessionPrice }
+}
+
 // ─── Transfer remaining balance between enrollments ───────────────────────────
+// Requirement 31-37: 100% positive transferable balance, atomic SQLite transaction
 
 export async function transferBalance(data: {
   fromEnrollmentId: number
   toEnrollmentId: number
   studentId: number
-  amount?: number // if not set, transfer ALL remaining
+  amount?: number
 }): Promise<{ transferred: number; newFromBalance: number; newToBalance: number }> {
   const session = requireSession()
   const sqlite = getSqlite()
 
-  const fromBal = await getEnrollmentBalance(data.fromEnrollmentId)
-  const transferAmount = data.amount !== undefined ? Math.min(data.amount, fromBal.balance) : fromBal.balance
+  return sqlite.transaction(() => {
+    const fromBal = sqlite.prepare(`
+      SELECT payment_type, session_id, SUM(amount) as total
+      FROM payments
+      WHERE enrollment_id = ? AND status = 'paid'
+      GROUP BY payment_type, (session_id IS NOT NULL)
+    `).all(data.fromEnrollmentId) as any[]
 
-  if (transferAmount <= 0) throw new AppError(ErrorCode.NEGATIVE_AMOUNT, 'No balance to transfer')
+    let totalCredit = 0
+    let totalDebit = 0
+    for (const r of fromBal) {
+      const amt = r.total ?? 0
+      if (['credit', 'payment', 'transfer_in', 'credit_transfer_in', 'session_refund'].includes(r.payment_type) ||
+          (r.payment_type === 'refund' && r.session_id != null)) {
+        totalCredit += amt
+      } else if (['deduction', 'session_charge', 'transfer_out', 'credit_transfer_out', 'enrollment_refund'].includes(r.payment_type) ||
+                 (r.payment_type === 'refund' && r.session_id == null)) {
+        totalDebit += amt
+      }
+    }
+    const currentFromBalance = Math.round((totalCredit - totalDebit) * 100) / 100
+    // Requirement 34: Transfer positive remaining credit only; debt stays on source enrollment
+    const transferAmount = Math.max(0, currentFromBalance)
 
-  const now = new Date().toISOString().slice(0, 10)
-  const receiptOut = await generateReceiptNumber()
-  const receiptIn = await generateReceiptNumber()
+    const now = new Date().toISOString()
+    const nowDate = now.slice(0, 10)
+    const receiptOut = `TR-OUT-${Date.now()}`
+    const receiptIn = `TR-IN-${Date.now()}`
 
-  sqlite.prepare(`
-    INSERT INTO payments (receipt_number, student_id, enrollment_id, billing_period, amount,
-      payment_type, payment_method, payment_date, notes, received_by, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, 'transfer_out', '', ?, 'Transfer to enrollment ${data.toEnrollmentId}', ?, 'paid', datetime('now'), datetime('now'))
-  `).run(receiptOut, data.studentId, data.fromEnrollmentId, now.slice(0,7), transferAmount, now, session.adminId)
+    if (transferAmount > 0) {
+      sqlite.prepare(`
+        INSERT INTO payments (receipt_number, student_id, enrollment_id, billing_period, amount,
+          payment_type, payment_method, payment_date, notes, received_by, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'transfer_out', 'transfer', ?, ?, ?, 'paid', datetime('now'), datetime('now'))
+      `).run(receiptOut, data.studentId, data.fromEnrollmentId, nowDate.slice(0, 7), transferAmount, nowDate,
+        `تحويل الرصيد إلى التسجيل ${data.toEnrollmentId}`, session.adminId)
 
-  sqlite.prepare(`
-    INSERT INTO payments (receipt_number, student_id, enrollment_id, billing_period, amount,
-      payment_type, payment_method, payment_date, notes, received_by, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, 'transfer_in', '', ?, 'Transfer from enrollment ${data.fromEnrollmentId}', ?, 'paid', datetime('now'), datetime('now'))
-  `).run(receiptIn, data.studentId, data.toEnrollmentId, now.slice(0,7), transferAmount, now, session.adminId)
+      sqlite.prepare(`
+        INSERT INTO payments (receipt_number, student_id, enrollment_id, billing_period, amount,
+          payment_type, payment_method, payment_date, notes, received_by, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'transfer_in', 'transfer', ?, ?, ?, 'paid', datetime('now'), datetime('now'))
+      `).run(receiptIn, data.studentId, data.toEnrollmentId, nowDate.slice(0, 7), transferAmount, nowDate,
+        `تحويل الرصيد من التسجيل ${data.fromEnrollmentId}`, session.adminId)
+    }
 
-  const newFrom = await getEnrollmentBalance(data.fromEnrollmentId)
-  const newTo = await getEnrollmentBalance(data.toEnrollmentId)
+    // Mark source enrollment as transferred
+    sqlite.prepare(`
+      UPDATE enrollments SET status = 'completed', updated_at = datetime('now')
+      WHERE id = ?
+    `).run(data.fromEnrollmentId)
 
-  log.info(`Balance transfer: ${transferAmount} DA from enrollment ${data.fromEnrollmentId} to ${data.toEnrollmentId}`)
-  return { transferred: transferAmount, newFromBalance: newFrom.balance, newToBalance: newTo.balance }
+    // Ensure target enrollment is active
+    sqlite.prepare(`
+      UPDATE enrollments SET status = 'active', updated_at = datetime('now')
+      WHERE id = ?
+    `).run(data.toEnrollmentId)
+
+    // Audit log
+    sqlite.prepare(`
+      INSERT INTO audit_logs (administrator_id, action, entity_type, entity_id, sanitized_details_json, created_at)
+      VALUES (?, 'enrollment.transfer', 'enrollment', ?, ?, datetime('now'))
+    `).run(session.adminId, data.fromEnrollmentId, JSON.stringify({
+      fromEnrollmentId: data.fromEnrollmentId,
+      toEnrollmentId: data.toEnrollmentId,
+      transferredAmount: transferAmount,
+    }))
+
+    return {
+      transferred: transferAmount,
+      newFromBalance: currentFromBalance > 0 ? 0 : currentFromBalance,
+      newToBalance: transferAmount,
+    }
+  })()
+}
+
+// ─── Cancel enrollment: refund remaining balance + mark completed ─────────────
+// Requirement 39-42: Auditable enrollment refund, close enrollment, SQLite transaction
+
+export async function cancelEnrollment(data: {
+  enrollmentId: number
+  studentId: number
+  reason?: string
+}): Promise<{ refunded: number }> {
+  const session = requireSession()
+  const sqlite = getSqlite()
+
+  return sqlite.transaction(() => {
+    const enroll = sqlite.prepare(`
+      SELECT status, cancelled_at FROM enrollments WHERE id = ?
+    `).get(data.enrollmentId) as any
+
+    if (!enroll) throw new AppError(ErrorCode.NOT_FOUND, 'Enrollment not found')
+    if (enroll.cancelled_at) {
+      // Already cancelled, do not refund again (Requirement 41)
+      return { refunded: 0 }
+    }
+
+    const fromBal = sqlite.prepare(`
+      SELECT payment_type, session_id, SUM(amount) as total
+      FROM payments
+      WHERE enrollment_id = ? AND status = 'paid'
+      GROUP BY payment_type, (session_id IS NOT NULL)
+    `).all(data.enrollmentId) as any[]
+
+    let totalCredit = 0
+    let totalDebit = 0
+    for (const r of fromBal) {
+      const amt = r.total ?? 0
+      if (['credit', 'payment', 'transfer_in', 'credit_transfer_in', 'session_refund'].includes(r.payment_type) ||
+          (r.payment_type === 'refund' && r.session_id != null)) {
+        totalCredit += amt
+      } else if (['deduction', 'session_charge', 'transfer_out', 'credit_transfer_out', 'enrollment_refund'].includes(r.payment_type) ||
+                 (r.payment_type === 'refund' && r.session_id == null)) {
+        totalDebit += amt
+      }
+    }
+    const currentBal = Math.round((totalCredit - totalDebit) * 100) / 100
+    const refundAmount = Math.max(0, currentBal)
+
+    const now = new Date().toISOString()
+    const nowDate = now.slice(0, 10)
+
+    if (refundAmount > 0) {
+      const receiptNumber = `REF-${Date.now()}`
+      sqlite.prepare(`
+        INSERT INTO payments (receipt_number, student_id, enrollment_id, billing_period, amount,
+          payment_type, payment_method, payment_date, notes, received_by, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'enrollment_refund', 'cash', ?, ?, ?, 'paid', datetime('now'), datetime('now'))
+      `).run(receiptNumber, data.studentId, data.enrollmentId, nowDate.slice(0, 7),
+        refundAmount, nowDate, data.reason ?? 'إلغاء التسجيل — استرداد الرصيد المتبقي', session.adminId)
+    }
+
+    sqlite.prepare(`
+      UPDATE enrollments
+      SET status = 'completed', cancelled_at = ?, cancel_reason = ?, refund_amount = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `).run(now, data.reason ?? 'cancelled_by_admin', refundAmount, data.enrollmentId)
+
+    sqlite.prepare(`
+      INSERT INTO audit_logs (administrator_id, action, entity_type, entity_id, sanitized_details_json, created_at)
+      VALUES (?, 'enrollment.cancel', 'enrollment', ?, ?, datetime('now'))
+    `).run(session.adminId, data.enrollmentId, JSON.stringify({
+      enrollmentId: data.enrollmentId,
+      refundedAmount: refundAmount,
+    }))
+
+    log.info(`Enrollment ${data.enrollmentId} cancelled, refunded ${refundAmount} DA`)
+    return { refunded: refundAmount }
+  })()
+}
+
+// ─── Cancel payment (reversal without hard-deleting) ──────────────────────────
+// Requirement 50: Never delete financial transactions
+
+export async function cancelPayment(paymentId: number, reason?: string | null): Promise<{ success: boolean }> {
+  const session = requireSession()
+  const sqlite = getSqlite()
+
+  return sqlite.transaction(() => {
+    const original = sqlite.prepare(`SELECT * FROM payments WHERE id = ?`).get(paymentId) as any
+    if (!original) throw new AppError(ErrorCode.PAYMENT_NOT_FOUND, 'Payment not found')
+    if (original.status === 'cancelled') throw new AppError(ErrorCode.PAYMENT_ALREADY_CANCELLED, 'Already cancelled')
+
+    sqlite.prepare(`
+      UPDATE payments SET status = 'cancelled', notes = COALESCE(notes || ' | ', '') || ?, updated_at = datetime('now')
+      WHERE id = ?
+    `).run(`Cancelled: ${reason ?? 'Cancelled by admin'}`, paymentId)
+
+    sqlite.prepare(`
+      INSERT INTO audit_logs (administrator_id, action, entity_type, entity_id, sanitized_details_json, created_at)
+      VALUES (?, 'payment.cancel', 'payment', ?, ?, datetime('now'))
+    `).run(session.adminId, paymentId, JSON.stringify({ receiptNumber: original.receipt_number, amount: original.amount, reason }))
+
+    return { success: true }
+  })()
 }
 
 // ─── Refund remaining balance (cancel enrollment) ────────────────────────────
@@ -216,7 +549,7 @@ export async function refundEnrollment(data: {
   sqlite.prepare(`
     INSERT INTO payments (receipt_number, student_id, enrollment_id, billing_period, amount,
       payment_type, payment_method, payment_date, notes, received_by, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, 'refund', '', ?, ?, ?, 'paid', datetime('now'), datetime('now'))
+    VALUES (?, ?, ?, ?, ?, 'refund', 'cash', ?, ?, ?, 'paid', datetime('now'), datetime('now'))
   `).run(receiptNumber, data.studentId, data.enrollmentId, now.slice(0,7), bal.balance, now,
     data.notes ?? 'Enrollment cancelled — balance refunded', session.adminId)
 
@@ -232,6 +565,7 @@ export async function listPayments(opts: {
   search?: string
   studentId?: number
   type?: string
+  allTypes?: boolean
 }): Promise<PaginatedResult<any>> {
   const sqlite = getSqlite()
   const page = Math.max(1, opts.page ?? 1)
@@ -265,10 +599,10 @@ export async function listPayments(opts: {
     params.push(q, q, q, q, q, q, q, q, q, q, q, q)
   }
 
-  if (opts.type) {
+  if (opts.type && opts.type !== 'all') {
     where += " AND p.payment_type = ?"
     params.push(opts.type)
-  } else {
+  } else if (!opts.allTypes && opts.type !== 'all') {
     where += " AND p.payment_type = 'credit'" // Default: only show top-ups in main list
   }
 
@@ -325,30 +659,7 @@ export async function createPayment(data: {
   }) as any
 }
 
-// ─── Cancel a credit top-up ───────────────────────────────────────────────────
 
-export async function cancelPayment(id: number, reason?: string | null): Promise<void> {
-  const session = requireSession()
-  const db = getDb()
-
-  const existing = await db.query.payments.findFirst({ where: eq(schema.payments.id, id) })
-  if (!existing) throw new AppError(ErrorCode.PAYMENT_NOT_FOUND, 'Payment not found')
-  if (existing.status === 'cancelled') throw new AppError(ErrorCode.PAYMENT_ALREADY_CANCELLED, 'Already cancelled')
-
-  await db.update(schema.payments).set({
-    status: 'cancelled',
-    notes: reason ? `Cancelled: ${reason}` : existing.notes,
-    updatedAt: new Date().toISOString(),
-  }).where(eq(schema.payments.id, id))
-
-  await db.insert(schema.auditLogs).values({
-    administratorId: session.adminId,
-    action: 'payment.cancel',
-    entityType: 'payment',
-    entityId: id,
-    sanitizedDetailsJson: JSON.stringify({ receiptNumber: existing.receiptNumber, reason }),
-  })
-}
 
 // ─── Get all payments for a student ──────────────────────────────────────────
 

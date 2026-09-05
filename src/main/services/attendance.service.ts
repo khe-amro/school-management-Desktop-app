@@ -2,7 +2,7 @@ import { eq, and, desc } from 'drizzle-orm'
 import { getDb, getSqlite, schema } from '../database/connection'
 import { AppError, ErrorCode } from '../../shared/errors/index'
 import { requireSession } from './auth.service'
-import type { AttendanceSession, AttendanceRecord, QRScanResult } from '../../shared/types/index'
+import type { AttendanceSession, AttendanceRecord, QRScanResult, AttendanceStatusType } from '../../shared/types/index'
 import log from 'electron-log'
 
 // ─── Start session ────────────────────────────────────────────────────────────
@@ -15,6 +15,7 @@ export async function startAttendanceSession(data: {
 }): Promise<AttendanceSession> {
   const session = requireSession()
   const db = getDb()
+  const sqlite = getSqlite()
 
   // Validate group exists
   const group = await db.query.groups.findFirst({
@@ -22,7 +23,7 @@ export async function startAttendanceSession(data: {
   })
   if (!group) throw new AppError(ErrorCode.NOT_FOUND, 'Group not found')
 
-  // Check if a session already exists for this group on this date (open or scheduled)
+  // Check if a session already exists for this group on this date
   const existingForDate = await db.query.attendanceSessions.findFirst({
     where: and(
       eq(schema.attendanceSessions.groupId, data.groupId),
@@ -33,6 +34,8 @@ export async function startAttendanceSession(data: {
 
   const now = new Date().toISOString()
 
+  let sessionRow: typeof existingForDate
+
   if (existingForDate) {
     if (existingForDate.status !== 'open') {
       await db.update(schema.attendanceSessions).set({
@@ -41,26 +44,66 @@ export async function startAttendanceSession(data: {
         actualStartTime: existingForDate.actualStartTime || now.slice(11, 16),
         updatedAt: now,
       }).where(eq(schema.attendanceSessions.id, existingForDate.id))
-
       existingForDate.status = 'open'
       existingForDate.actualStartTime = existingForDate.actualStartTime || now.slice(11, 16)
     }
-    return mapSessionRow(existingForDate)
+    sessionRow = existingForDate
+  } else {
+    const result = await db.insert(schema.attendanceSessions).values({
+      groupId: data.groupId,
+      sessionDate: data.sessionDate,
+      plannedStartTime: data.plannedStartTime ?? null,
+      actualStartTime: now.slice(11, 16),
+      lateThresholdMinutes: data.lateThresholdMinutes ?? 10,
+      status: 'open',
+      createdBy: session.adminId,
+      updatedAt: now,
+    }).returning()
+    sessionRow = result[0]!
   }
 
-  const result = await db.insert(schema.attendanceSessions).values({
-    groupId: data.groupId,
-    sessionDate: data.sessionDate,
-    plannedStartTime: data.plannedStartTime ?? null,
-    actualStartTime: now.slice(11, 16),
-    lateThresholdMinutes: data.lateThresholdMinutes ?? 10,
-    status: 'open',
-    createdBy: session.adminId,
-    updatedAt: now,
-  }).returning()
+  // Auto-seed absent attendance_records + deductions for all active enrollments
+  // (idempotent: uses INSERT OR IGNORE / deductSession checks for existing)
+  try {
+    const { deductSession } = await import('./payment.service')
+    const enrolled = sqlite.prepare(`
+      SELECT e.id as enrollment_id, e.student_id, e.agreed_price, g.monthly_price
+      FROM enrollments e
+      JOIN groups g ON e.group_id = g.id
+      JOIN students st ON e.student_id = st.id
+      WHERE e.group_id = ? AND e.status = 'active' AND st.status = 'active'
+    `).all(data.groupId) as any[]
 
-  const row = result[0]!
-  return mapSessionRow(row)
+    for (const en of enrolled) {
+      // Insert absent record if not already existing
+      sqlite.prepare(`
+        INSERT OR IGNORE INTO attendance_records
+          (session_id, student_id, attendance_status, is_inactive, source, was_enrolled, created_by, created_at, updated_at)
+        VALUES (?, ?, 'absent', 0, 'manual', 1, ?, datetime('now'), datetime('now'))
+      `).run(sessionRow!.id, en.student_id, session.adminId)
+
+      // Deduct session fee (idempotent — deductSession skips if already deducted)
+      const price = en.agreed_price || en.monthly_price || 0
+      const sessPrice = Math.round((price / 4) * 100) / 100
+      if (sessPrice > 0) {
+        try {
+          await deductSession({
+            studentId: en.student_id,
+            enrollmentId: en.enrollment_id,
+            sessionId: sessionRow!.id,
+            sessionDate: data.sessionDate,
+            sessionPrice: sessPrice,
+          })
+        } catch (err) {
+          log.warn(`Auto-deduction failed for student ${en.student_id}:`, err)
+        }
+      }
+    }
+  } catch (err) {
+    log.warn('Failed to auto-seed attendance records:', err)
+  }
+
+  return mapSessionRow(sessionRow!)
 }
 
 // ─── End session ──────────────────────────────────────────────────────────────
@@ -81,10 +124,170 @@ export async function endAttendanceSession(sessionId: number): Promise<void> {
   }).where(eq(schema.attendanceSessions.id, sessionId))
 }
 
-// ─── QR scan pipeline (7-step validation) ────────────────────────────────────
+// ─── Mark session attended (Shared pipeline for QR scan & manual search) ──────
+// Requirements 14-25, 41-43: Unified pipeline, deterministic financial effect
+
+export async function markSessionAttended(
+  sessionId: number,
+  studentId: number,
+  source: 'qr' | 'manual' = 'manual'
+): Promise<QRScanResult> {
+  const authSession = requireSession()
+  const db = getDb()
+  const sqlite = getSqlite()
+
+  // 1. Verify session exists and is open
+  const attendanceSession = await db.query.attendanceSessions.findFirst({
+    where: eq(schema.attendanceSessions.id, sessionId),
+  })
+  if (!attendanceSession) return { code: 'session_closed' }
+  if (attendanceSession.status !== 'open') return { code: 'session_closed' }
+
+  // 2. Verify student exists and is active
+  const matchedStudent = await db.query.students.findFirst({
+    where: eq(schema.students.id, studentId),
+  })
+  if (!matchedStudent) return { code: 'unknown_card' }
+  if (matchedStudent.status !== 'active') {
+    const studentName = `${matchedStudent.lastNameAr ?? ''} ${matchedStudent.firstNameAr ?? ''}`.trim() || matchedStudent.studentNumber
+    return { code: 'student_inactive', studentId: matchedStudent.id, studentName }
+  }
+
+  // 3. Confirm enrollment in the session's group
+  const enrollment = sqlite.prepare(`
+    SELECT e.id, e.enrollment_date, e.agreed_price, e.status as enrollment_status, g.monthly_price
+    FROM enrollments e
+    JOIN groups g ON e.group_id = g.id
+    WHERE e.student_id = ? AND e.group_id = ? AND e.status = 'active'
+    LIMIT 1
+  `).get(studentId, attendanceSession.groupId) as any
+
+  const studentNameAr = `${matchedStudent.lastNameAr ?? ''} ${matchedStudent.firstNameAr ?? ''}`.trim()
+  const studentNameFr = `${matchedStudent.lastNameFr ?? ''} ${matchedStudent.firstNameFr ?? ''}`.trim()
+  const studentName = studentNameAr || studentNameFr || matchedStudent.studentNumber
+
+  if (!enrollment) {
+    return {
+      code: 'not_enrolled',
+      studentId: matchedStudent.id,
+      studentName,
+    }
+  }
+
+  // Calculate session price
+  const price = enrollment.agreed_price || enrollment.monthly_price || 0
+  const sessionPrice = Math.round((price / 4) * 100) / 100
+
+  const { getEnrollmentBalance, deductSession, rechargeSessionCharge } = await import('./payment.service')
+  const now = new Date().toISOString()
+
+  // 4. Check existing record
+  const existingRecord = sqlite.prepare(`
+    SELECT id, attendance_status, is_inactive, scanned_at FROM attendance_records
+    WHERE session_id = ? AND student_id = ?
+  `).get(sessionId, studentId) as any
+
+  let recordScannedAt = now
+
+  if (existingRecord) {
+    if (existingRecord.attendance_status === 'present' && existingRecord.is_inactive === 0) {
+      // Already marked present
+      const curBal = await getEnrollmentBalance(enrollment.id)
+      return {
+        code: 'already_scanned',
+        studentId: matchedStudent.id,
+        studentName,
+        studentNumber: matchedStudent.studentNumber,
+        phone: matchedStudent.phone,
+        scannedAt: existingRecord.scanned_at ?? undefined,
+        attendanceStatus: 'present',
+        creditBalance: curBal.balance,
+        sessionPrice,
+        remainingSessions: sessionPrice > 0 ? Math.floor(curBal.balance / sessionPrice) : 0,
+        wasInDebt: curBal.balance < 0,
+      }
+    }
+
+    if (existingRecord.is_inactive === 1) {
+      // Was inactive: recharge 1 session fee and reactivate
+      if (sessionPrice > 0) {
+        await rechargeSessionCharge(
+          enrollment.id,
+          sessionId,
+          studentId,
+          attendanceSession.sessionDate,
+          sessionPrice,
+          authSession.adminId
+        )
+      }
+    } else {
+      // Was absent: fee was already charged (or ensure charged)
+      if (sessionPrice > 0) {
+        await deductSession({
+          studentId,
+          enrollmentId: enrollment.id,
+          sessionId,
+          sessionDate: attendanceSession.sessionDate,
+          sessionPrice,
+        })
+      }
+    }
+
+    sqlite.prepare(`
+      UPDATE attendance_records
+      SET attendance_status = 'present', is_inactive = 0, source = ?, scanned_at = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `).run(source, now, existingRecord.id)
+    recordScannedAt = now
+  } else {
+    // Brand new attendance record
+    sqlite.prepare(`
+      INSERT INTO attendance_records
+        (session_id, student_id, attendance_status, is_inactive, source, scanned_at, was_enrolled, created_by, created_at, updated_at)
+      VALUES (?, ?, 'present', 0, ?, ?, 1, ?, datetime('now'), datetime('now'))
+    `).run(sessionId, studentId, source, now, authSession.adminId)
+
+    if (sessionPrice > 0) {
+      await deductSession({
+        studentId,
+        enrollmentId: enrollment.id,
+        sessionId,
+        sessionDate: attendanceSession.sessionDate,
+        sessionPrice,
+      })
+    }
+  }
+
+  // Audit
+  await db.insert(schema.auditLogs).values({
+    administratorId: authSession.adminId,
+    action: `attendance.${source}Mark`,
+    entityType: 'attendance_record',
+    entityId: existingRecord?.id || sessionId,
+    sanitizedDetailsJson: JSON.stringify({ sessionId, studentId, status: 'present', source }),
+  })
+
+  // Get fresh balance
+  const updatedBal = await getEnrollmentBalance(enrollment.id)
+  return {
+    code: 'recorded',
+    studentId: matchedStudent.id,
+    studentName,
+    studentNumber: matchedStudent.studentNumber,
+    phone: matchedStudent.phone,
+    scannedAt: recordScannedAt,
+    attendanceStatus: 'present',
+    creditBalance: updatedBal.balance,
+    sessionPrice,
+    remainingSessions: sessionPrice > 0 ? Math.floor(updatedBal.balance / sessionPrice) : 0,
+    wasInDebt: updatedBal.balance < 0,
+  }
+}
+
+// ─── QR scan pipeline (resolves card token and marks attended) ───────────────
 
 export async function scanQRToken(sessionId: number, rawToken: string): Promise<QRScanResult> {
-  const session = requireSession()
+  requireSession()
   const db = getDb()
 
   let token = rawToken.trim()
@@ -124,12 +327,11 @@ export async function scanQRToken(sessionId: number, rawToken: string): Promise<
     return { code: 'unknown_card' }
   }
 
-  // 2. Find the active token
+  // 4. Find the active student
   const student = await db.query.students.findFirst({
     where: eq(schema.students.qrToken, token),
   })
 
-  // Try case-insensitive search via like pattern
   const students_found = await db.query.students.findMany()
   const matchedStudent = student ?? students_found.find(
     (s: typeof schema.students.$inferSelect) => s.qrToken.toUpperCase() === upperToken
@@ -139,144 +341,13 @@ export async function scanQRToken(sessionId: number, rawToken: string): Promise<
     return { code: 'unknown_card' }
   }
 
-  // 3. Check token is active
+  // 5. Check token is active
   if (!matchedStudent.qrTokenActive) {
     return { code: 'disabled_card', studentId: matchedStudent.id }
   }
 
-  // 4. Check student is active
-  if (matchedStudent.status !== 'active') {
-    return { code: 'student_inactive', studentId: matchedStudent.id, studentName: `${matchedStudent.firstNameAr} ${matchedStudent.lastNameAr}` }
-  }
-
-  // 5. Verify session exists and is open
-  const attendanceSession = await db.query.attendanceSessions.findFirst({
-    where: eq(schema.attendanceSessions.id, sessionId),
-  })
-  if (!attendanceSession) return { code: 'session_closed' }
-  if (attendanceSession.status !== 'open') return { code: 'session_closed' }
-
-  // 5b. Confirm enrollment in the session's group
-  const enrollment = await db.query.enrollments.findFirst({
-    where: and(
-      eq(schema.enrollments.studentId, matchedStudent.id),
-      eq(schema.enrollments.groupId, attendanceSession.groupId),
-      eq(schema.enrollments.status, 'active')
-    ),
-  })
-  if (!enrollment) {
-    return {
-      code: 'not_enrolled',
-      studentId: matchedStudent.id,
-      studentName: `${matchedStudent.firstNameAr} ${matchedStudent.lastNameAr}`,
-    }
-  }
-
-  // Fetch enrollment details & balance info
-  let creditBalance: number | null = null
-  let sessionPrice: number = 0
-  let remainingSessions: number = 0
-  let wasInDebt = false
-
-  if (enrollment) {
-    try {
-      const { getEnrollmentBalance } = await import('./payment.service')
-      if (attendanceSession.price !== null && attendanceSession.price !== undefined) {
-        sessionPrice = attendanceSession.price
-      } else {
-        const group = await db.query.groups.findFirst({ where: eq(schema.groups.id, attendanceSession.groupId) })
-        const price = enrollment.agreedPrice || group?.monthlyPrice || 0
-        sessionPrice = Math.round((price / 4) * 100) / 100
-      }
-      const bal = await getEnrollmentBalance(enrollment.id)
-      creditBalance = bal.balance
-      wasInDebt = bal.balance < 0
-      remainingSessions = sessionPrice > 0 ? Math.floor(bal.balance / sessionPrice) : 0
-    } catch (err) {
-      log.warn('Failed to fetch balance in scanQRToken:', err)
-    }
-  }
-
-  // 6. Check for duplicate scan
-  const existingRecord = await db.query.attendanceRecords.findFirst({
-    where: and(
-      eq(schema.attendanceRecords.sessionId, sessionId),
-      eq(schema.attendanceRecords.studentId, matchedStudent.id)
-    ),
-  })
-  if (existingRecord) {
-    return {
-      code: 'already_scanned',
-      studentId: matchedStudent.id,
-      studentName: `${matchedStudent.lastNameAr ?? ''} ${matchedStudent.firstNameAr ?? ''}`.trim() || matchedStudent.studentNumber,
-      studentNumber: matchedStudent.studentNumber,
-      phone: matchedStudent.phone,
-      scannedAt: existingRecord.scannedAt ?? undefined,
-      attendanceStatus: existingRecord.attendanceStatus as 'present' | 'absent' | 'late',
-      creditBalance,
-      sessionPrice,
-      remainingSessions,
-      wasInDebt,
-    }
-  }
-
-  // 7. Calculate status (late vs present) and insert record transactionally
-  const now = new Date()
-  const nowTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
-  let attendanceStatus: 'present' | 'late' = 'present'
-
-  if (attendanceSession.plannedStartTime) {
-    const [ph, pm] = attendanceSession.plannedStartTime.split(':').map(Number)
-    const [nh, nm] = nowTime.split(':').map(Number)
-    const diffMins = (nh! * 60 + nm!) - (ph! * 60 + pm!)
-    if (diffMins > attendanceSession.lateThresholdMinutes) {
-      attendanceStatus = 'late'
-    }
-  }
-
-  const result = await db.insert(schema.attendanceRecords).values({
-    sessionId,
-    studentId: matchedStudent.id,
-    scannedAt: now.toISOString(),
-    attendanceStatus,
-    source: 'qr',
-    createdBy: session.adminId,
-    updatedAt: now.toISOString(),
-  }).returning()
-
-  const record = result[0]!
-  log.info(`Attendance recorded: student ${matchedStudent.studentNumber}, session ${sessionId}, status: ${attendanceStatus}`)
-
-  // Fetch updated credit balance (note: session fee deduction happens automatically when session time arrives)
-  if (enrollment) {
-    try {
-      const { getEnrollmentBalance } = await import('./payment.service')
-      const currentBal = await getEnrollmentBalance(enrollment.id)
-      creditBalance = currentBal.balance
-      wasInDebt = currentBal.balance < 0
-      remainingSessions = sessionPrice > 0 ? Math.floor(currentBal.balance / sessionPrice) : 0
-    } catch (err) {
-      log.warn('Failed to fetch balance on QR scan:', err)
-    }
-  }
-
-  const studentNameAr = `${matchedStudent.lastNameAr ?? ''} ${matchedStudent.firstNameAr ?? ''}`.trim()
-  const studentNameFr = `${matchedStudent.lastNameFr ?? ''} ${matchedStudent.firstNameFr ?? ''}`.trim()
-  const studentName = studentNameAr || studentNameFr || matchedStudent.studentNumber
-
-  return {
-    code: 'recorded',
-    studentId: matchedStudent.id,
-    studentName,
-    studentNumber: matchedStudent.studentNumber,
-    phone: matchedStudent.phone,
-    scannedAt: record.scannedAt ?? undefined,
-    attendanceStatus,
-    creditBalance,
-    sessionPrice,
-    remainingSessions,
-    wasInDebt,
-  }
+  // 6. Delegate to shared markSessionAttended pipeline
+  return markSessionAttended(sessionId, matchedStudent.id, 'qr')
 }
 
 // ─── Manual attendance ────────────────────────────────────────────────────────
@@ -284,7 +355,7 @@ export async function scanQRToken(sessionId: number, rawToken: string): Promise<
 export async function markManually(data: {
   sessionId: number
   studentId: number
-  attendanceStatus: 'present' | 'absent' | 'late'
+  attendanceStatus: 'present' | 'absent' | 'inactive' | 'not_active'
   notes?: string | null
 }): Promise<AttendanceRecord> {
   const session = requireSession()
@@ -449,7 +520,7 @@ export async function lookupStudentByToken(rawToken: string): Promise<{
   })
   const present = records.filter((r) => r.attendanceStatus === 'present').length
   const absent = records.filter((r) => r.attendanceStatus === 'absent').length
-  const late = records.filter((r) => r.attendanceStatus === 'late').length
+  const late = 0
   const totalSessions = records.length
   const attendanceRate = totalSessions > 0 ? Math.round((present / totalSessions) * 100) : 100
 
@@ -539,7 +610,7 @@ export async function getStudentSummary(studentId: number, sessionId?: number): 
 
   const presentCount = records.filter((r) => r.attendanceStatus === 'present').length
   const absentCount = records.filter((r) => r.attendanceStatus === 'absent').length
-  const lateCount = records.filter((r) => r.attendanceStatus === 'late').length
+  const lateCount = 0
   const totalSessions = records.length
   const attendanceRate = totalSessions > 0 ? (presentCount / totalSessions) * 100 : 0
 
@@ -797,12 +868,13 @@ export async function resolveStudentSessions(rawToken: string, date: string): Pr
   }
 }
 
-// ─── Mark student in session (works for any date, upserts) ─────────────────
+// ─── Mark student in session (deterministic transition matrix) ───────────────
+// Requirements 14-25: ABSENT = 1 fee, ATTENDED = 1 fee, INACTIVE = 0 fee
 
 export async function markStudentInSession(
   sessionId: number,
   studentId: number,
-  status: 'present' | 'absent' | 'late' | 'not_active',
+  status: 'present' | 'absent' | 'late' | 'not_active' | 'inactive',
 ): Promise<{ success: boolean; studentName: string; status: string; wasEnrolled: boolean; creditBalance: number | null; wasInDebt: boolean }> {
   const authSession = requireSession()
   const db = getDb()
@@ -817,18 +889,13 @@ export async function markStudentInSession(
   const student = await db.query.students.findFirst({ where: eq(schema.students.id, studentId) })
   if (!student) throw new AppError(ErrorCode.NOT_FOUND, 'Student not found')
 
-  // Auto-determine late status if not overridden and session has a start time
-  let finalStatus = status
-  if (status === 'present' && session.plannedStartTime) {
-    const n = new Date()
-    const nowTime = `${String(n.getHours()).padStart(2, '0')}:${String(n.getMinutes()).padStart(2, '0')}`
-    const [ph, pm] = session.plannedStartTime.split(':').map(Number)
-    const [nh, nm] = nowTime.split(':').map(Number)
-    const diff = (nh! * 60 + nm!) - (ph! * 60 + pm!)
-    if (diff > (session.lateThresholdMinutes ?? 10)) finalStatus = 'late'
-  }
+  // Normalize status: late -> present, not_active -> inactive
+  let targetStatus: 'present' | 'absent' | 'inactive' = 'present'
+  if (status === 'absent') targetStatus = 'absent'
+  else if (status === 'inactive' || status === 'not_active') targetStatus = 'inactive'
+  else targetStatus = 'present'
 
-  // Check if student was enrolled by session date
+  // Check enrollment
   const enrollment = sqlite.prepare(`
     SELECT e.id, e.enrollment_date, e.agreed_price, e.status as enrollment_status, g.monthly_price
     FROM enrollments e
@@ -838,61 +905,66 @@ export async function markStudentInSession(
   `).get(studentId, session.groupId) as any
 
   const wasEnrolled = enrollment ? (session.sessionDate >= enrollment.enrollment_date) : false
+  const price = enrollment ? (enrollment.agreed_price || enrollment.monthly_price || 0) : 0
+  const sessionPrice = Math.round((price / 4) * 100) / 100
 
-  // Upsert attendance record
-  sqlite.prepare(`
-    INSERT INTO attendance_records (session_id, student_id, attendance_status, source, scanned_at, was_enrolled, created_by, created_at, updated_at)
-    VALUES (?, ?, ?, 'manual', ?, ?, ?, datetime('now'), datetime('now'))
-    ON CONFLICT(session_id, student_id) DO UPDATE SET
-      attendance_status = excluded.attendance_status,
-      source = 'manual',
-      was_enrolled = excluded.was_enrolled,
-      updated_at = datetime('now')
-  `).run(sessionId, studentId, finalStatus, now, wasEnrolled ? 1 : 0, authSession.adminId)
+  const { getEnrollmentBalance, deductSession, refundSessionCharge, rechargeSessionCharge } = await import('./payment.service')
+
+  const existingRecord = sqlite.prepare(`
+    SELECT id, attendance_status, is_inactive, scanned_at FROM attendance_records
+    WHERE session_id = ? AND student_id = ?
+  `).get(sessionId, studentId) as any
+
+  if (targetStatus === 'inactive') {
+    // Transition to INACTIVE: 0 fee. Refund if paid deduction exists.
+    sqlite.prepare(`
+      INSERT INTO attendance_records (session_id, student_id, attendance_status, is_inactive, source, scanned_at, was_enrolled, created_by, created_at, updated_at)
+      VALUES (?, ?, 'absent', 1, 'manual', ?, ?, ?, datetime('now'), datetime('now'))
+      ON CONFLICT(session_id, student_id) DO UPDATE SET
+        is_inactive = 1,
+        source = 'manual',
+        was_enrolled = excluded.was_enrolled,
+        updated_at = datetime('now')
+    `).run(sessionId, studentId, now, wasEnrolled ? 1 : 0, authSession.adminId)
+
+    if (enrollment) {
+      await refundSessionCharge(enrollment.id, sessionId, studentId, authSession.adminId)
+    }
+  } else {
+    // Target is 'present' or 'absent'
+    const wasInactive = existingRecord && existingRecord.is_inactive === 1
+
+    sqlite.prepare(`
+      INSERT INTO attendance_records (session_id, student_id, attendance_status, is_inactive, source, scanned_at, was_enrolled, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, 0, 'manual', ?, ?, ?, datetime('now'), datetime('now'))
+      ON CONFLICT(session_id, student_id) DO UPDATE SET
+        attendance_status = excluded.attendance_status,
+        is_inactive = 0,
+        source = 'manual',
+        was_enrolled = excluded.was_enrolled,
+        updated_at = datetime('now')
+    `).run(sessionId, studentId, targetStatus, now, wasEnrolled ? 1 : 0, authSession.adminId)
+
+    if (enrollment && wasEnrolled && sessionPrice > 0) {
+      if (wasInactive) {
+        // Restoring from inactive to active (present/absent) re-charges session fee
+        await rechargeSessionCharge(enrollment.id, sessionId, studentId, session.sessionDate, sessionPrice, authSession.adminId)
+      } else {
+        // Ensure deduction exists
+        await deductSession({
+          studentId,
+          enrollmentId: enrollment.id,
+          sessionId,
+          sessionDate: session.sessionDate,
+          sessionPrice,
+        })
+      }
+    }
+  }
 
   let creditBalance: number | null = null
   let wasInDebt = false
-
   if (enrollment) {
-    const { getEnrollmentBalance, deductSession } = await import('./payment.service')
-    const sessionPrice = Math.round(((enrollment.agreed_price || enrollment.monthly_price) / 4) * 100) / 100
-
-    if (finalStatus === 'not_active') {
-      // If student is marked as not_active, cancel any session deduction payment for this session
-      sqlite.prepare(`
-        UPDATE payments
-        SET status = 'cancelled', notes = 'Session status changed to not active (refunded)', updated_at = datetime('now')
-        WHERE enrollment_id = ? AND session_id = ? AND payment_type = 'deduction' AND status = 'paid'
-      `).run(enrollment.id, sessionId)
-    } else if (wasEnrolled && (finalStatus === 'present' || finalStatus === 'absent' || finalStatus === 'late')) {
-      // Check if there was a cancelled deduction payment for this session to reactivate
-      const cancelledPayment = sqlite.prepare(`
-        SELECT id FROM payments
-        WHERE enrollment_id = ? AND session_id = ? AND payment_type = 'deduction' AND status = 'cancelled'
-        LIMIT 1
-      `).get(enrollment.id, sessionId) as any
-
-      if (cancelledPayment) {
-        sqlite.prepare(`
-          UPDATE payments
-          SET status = 'paid', notes = NULL, updated_at = datetime('now')
-          WHERE id = ?
-        `).run(cancelledPayment.id)
-      } else {
-        try {
-          await deductSession({
-            studentId,
-            enrollmentId: enrollment.id,
-            sessionId,
-            sessionDate: session.sessionDate,
-            sessionPrice,
-          })
-        } catch (err) {
-          log.warn('Credit deduction failed (non-fatal):', err)
-        }
-      }
-    }
-
     const bal = await getEnrollmentBalance(enrollment.id)
     creditBalance = bal.balance
     wasInDebt = bal.balance < 0
@@ -901,11 +973,56 @@ export async function markStudentInSession(
   return {
     success: true,
     studentName: `${student.lastNameAr ?? ''} ${student.firstNameAr ?? ''}`.trim(),
-    status: finalStatus,
+    status: targetStatus,
     wasEnrolled,
     creditBalance,
     wasInDebt,
   }
+}
+
+
+// ─── Get full attendance history for a student ───────────────────────────────
+
+export async function getStudentAttendanceHistory(studentId: number): Promise<any[]> {
+  const sqlite = getSqlite()
+  const rows = sqlite.prepare(`
+    SELECT
+      ar.id as record_id,
+      ar.attendance_status,
+      ar.is_inactive,
+      ar.scanned_at,
+      ar.source,
+      s.id as session_id,
+      s.session_date,
+      s.planned_start_time,
+      s.status as session_status,
+      g.id as group_id,
+      g.name as group_name,
+      c.name_ar as course_name_ar,
+      c.name_fr as course_name_fr
+    FROM attendance_records ar
+    JOIN attendance_sessions s ON ar.session_id = s.id
+    JOIN groups g ON s.group_id = g.id
+    JOIN courses c ON g.course_id = c.id
+    WHERE ar.student_id = ?
+    ORDER BY s.session_date DESC, s.planned_start_time DESC
+  `).all(studentId) as any[]
+
+  return rows.map(r => ({
+    recordId: r.record_id,
+    sessionId: r.session_id,
+    sessionDate: r.session_date,
+    plannedStartTime: r.planned_start_time,
+    sessionStatus: r.session_status,
+    groupId: r.group_id,
+    groupName: r.group_name,
+    courseNameAr: r.course_name_ar,
+    courseNameFr: r.course_name_fr,
+    // isInactive=1 → display as 'inactive', otherwise use attendance_status
+    attendanceStatus: r.is_inactive === 1 ? 'inactive' : (r.attendance_status ?? 'absent'),
+    scannedAt: r.scanned_at,
+    source: r.source,
+  }))
 }
 
 // ─── Get complete session history for a student across enrolled groups ──────
@@ -927,6 +1044,7 @@ export async function getStudentSessionHistory(studentId: number): Promise<any[]
       t.first_name as teacher_first_name,
       t.last_name as teacher_last_name,
       ar.attendance_status,
+      ar.is_inactive,
       ar.scanned_at,
       ar.source
     FROM enrollments e
@@ -936,6 +1054,7 @@ export async function getStudentSessionHistory(studentId: number): Promise<any[]
     JOIN attendance_sessions s ON s.group_id = g.id
     LEFT JOIN attendance_records ar ON ar.session_id = s.id AND ar.student_id = ?
     WHERE e.student_id = ?
+      AND (ar.id IS NOT NULL OR s.status = 'closed' OR (s.session_date <= date('now') AND s.actual_start_time IS NOT NULL))
     ORDER BY s.session_date DESC, s.planned_start_time DESC
   `).all(studentId, studentId) as any[]
 
@@ -951,7 +1070,7 @@ export async function getStudentSessionHistory(studentId: number): Promise<any[]
     courseNameAr: r.course_name_ar,
     courseNameFr: r.course_name_fr,
     teacherName: r.teacher_first_name ? `${r.teacher_last_name ?? ''} ${r.teacher_first_name}`.trim() : null,
-    attendanceStatus: r.attendance_status ?? 'unmarked',
+    attendanceStatus: r.is_inactive === 1 ? 'inactive' : (r.attendance_status ?? 'unmarked'),
     scannedAt: r.scanned_at,
     source: r.source,
   }))
@@ -978,7 +1097,7 @@ export async function getSessionWithRoster(sessionId: number): Promise<{
   const enrolled = sqlite.prepare(`
     SELECT st.id, st.student_number, st.first_name_ar, st.last_name_ar, st.first_name_fr, st.last_name_fr,
            st.status as student_status, e.id as enrollment_id, e.agreed_price, g.monthly_price,
-           ar.attendance_status, ar.source, ar.scanned_at, ar.id as record_id
+           ar.attendance_status, ar.is_inactive, ar.source, ar.scanned_at, ar.id as record_id
     FROM enrollments e
     JOIN students st ON e.student_id = st.id
     JOIN groups g ON e.group_id = g.id
@@ -987,9 +1106,9 @@ export async function getSessionWithRoster(sessionId: number): Promise<{
     ORDER BY st.last_name_ar, st.first_name_ar
   `).all(sessionId, session.group_id) as any[]
 
-  const presentCount = enrolled.filter(s => s.attendance_status === 'present').length
-  const lateCount = enrolled.filter(s => s.attendance_status === 'late').length
-  const absentCount = enrolled.filter(s => s.attendance_status === 'absent').length
+  const presentCount = enrolled.filter(s => s.attendance_status === 'present' && !s.is_inactive).length
+  const absentCount = enrolled.filter(s => (s.attendance_status === 'absent' || !s.attendance_status) && !s.is_inactive).length
+  const inactiveCount = enrolled.filter(s => s.is_inactive === 1 || s.attendance_status === 'inactive' || s.attendance_status === 'not_active').length
 
   const { getEnrollmentBalance } = await import('./payment.service')
   const studentsWithBalance = await Promise.all(enrolled.map(async s => {
@@ -1006,7 +1125,7 @@ export async function getSessionWithRoster(sessionId: number): Promise<{
       firstNameFr: s.first_name_fr,
       lastNameFr: s.last_name_fr,
       status: s.student_status,
-      attendanceStatus: s.attendance_status ?? null,
+      attendanceStatus: s.is_inactive === 1 ? 'inactive' : (s.attendance_status === 'late' ? 'present' : (s.attendance_status ?? null)),
       recordId: s.record_id ?? null,
       source: s.source ?? null,
       scannedAt: s.scanned_at ?? null,
@@ -1030,17 +1149,17 @@ export async function getSessionWithRoster(sessionId: number): Promise<{
       room: session.room,
       status: session.status,
       sessionType: session.session_type,
-      stats: { present: presentCount, late: lateCount, absent: absentCount, total: enrolled.length },
+      stats: { present: presentCount, absent: absentCount, inactive: inactiveCount, total: enrolled.length },
     },
     students: studentsWithBalance,
   }
 }
 
-// ─── Auto-instantiate sessions for a date range & auto-deduct session fees ─────
+// ─── Auto-instantiate sessions for a date range (SCHEDULE ONLY — NO PRE-DEDUCTION) ─
+// Requirement 4.5 & Req 14-25: Future sessions must NEVER deduct fees in advance!
 
 export async function autoInstantiateSessionsForRange(startDate: string, endDate: string): Promise<void> {
   const sqlite = getSqlite()
-  const { deductSession } = await import('./payment.service')
 
   // Generate array of dates from startDate to endDate
   const start = new Date(startDate + 'T00:00:00Z')
@@ -1066,122 +1185,107 @@ export async function autoInstantiateSessionsForRange(startDate: string, endDate
         WHERE group_id = ? AND session_date = ?
       `).get(slot.group_id, dateStr) as any
 
-      let sessionId: number | null = null
-      if (existing) {
-        if (existing.session_type !== 'cancelled') {
-          sessionId = existing.id
-        }
-      } else {
-        // Auto-create session instance
-        const res = sqlite.prepare(`
+      if (!existing) {
+        // Auto-create session instance without deducting fees
+        sqlite.prepare(`
           INSERT INTO attendance_sessions (group_id, session_date, planned_start_time, end_time, room, status, session_type, schedule_slot_id, created_by, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, 'open', 'regular', ?, 1, datetime('now'), datetime('now'))
         `).run(slot.group_id, dateStr, slot.start_time, slot.end_time, slot.room, slot.id)
-        sessionId = Number(res.lastInsertRowid)
-      }
-
-      if (!sessionId) continue
-
-      // Auto-deduct session price for all active enrolled students in this group
-      const enrolled = sqlite.prepare(`
-        SELECT e.id as enrollment_id, e.student_id, e.agreed_price, g.monthly_price
-        FROM enrollments e
-        JOIN groups g ON e.group_id = g.id
-        JOIN students st ON e.student_id = st.id
-        WHERE e.group_id = ? AND e.status = 'active' AND st.status = 'active'
-      `).all(slot.group_id) as any[]
-
-      for (const en of enrolled) {
-        // Check if student has an attendance record marked as 'not_active'
-        const attRec = sqlite.prepare(`
-          SELECT attendance_status FROM attendance_records
-          WHERE session_id = ? AND student_id = ?
-        `).get(sessionId, en.student_id) as any
-
-        if (attRec && attRec.attendance_status === 'not_active') {
-          // If marked not_active, ensure deduction payment is cancelled
-          sqlite.prepare(`
-            UPDATE payments
-            SET status = 'cancelled', notes = 'Session status changed to not active (refunded)', updated_at = datetime('now')
-            WHERE enrollment_id = ? AND session_id = ? AND payment_type = 'deduction' AND status = 'paid'
-          `).run(en.enrollment_id, sessionId)
-        } else {
-          // Auto-deduct session fee for active enrolled student
-          const price = en.agreed_price || en.monthly_price || 0
-          const sessPrice = Math.round((price / 4) * 100) / 100
-          try {
-            await deductSession({
-              studentId: en.student_id,
-              enrollmentId: en.enrollment_id,
-              sessionId,
-              sessionDate: dateStr,
-              sessionPrice: sessPrice,
-            })
-          } catch (err) {
-            log.warn('Auto credit deduction error:', err)
-          }
-        }
       }
     }
   }
 }
 
-// ─── Mark next session as not_active for a student in a group ────────────────
+// ─── Offline desktop attendance reconciliation ────────────────────────────────
+// Requirement 4.4 & Req 23-25: Reconcile past sessions and charge active students
 
-export async function markNextSessionNotActive(studentId: number, groupId: number): Promise<{ success: boolean; sessionDate?: string }> {
+export async function reconcilePastSessionsAttendance(): Promise<{ reconciledCount: number }> {
   const sqlite = getSqlite()
-  const todayStr = new Date().toISOString().slice(0, 10)
+  const { deductSession } = await import('./payment.service')
 
-  // 1. Check for upcoming session for this group on or after today
-  let nextSession = sqlite.prepare(`
-    SELECT id, session_date FROM attendance_sessions
-    WHERE group_id = ? AND session_date >= ? AND session_type != 'cancelled'
-    ORDER BY session_date ASC, planned_start_time ASC
-    LIMIT 1
-  `).get(groupId, todayStr) as any
+  const now = new Date()
+  const todayStr = now.toISOString().slice(0, 10)
+  const nowTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
 
-  // 2. If no future session instance exists yet, create the next one from schedule slot
-  if (!nextSession) {
-    const slots = sqlite.prepare(`
-      SELECT * FROM group_schedule_slots WHERE group_id = ? AND is_active = 1
-    `).all(groupId) as any[]
+  // Find all past or currently-started non-cancelled sessions
+  const pastSessions = sqlite.prepare(`
+    SELECT s.id, s.group_id, s.session_date, s.planned_start_time, s.actual_start_time,
+           g.monthly_price
+    FROM attendance_sessions s
+    JOIN groups g ON s.group_id = g.id
+    WHERE s.session_type != 'cancelled'
+      AND (
+        s.session_date < ?
+        OR (s.session_date = ? AND (s.actual_start_time IS NOT NULL OR (s.planned_start_time IS NOT NULL AND s.planned_start_time <= ?)))
+      )
+  `).all(todayStr, todayStr, nowTime) as any[]
 
-    if (slots.length > 0) {
-      // Find the next upcoming date matching any slot
-      const todayObj = new Date()
-      for (let dayOffset = 0; dayOffset <= 14; dayOffset++) {
-        const checkDate = new Date(todayObj)
-        checkDate.setDate(checkDate.getDate() + dayOffset)
-        const dateStr = checkDate.toISOString().slice(0, 10)
-        const jsDay = checkDate.getUTCDay()
-        const weekday = jsDay === 0 ? 6 : jsDay - 1
+  let reconciledCount = 0
 
-        const slot = slots.find(s => s.weekday === weekday)
-        if (slot) {
-          sqlite.prepare(`
-            INSERT INTO attendance_sessions (group_id, session_date, planned_start_time, end_time, room, status, session_type, schedule_slot_id, created_by, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, 'open', 'regular', ?, 1, datetime('now'), datetime('now'))
-          `).run(groupId, dateStr, slot.start_time, slot.end_time, slot.room, slot.id)
+  for (const sess of pastSessions) {
+    // Get all students actively enrolled on that session date
+    const enrolled = sqlite.prepare(`
+      SELECT e.id as enrollment_id, e.student_id, e.agreed_price, e.enrollment_date, st.status as student_status
+      FROM enrollments e
+      JOIN students st ON e.student_id = st.id
+      WHERE e.group_id = ?
+        AND e.status = 'active'
+        AND st.status = 'active'
+        AND e.enrollment_date <= ?
+    `).all(sess.group_id, sess.session_date) as any[]
 
-          nextSession = sqlite.prepare(`
-            SELECT id, session_date FROM attendance_sessions
-            WHERE group_id = ? AND session_date = ?
-            LIMIT 1
-          `).get(groupId, dateStr) as any
+    for (const en of enrolled) {
+      const existing = sqlite.prepare(`
+        SELECT id, attendance_status, is_inactive FROM attendance_records
+        WHERE session_id = ? AND student_id = ?
+      `).get(sess.id, en.student_id) as any
 
-          if (nextSession) break
+      const price = en.agreed_price || sess.monthly_price || 0
+      const sessPrice = Math.round((price / 4) * 100) / 100
+
+      if (!existing) {
+        // Insert absent record
+        sqlite.prepare(`
+          INSERT INTO attendance_records
+            (session_id, student_id, attendance_status, is_inactive, source, was_enrolled, created_by, created_at, updated_at)
+          VALUES (?, ?, 'absent', 0, 'reconciliation', 1, 1, datetime('now'), datetime('now'))
+        `).run(sess.id, en.student_id)
+        reconciledCount++
+
+        if (sessPrice > 0) {
+          try {
+            await deductSession({
+              studentId: en.student_id,
+              enrollmentId: en.enrollment_id,
+              sessionId: sess.id,
+              sessionDate: sess.session_date,
+              sessionPrice: sessPrice,
+            })
+          } catch (err) {
+            log.warn('Reconciliation deduction error:', err)
+          }
+        }
+      } else if (existing.is_inactive === 0) {
+        // Active record (absent or present) — ensure deduction was created (idempotent)
+        if (sessPrice > 0) {
+          try {
+            await deductSession({
+              studentId: en.student_id,
+              enrollmentId: en.enrollment_id,
+              sessionId: sess.id,
+              sessionDate: sess.session_date,
+              sessionPrice: sessPrice,
+            })
+          } catch (err) {
+            log.warn('Reconciliation existing deduction check error:', err)
+          }
         }
       }
     }
   }
 
-  if (!nextSession) {
-    return { success: false }
-  }
-
-  // Mark student as not_active in that session
-  const res = await markStudentInSession(nextSession.id, studentId, 'not_active')
-  return { success: res.success, sessionDate: nextSession.session_date }
+  log.info(`Attendance reconciliation complete: reconciled ${reconciledCount} missing records`)
+  return { reconciledCount }
 }
 
 // ─── Row mappers ──────────────────────────────────────────────────────────────
@@ -1208,7 +1312,7 @@ function mapRecordRow(row: typeof schema.attendanceRecords.$inferSelect): Attend
     sessionId: row.sessionId,
     studentId: row.studentId,
     scannedAt: row.scannedAt ?? null,
-    attendanceStatus: row.attendanceStatus as 'present' | 'absent' | 'late',
+    attendanceStatus: row.attendanceStatus as AttendanceStatusType,
     source: row.source as 'qr' | 'manual',
     notes: row.notes ?? null,
     createdBy: row.createdBy ?? null,

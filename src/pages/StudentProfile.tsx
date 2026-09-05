@@ -1,470 +1,898 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Pencil, CreditCard, Printer, Archive, CheckCircle, XCircle, Clock, Save, Trash2, Plus } from 'lucide-react'
+import {
+  ArrowRight, Pencil, Archive, Plus, Trash2,
+  RefreshCw, UserX, XCircle, ArrowLeftRight, Filter, Calendar
+} from 'lucide-react'
 import Badge from '../components/ui/Badge'
 import Modal from '../components/ui/Modal'
-import type { PaymentStatus, AttendanceStatus } from '../types'
 
-const TABS = ['Aperçu', 'Présences', 'Paiements', 'Inscriptions', 'Notes']
+const TABS = [
+  { id: 'overview', label: 'نظرة عامة' },
+  { id: 'attendance', label: 'سجل الحضور والغياب' },
+  { id: 'payments', label: 'المدفوعات' },
+  { id: 'enrollments', label: 'التسجيلات' },
+  { id: 'notes', label: 'الملاحظات' },
+]
+
+const PAYMENT_TYPE_LABELS: Record<string, string> = {
+  credit: 'شحن رصيد',
+  deduction: 'خصم حصة',
+  refund: 'استرداد / رد مبلغ',
+  transfer_in: 'تحويل وارد',
+  transfer_out: 'تحويل صادر',
+}
+
+const ATTENDANCE_LABELS: Record<string, { label: string; color: string }> = {
+  present: { label: 'حاضر', color: 'text-green-700 bg-green-50' },
+  absent:  { label: 'غائب', color: 'text-red-700 bg-red-50' },
+  late:    { label: 'حاضر', color: 'text-green-700 bg-green-50' },
+  inactive:{ label: 'غير نشط', color: 'text-slate-600 bg-slate-100' },
+  unmarked:{ label: 'غائب', color: 'text-red-700 bg-red-50' },
+}
 
 export default function StudentProfile() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const [tab, setTab] = useState('Aperçu')
+  const [tab, setTab] = useState('overview')
 
   const [student, setStudent] = useState<any | null>(null)
   const [enrollments, setEnrollments] = useState<any[]>([])
   const [payments, setPayments] = useState<any[]>([])
-  const [attendanceRecords, setAttendanceRecords] = useState<any[]>([])
-  const [notes, setNotes] = useState<any[]>([])
+  const [attendanceHistory, setAttendanceHistory] = useState<any[]>([])
+  const [notes, setNotes] = useState<string[]>([])
   const [newNote, setNewNote] = useState('')
   const [photoUrl, setPhotoUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
+  // Attendance Filters
+  const [filterGroup, setFilterGroup] = useState('')
+  const [filterDateFrom, setFilterDateFrom] = useState('')
+  const [filterDateTo, setFilterDateTo] = useState('')
+
+  const [enrollModal, setEnrollModal] = useState(false)
+  const [groups, setGroups] = useState<any[]>([])
+  const [courses, setCourses] = useState<any[]>([])
+  const [teachers, setTeachers] = useState<any[]>([])
+  const [enrollForm, setEnrollForm] = useState({
+    groupId: '',
+    agreedPrice: '',
+    enrollmentDate: new Date().toISOString().split('T')[0],
+  })
+
+  const [transferModal, setTransferModal] = useState(false)
+  const [transferFrom, setTransferFrom] = useState<any | null>(null)
+  const [transferToGroupId, setTransferToGroupId] = useState('')
+
+  const [cancelEnrollModal, setCancelEnrollModal] = useState(false)
+  const [cancelEnrollTarget, setCancelEnrollTarget] = useState<any | null>(null)
+
+  const [topUpModal, setTopUpModal] = useState(false)
+  const [topUpTarget, setTopUpTarget] = useState<any | null>(null)
+  const [topUpForm, setTopUpForm] = useState({ amount: '', method: 'cash', date: new Date().toISOString().split('T')[0], notes: '' })
+
+  const [editModal, setEditModal] = useState(false)
+  const [editForm, setEditForm] = useState<any>({})
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
   const api = (window as any).schoolApp
+
+  const notesKey = `student_notes_${id}`
+  const notesLoaded = useRef(false)
+
+  useEffect(() => {
+    if (notesLoaded.current) return
+    notesLoaded.current = true
+    try {
+      const raw = localStorage.getItem(notesKey)
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (Array.isArray(parsed)) {
+          setNotes(parsed.map(n => String(n ?? '')))
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to parse notes from storage:', err)
+      setNotes([])
+    }
+  }, [notesKey])
+
+  const saveNotes = (updated: string[]) => {
+    try {
+      const safe = (updated || []).map(n => String(n ?? ''))
+      setNotes(safe)
+      localStorage.setItem(notesKey, JSON.stringify(safe))
+    } catch (err) {
+      console.warn('Failed to save notes:', err)
+    }
+  }
 
   const loadProfile = useCallback(async () => {
     if (!api || !id) return
     setLoading(true)
+    setError(null)
     try {
       const sId = Number(id)
-      const [sRes, eRes, pRes] = await Promise.all([
+      const [sRes, eRes, pRes, aRes, gRes, cRes, tRes] = await Promise.all([
         api.students.getById(sId),
         api.enrollments.byStudent(sId),
-        api.payments.byStudent(sId)
+        api.payments.byStudent(sId),
+        api.students.getAttendanceHistory(sId),
+        api.groups.list(),
+        api.courses.list(),
+        api.teachers.list(),
       ])
 
       if (sRes.success && sRes.data) {
         setStudent(sRes.data)
-        if (sRes.data.photoPath) {
-          const pImg = await api.media.getImageUrl(sRes.data.photoPath)
-          if (pImg.success) setPhotoUrl(pImg.data.url)
-        }
+        try {
+          if (sRes.data.photoPath) {
+            const pImg = await api.media.getImageUrl(sRes.data.photoPath)
+            if (pImg.success) setPhotoUrl(pImg.data?.url ?? null)
+          }
+        } catch { /* photo non-critical */ }
       }
 
+      const allGroups = gRes.success ? (gRes.data ?? []) : []
+      const allCourses = cRes.success ? (cRes.data ?? []) : []
+      const allTeachers = tRes.success ? (tRes.data ?? []) : []
+      setGroups(allGroups)
+      setCourses(allCourses)
+      setTeachers(allTeachers)
+
       if (eRes.success && eRes.data) {
-        // Enriched with group & course info
         const enriched = await Promise.all(
           eRes.data.map(async (en: any) => {
-            const gRes = await api.groups.list()
-            const group = gRes.data?.find((g: any) => g.id === en.groupId)
-            const cRes = await api.courses.list()
-            const course = cRes.data?.find((c: any) => c.id === group?.courseId)
+            const group = allGroups.find((g: any) => g.id === en.groupId)
+            const course = allCourses.find((c: any) => c.id === group?.courseId)
+            const teacher = allTeachers.find((t: any) => t.id === group?.teacherId)
+            let balance = null
+            try {
+              const bRes = await api.payments.balance(en.id)
+              if (bRes.success) balance = bRes.data?.balance ?? null
+            } catch { /* ignore */ }
             return {
               ...en,
-              groupName: group?.name ?? '—',
-              courseName: (course?.nameFr || course?.nameAr) ?? '—',
+              groupName: group?.name ?? en.groupName ?? '—',
+              courseName: course?.nameAr || course?.nameFr || en.courseName || '—',
+              teacherName: en.teacherName || (teacher
+                ? `${teacher.lastNameAr || teacher.lastNameFr || ''} ${teacher.firstNameAr || teacher.firstNameFr || ''}`.trim()
+                : '—'),
               room: group?.room ?? '—',
-              startDate: group?.startDate ?? '—',
-              endDate: group?.endDate ?? '—',
-              capacity: group?.capacity ?? 0,
+              monthlyPrice: group?.monthlyPrice ?? 0,
+              balance,
             }
           })
         )
         setEnrollments(enriched)
       }
 
-      if (pRes.success && pRes.data) {
-        setPayments(pRes.data)
-      }
-    } catch (err) {
+      if (pRes.success && pRes.data) setPayments(pRes.data)
+      if (aRes.success && aRes.data) setAttendanceHistory(aRes.data)
+
+    } catch (err: any) {
       console.error('Failed to load profile:', err)
+      setError('حدث خطأ أثناء تحميل الملف الشخصي')
     } finally {
       setLoading(false)
     }
   }, [api, id])
 
-  useEffect(() => {
-    loadProfile()
-  }, [loadProfile])
+  useEffect(() => { loadProfile() }, [loadProfile])
 
   const handleArchive = async () => {
-    if (!api || !id || !confirm('Archiver cet étudiant ?')) return
+    if (!api || !id || !window.confirm('هل تريد أرشفة هذا الطالب؟')) return
     try {
       const res = await api.students.archive(Number(id))
       if (res.success) navigate('/students')
-    } catch (err) {
-      console.error(err)
-    }
+    } catch (err) { console.error(err) }
   }
 
-  const handleAddNote = () => {
-    if (!newNote.trim()) return
-    const noteObj = {
-      id: Date.now(),
-      text: newNote,
-      date: new Date().toLocaleDateString('fr-DZ'),
-    }
-    setNotes(prev => [noteObj, ...prev])
-    setNewNote('')
+  const handleMarkInactive = async () => {
+    if (!api || !id || !window.confirm('هل تريد تعيين الطالب كغير نشط؟')) return
+    try {
+      await api.students.update(Number(id), { status: 'inactive' })
+      loadProfile()
+    } catch (err) { console.error(err) }
   }
 
-  const handleDeleteNote = (noteId: number) => {
-    setNotes(prev => prev.filter(n => n.id !== noteId))
+  const openEdit = () => {
+    if (!student) return
+    setEditForm({
+      firstNameAr: student.firstNameAr ?? '',
+      lastNameAr: student.lastNameAr ?? '',
+      firstNameFr: student.firstNameFr ?? '',
+      lastNameFr: student.lastNameFr ?? '',
+      phone: student.phone ?? '',
+      guardianPhone: student.guardianPhone ?? '',
+      address: student.address ?? '',
+    })
+    setEditModal(true)
+  }
+
+  const handleSaveEdit = async () => {
+    if (!api || !id) return
+    setSaving(true)
+    try {
+      await api.students.update(Number(id), {
+        firstNameAr: String(editForm.firstNameAr || ''),
+        lastNameAr: String(editForm.lastNameAr || ''),
+        firstNameFr: String(editForm.firstNameFr || ''),
+        lastNameFr: String(editForm.lastNameFr || ''),
+        phone: editForm.phone ? String(editForm.phone) : null,
+        guardianPhone: editForm.guardianPhone ? String(editForm.guardianPhone) : null,
+        address: editForm.address ? String(editForm.address) : null,
+      })
+      setEditModal(false)
+      loadProfile()
+    } catch (err) { console.error(err) }
+    finally { setSaving(false) }
+  }
+
+  const handleEnroll = async () => {
+    if (!api || !id || !enrollForm.groupId) return
+    setSaving(true)
+    try {
+      const selectedGroup = groups.find((g: any) => g.id === Number(enrollForm.groupId))
+      await api.enrollments.create({
+        studentId: Number(id),
+        groupId: Number(enrollForm.groupId),
+        agreedPrice: Number(enrollForm.agreedPrice) || selectedGroup?.monthlyPrice || 0,
+        enrollmentDate: enrollForm.enrollmentDate,
+      })
+      setEnrollModal(false)
+      setEnrollForm({
+        groupId: '',
+        agreedPrice: '',
+        enrollmentDate: new Date().toISOString().split('T')[0],
+      })
+      loadProfile()
+    } catch (err: any) {
+      alert(err?.message || 'حدث خطأ أثناء التسجيل')
+    }
+    finally { setSaving(false) }
+  }
+
+  const handleCancelEnrollment = async () => {
+    if (!api || !cancelEnrollTarget) return
+    setSaving(true)
+    try {
+      await api.enrollments.cancel(cancelEnrollTarget.id, Number(id), 'إلغاء التسجيل واسترداد الرصيد')
+      setCancelEnrollModal(false)
+      setCancelEnrollTarget(null)
+      loadProfile()
+    } catch (err: any) {
+      alert(err?.message || 'فشل إلغاء التسجيل')
+    }
+    finally { setSaving(false) }
+  }
+
+  const handleTransfer = async () => {
+    if (!api || !transferFrom || !transferToGroupId) return
+    const toEnrollment = enrollments.find((e: any) => e.groupId === Number(transferToGroupId))
+    if (!toEnrollment) return
+    setSaving(true)
+    try {
+      await api.payments.transfer({
+        fromEnrollmentId: transferFrom.id,
+        toEnrollmentId: toEnrollment.id,
+        studentId: Number(id),
+      })
+      setTransferModal(false)
+      setTransferFrom(null)
+      setTransferToGroupId('')
+      loadProfile()
+    } catch (err: any) {
+      alert(err?.message ?? 'فشل التحويل')
+    } finally { setSaving(false) }
+  }
+
+  const handleTopUp = async () => {
+    if (!api || !topUpTarget || !topUpForm.amount) return
+    setSaving(true)
+    try {
+      await api.payments.topUp({
+        studentId: Number(id),
+        enrollmentId: topUpTarget.id,
+        amount: Number(topUpForm.amount),
+        paymentMethod: topUpForm.method as any,
+        paymentDate: topUpForm.date,
+        notes: topUpForm.notes ? String(topUpForm.notes) : null,
+      })
+      setTopUpModal(false)
+      setTopUpTarget(null)
+      setTopUpForm({ amount: '', method: 'cash', date: new Date().toISOString().split('T')[0], notes: '' })
+      loadProfile()
+    } catch (err) { console.error(err) }
+    finally { setSaving(false) }
   }
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64 text-slate-400">
-        <p className="text-sm">Chargement du profil...</p>
+      <div className="flex items-center justify-center h-64 text-slate-400" dir="rtl">
+        <RefreshCw size={20} className="animate-spin ml-2" />
+        <span className="text-sm">جارٍ تحميل الملف الشخصي...</span>
       </div>
     )
   }
 
   if (!student) {
     return (
-      <div className="flex flex-col items-center justify-center h-64 text-slate-400">
-        <p className="text-lg font-semibold">Étudiant introuvable</p>
+      <div className="flex flex-col items-center justify-center h-64 text-slate-400" dir="rtl">
+        <p className="text-lg font-semibold">الطالب غير موجود</p>
+        {error && <p className="text-sm text-red-500 mt-1">{error}</p>}
         <button onClick={() => navigate('/students')} className="mt-3 text-sm text-blue-600 hover:text-blue-800">
-          ← Retour à la liste
+          ← العودة إلى القائمة
         </button>
       </div>
     )
   }
 
-  const activeEnrollment = enrollments.find(e => e.status === 'active') ?? enrollments[0]
-  const totalPaid = payments.reduce((sum, p) => sum + (p.status === 'paid' ? p.amount : 0), 0)
-  const monthlyFee = activeEnrollment?.agreedPrice ?? 0
+  const fullNameAr = `${student.lastNameAr ?? ''} ${student.firstNameAr ?? ''}`.trim()
+  const statusColor = student.status === 'active' ? 'active' : 'inactive'
 
-  const presentCount = attendanceRecords.filter(r => r.attendanceStatus === 'present').length
-  const absentCount = attendanceRecords.filter(r => r.attendanceStatus === 'absent').length
-  const lateCount = attendanceRecords.filter(r => r.attendanceStatus === 'late').length
-  const totalAttendances = attendanceRecords.length
-  const attendanceRate = totalAttendances > 0 ? Math.round(((presentCount + lateCount) / totalAttendances) * 100) : 0
+  // Filtered attendance records
+  const filteredAttendance = attendanceHistory.filter(r => {
+    const matchGroup = !filterGroup || String(r.groupId) === filterGroup
+    const matchFrom = !filterDateFrom || r.sessionDate >= filterDateFrom
+    const matchTo = !filterDateTo || r.sessionDate <= filterDateTo
+    return matchGroup && matchFrom && matchTo
+  })
 
   return (
-    <div>
-      <div className="flex items-center gap-3 mb-5">
-        <button onClick={() => navigate('/students')} className="p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition-colors">
-          <ArrowLeft size={18} />
+    <div className="space-y-4" dir="rtl">
+      {/* Header */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex items-center gap-4">
+        <button
+          onClick={() => navigate('/students')}
+          className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+          title="رجوع للقائمة"
+        >
+          <ArrowRight size={18} />
         </button>
-        <span className="text-sm text-slate-400">Étudiants</span>
-        <span className="text-slate-300">/</span>
-        <span className="text-sm font-medium text-slate-700">{student.firstNameFr} {student.lastNameFr}</span>
-      </div>
 
-      <div className="grid grid-cols-3 gap-5">
-        {/* Left profile card */}
-        <div className="space-y-4">
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-            <div className="flex flex-col items-center text-center mb-4">
-              {photoUrl ? (
-                <img src={photoUrl} alt="" className="w-20 h-20 rounded-full object-cover bg-slate-100 mb-3 border-2 border-slate-200 shadow-sm" />
-              ) : (
-                <div className="w-20 h-20 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-2xl mb-3 shadow-sm">
-                  {student.firstNameFr?.charAt(0)}{student.lastNameFr?.charAt(0)}
-                </div>
-              )}
-              <h2 className="text-base font-bold text-slate-900">{student.firstNameFr} {student.lastNameFr}</h2>
-              {student.firstNameAr && student.lastNameAr && (
-                <p className="text-xs text-slate-500 mt-0.5" dir="rtl">{student.lastNameAr} {student.firstNameAr}</p>
-              )}
-              <p className="text-xs font-mono text-slate-400 mt-0.5">{student.studentNumber}</p>
-              <div className="flex gap-2 mt-2">
-                <Badge variant={student.status}>{student.status}</Badge>
-              </div>
-            </div>
+        <div className="w-14 h-14 rounded-full bg-blue-100 flex items-center justify-center overflow-hidden shrink-0">
+          {photoUrl
+            ? <img src={photoUrl} alt="" className="w-full h-full object-cover" />
+            : <span className="text-xl font-bold text-blue-700">{student.firstNameAr?.charAt(0) ?? '؟'}</span>
+          }
+        </div>
 
-            <div className="space-y-2.5 text-sm border-t border-slate-100 pt-4">
-              <div className="flex justify-between">
-                <span className="text-slate-500">Cours</span>
-                <span className="font-medium text-slate-800 text-right">{activeEnrollment?.courseName ?? '—'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Groupe</span>
-                <span className="font-medium text-slate-800">{activeEnrollment?.groupName ?? '—'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Téléphone</span>
-                <span className="font-medium text-slate-800 font-mono text-xs">{student.phone || '—'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Adresse</span>
-                <span className="font-medium text-slate-800 text-right max-w-32 truncate">{student.address || '—'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Inscrit le</span>
-                <span className="font-medium text-slate-800">
-                  {student.registrationDate ? new Date(student.registrationDate).toLocaleDateString('fr-DZ') : '—'}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-slate-500">Ticket QR</span>
-                <Badge variant={student.qrTokenActive ? 'success' : 'error'}>
-                  {student.qrTokenActive ? 'Actif' : 'Désactivé'}
-                </Badge>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-            <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Tuteur</h3>
-            <div className="space-y-2 text-sm">
-              <p className="font-semibold text-slate-800">{student.guardianName || 'Non renseigné'}</p>
-              <p className="text-xs text-slate-500">{student.guardianRelationship || '—'}</p>
-              <p className="text-xs font-mono text-slate-700">{student.guardianPhone || '—'}</p>
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <button
-              onClick={() => navigate(`/students/${id}/edit`)}
-              className="flex items-center justify-center gap-2 w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg transition-colors text-sm shadow-sm"
-            >
-              <Pencil size={14} /> Modifier
-            </button>
-            <button
-              onClick={() => navigate(`/students/${id}/card`)}
-              className="flex items-center justify-center gap-2 w-full bg-slate-900 hover:bg-slate-800 text-white font-medium py-2.5 rounded-lg transition-colors text-sm shadow-sm"
-            >
-              <Printer size={14} /> Imprimer ticket
-            </button>
-            <button
-              onClick={handleArchive}
-              className="flex items-center justify-center gap-2 w-full text-red-600 hover:bg-red-50 font-medium py-2 rounded-lg transition-colors text-sm"
-            >
-              <Archive size={14} /> Archiver
-            </button>
+        <div className="flex-1 min-w-0">
+          <h1 className="text-lg font-bold text-slate-900 truncate">{fullNameAr}</h1>
+          <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+            <span className="text-xs font-mono text-slate-500">{student.studentNumber}</span>
+            <Badge variant={statusColor}>{student.status === 'active' ? 'نشط' : 'غير نشط'}</Badge>
+            {student.phone && <span className="text-xs text-slate-500 font-mono">{student.phone}</span>}
           </div>
         </div>
 
-        {/* Main content tabs */}
-        <div className="col-span-2">
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="flex border-b border-slate-100">
-              {TABS.map(t => (
-                <button
-                  key={t}
-                  onClick={() => setTab(t)}
-                  className={`px-5 py-3.5 text-sm font-medium transition-colors whitespace-nowrap ${tab === t ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/40' : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'}`}
-                >
-                  {t}
-                </button>
-              ))}
+        <div className="flex items-center gap-2 flex-wrap">
+          <button onClick={openEdit}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors">
+            <Pencil size={13} /> تعديل
+          </button>
+          {student.status === 'active' && (
+            <button onClick={handleMarkInactive}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-lg transition-colors">
+              <UserX size={13} /> غير نشط
+            </button>
+          )}
+          <button onClick={handleArchive}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors">
+            <Archive size={13} /> أرشفة
+          </button>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="flex border-b border-slate-100 overflow-x-auto">
+          {TABS.map(t => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`px-5 py-3 text-sm font-medium transition-colors whitespace-nowrap ${
+                tab === t.id
+                  ? 'border-b-2 border-blue-600 text-blue-700 bg-blue-50/50 font-bold'
+                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="p-5">
+
+          {/* نظرة عامة */}
+          {tab === 'overview' && (
+            <div className="grid grid-cols-2 gap-5">
+              <div className="space-y-2.5">
+                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">المعلومات الشخصية</h3>
+                {[
+                  ['الاسم (عربي)', fullNameAr],
+                  ['الاسم (لاتيني)', `${student.firstNameFr ?? ''} ${student.lastNameFr ?? ''}`.trim() || '—'],
+                  ['الجنس', student.gender === 'male' ? 'ذكر' : 'أنثى'],
+                  ['تاريخ الميلاد', student.dateOfBirth ?? '—'],
+                  ['الهاتف', student.phone ?? '—'],
+                  ['ولي الأمر', student.guardianName ?? '—'],
+                  ['هاتف الولي', student.guardianPhone ?? '—'],
+                  ['العنوان', student.address ?? '—'],
+                ].map(([label, value]) => (
+                  <div key={label} className="flex justify-between text-sm py-1 border-b border-slate-50 last:border-0">
+                    <span className="text-slate-500 text-xs">{label}</span>
+                    <span className="text-xs font-medium text-slate-800 text-left max-w-45 truncate">{value}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="space-y-3">
+                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">الأفواج والمجموعات المسجل بها</h3>
+                {enrollments.filter((e: any) => e.status === 'active').length === 0
+                  ? <p className="text-xs text-slate-400">لا توجد تسجيلات نشطة حالياً</p>
+                  : enrollments.filter((e: any) => e.status === 'active').map((en: any) => (
+                    <div key={en.id} className="p-3 bg-blue-50 rounded-lg border border-blue-100 text-xs space-y-1.5">
+                      <div className="flex justify-between items-center">
+                        <p className="font-bold text-blue-900">{en.groupName}</p>
+                        <span className="text-[11px] text-blue-700 bg-blue-100/70 px-2 py-0.5 rounded font-medium">{en.courseName}</span>
+                      </div>
+                      <p className="text-slate-600">الأستاذ: <span className="font-semibold text-slate-800">{en.teacherName}</span></p>
+                      {en.balance !== null && (
+                        <p className={`font-bold text-xs ${en.balance < 0 ? 'text-red-600' : 'text-green-700'}`}>
+                          الرصيد المالي: {en.balance.toLocaleString('ar-DZ')} دج
+                        </p>
+                      )}
+                    </div>
+                  ))
+                }
+              </div>
             </div>
+          )}
 
-            <div className="p-5">
-              {tab === 'Aperçu' && (
-                <div className="space-y-5">
-                  <div className="grid grid-cols-4 gap-3">
-                    {[
-                      { label: 'Présent', value: presentCount, color: 'text-green-600', bg: 'bg-green-50' },
-                      { label: 'Absent', value: absentCount, color: 'text-red-600', bg: 'bg-red-50' },
-                      { label: 'En retard', value: lateCount, color: 'text-amber-600', bg: 'bg-amber-50' },
-                      { label: 'Taux', value: `${attendanceRate}%`, color: 'text-blue-600', bg: 'bg-blue-50' },
-                    ].map(s => (
-                      <div key={s.label} className={`${s.bg} rounded-xl p-4 text-center border border-slate-100`}>
-                        <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
-                        <p className="text-xs text-slate-500 mt-1">{s.label}</p>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
-                      <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Informations de paiement</h4>
-                      <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                          <span className="text-slate-500">Tarif mensuel</span>
-                          <span className="font-semibold text-slate-800">{monthlyFee.toLocaleString('fr-DZ')} DA</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-slate-500">Total payé</span>
-                          <span className="font-semibold text-green-700">{totalPaid.toLocaleString('fr-DZ')} DA</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-slate-500">Nb paiements</span>
-                          <span className="font-medium text-slate-800">{payments.length}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
-                      <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Cours & Inscription</h4>
-                      <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                          <span className="text-slate-500">Cours</span>
-                          <span className="font-medium text-slate-800">{activeEnrollment?.courseName ?? '—'}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-slate-500">Groupe</span>
-                          <span className="font-medium text-slate-800">{activeEnrollment?.groupName ?? '—'}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-slate-500">Salle</span>
-                          <span className="font-medium text-slate-800">{activeEnrollment?.room ?? '—'}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+          {/* سجل الحضور والغياب مع الفلاتر */}
+          {tab === 'attendance' && (
+            <div className="space-y-4">
+              {/* Attendance filters */}
+              <div className="flex flex-wrap items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                <div className="flex items-center gap-2">
+                  <Filter size={14} className="text-slate-500" />
+                  <span className="text-xs font-semibold text-slate-600">تصفية السجل:</span>
                 </div>
-              )}
-
-              {tab === 'Présences' && (
-                <div>
-                  {attendanceRecords.length === 0 ? (
-                    <div className="text-center py-12 text-slate-400 text-sm">Aucune présence enregistrée</div>
-                  ) : (
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-slate-100 text-xs font-semibold text-slate-500 uppercase">
-                          <th className="py-2.5 text-left">Date</th>
-                          <th className="py-2.5 text-left">Heure</th>
-                          <th className="py-2.5 text-left">Statut</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-50">
-                        {attendanceRecords.map((r, i) => (
-                          <tr key={i}>
-                            <td className="py-2.5">{r.sessionDate}</td>
-                            <td className="py-2.5 font-mono text-xs">{r.scannedAt ?? '—'}</td>
-                            <td className="py-2.5">
-                              <Badge variant={r.attendanceStatus === 'present' ? 'success' : r.attendanceStatus === 'late' ? 'warning' : 'error'}>
-                                {r.attendanceStatus}
-                              </Badge>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-              )}
-
-              {tab === 'Paiements' && (
-                <div>
-                  {payments.length === 0 ? (
-                    <div className="text-center py-12 text-slate-400 text-sm">Aucun paiement enregistré pour cet étudiant</div>
-                  ) : (
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-slate-100 text-xs font-semibold text-slate-500 uppercase">
-                          <th className="py-2.5 text-left">N° Reçu</th>
-                          <th className="py-2.5 text-left">Période</th>
-                          <th className="py-2.5 text-right">Montant</th>
-                          <th className="py-2.5 text-left">Méthode</th>
-                          <th className="py-2.5 text-left">Date</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-50">
-                        {payments.map(p => (
-                          <tr key={p.id}>
-                            <td className="py-2.5 font-mono text-xs text-blue-700">{p.receiptNumber}</td>
-                            <td className="py-2.5">{p.billingPeriod}</td>
-                            <td className="py-2.5 text-right font-semibold text-green-700">{p.amount.toLocaleString('fr-DZ')} DA</td>
-                            <td className="py-2.5 capitalize">{p.paymentMethod}</td>
-                            <td className="py-2.5 text-xs text-slate-500">{new Date(p.paymentDate).toLocaleDateString('fr-DZ')}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-              )}
-
-              {tab === 'Inscriptions' && (
-                <div className="space-y-3">
-                  {enrollments.map(en => (
-                    <div key={en.id} className="bg-slate-50 rounded-xl p-4 border border-slate-100 text-sm">
-                      <div className="flex justify-between items-center mb-3">
-                        <span className="font-bold text-slate-800 text-base">{en.groupName}</span>
-                        <Badge variant={en.status}>{en.status}</Badge>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
-                        <div><span className="text-slate-400">Cours:</span> {en.courseName}</div>
-                        <div><span className="text-slate-400">Salle:</span> {en.room}</div>
-                        <div><span className="text-slate-400">Tarif convenu:</span> {en.agreedPrice} DA/mois</div>
-                        <div><span className="text-slate-400">Date début:</span> {en.startDate}</div>
-                      </div>
-                      
-                      {/* Convert Eastern Arabic numerals (٠-٩) and Persian numerals (۰-۹) to standard ASCII (0-9) */}
-                      {(() => {
-                        function normalizeNumberInput(val: string): string {
-                          const ascii = val
-                            .replace(/[٠-٩]/g, (d) => '0123456789'['٠١٢٣٤٥٦٧٨٩'.indexOf(d)])
-                            .replace(/[۰-۹]/g, (d) => '0123456789'['۰۱۲۳۴۵٦٧٨٩'.indexOf(d)])
-                          return ascii.replace(/[^0-9.]/g, '')
-                        }
-                        return (
-                          <div className="mt-4 pt-4 border-t border-slate-200">
-                            <label className="block font-medium text-slate-600 mb-1 text-xs">
-                              {lang === 'ar' ? 'المبلغ المراد تحويله (دج) *' : 'Montant à transférer (DA) *'}
-                            </label>
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white font-bold text-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] outline-none"
-                              value={transferAmount}
-                              onChange={(e) => setTransferAmount(normalizeNumberInput(e.target.value))}
-                              placeholder="0"
-                              dir="ltr"
-                            />
-                            <div className="flex gap-1.5 mt-2 flex-wrap text-[11px]">
-                              {[500, 1000, 1500, 2000].map((amt) => (
-                                <button
-                                  key={amt}
-                                  type="button"
-                                  onClick={() => setTransferAmount(String(amt))}
-                                  className="px-2.5 py-1 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 rounded-md font-medium text-slate-600 transition-colors"
-                                >
-                                  {amt} DA
-                                </button>
-                              ))}
-                              {transferModalSource && (
-                                <button
-                                  type="button"
-                                  onClick={() => setTransferAmount(String(transferModalSource.agreedPrice || 0))}
-                                  className="px-2.5 py-1 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded-md font-bold transition-colors"
-                                >
-                                  {lang === 'ar' ? 'المبلغ كاملاً' : 'Total'} ({transferModalSource.agreedPrice} DA)
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        )
-                      })()}
-                    </div>
+                <select
+                  value={filterGroup}
+                  onChange={e => setFilterGroup(e.target.value)}
+                  className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg bg-white outline-none focus:border-blue-500"
+                >
+                  <option value="">جميع الأفواج</option>
+                  {enrollments.map((en: any) => (
+                    <option key={en.groupId} value={en.groupId}>{en.groupName}</option>
                   ))}
-                </div>
-              )}
+                </select>
 
-              {tab === 'Notes' && (
-                <div className="space-y-4">
-                  <div className="flex gap-2">
-                    <textarea
-                      placeholder="Ajouter une note administrative sur cet étudiant..."
-                      value={newNote}
-                      onChange={e => setNewNote(e.target.value)}
-                      className="flex-1 h-20 px-3 py-2 text-sm border border-slate-200 rounded-xl resize-none outline-none focus:border-blue-500 bg-white"
-                    />
-                    <button
-                      onClick={handleAddNote}
-                      disabled={!newNote.trim()}
-                      className="px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors flex items-center justify-center"
-                    >
-                      <Plus size={16} />
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-slate-500">من:</span>
+                  <input
+                    type="date"
+                    value={filterDateFrom}
+                    onChange={e => setFilterDateFrom(e.target.value)}
+                    className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-slate-500">إلى:</span>
+                  <input
+                    type="date"
+                    value={filterDateTo}
+                    onChange={e => setFilterDateTo(e.target.value)}
+                    className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                {(filterGroup || filterDateFrom || filterDateTo) && (
+                  <button
+                    onClick={() => { setFilterGroup(''); setFilterDateFrom(''); setFilterDateTo('') }}
+                    className="text-xs text-blue-600 hover:text-blue-800 font-medium mr-auto"
+                  >
+                    إعادة ضبط الفلاتر
+                  </button>
+                )}
+              </div>
+
+              {filteredAttendance.length === 0
+                ? <p className="text-sm text-slate-400 text-center py-8">لا يوجد سجل حضور مطابق للفلاتر المحددة</p>
+                : (
+                  <div className="overflow-auto max-h-125 border border-slate-100 rounded-xl">
+                    <table className="w-full text-sm">
+                      <thead className="sticky top-0 bg-slate-50 border-b border-slate-200">
+                        <tr className="text-xs text-slate-600 font-semibold">
+                          <th className="py-2.5 px-3 text-right">التاريخ</th>
+                          <th className="py-2.5 px-3 text-right">المجموعة / الفوج</th>
+                          <th className="py-2.5 px-3 text-right">المادة</th>
+                          <th className="py-2.5 px-3 text-right">الحالة</th>
+                          <th className="py-2.5 px-3 text-right">الوقت / المسح</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50">
+                        {filteredAttendance.map((r: any) => {
+                          const att = ATTENDANCE_LABELS[r.attendanceStatus] ?? ATTENDANCE_LABELS.unmarked
+                          return (
+                            <tr key={r.recordId || `${r.sessionId}-${r.sessionDate}`} className="hover:bg-slate-50 transition-colors">
+                              <td className="py-2.5 px-3 font-mono text-xs text-slate-700">{r.sessionDate}</td>
+                              <td className="py-2.5 px-3 text-xs font-medium text-slate-800">{r.groupName}</td>
+                              <td className="py-2.5 px-3 text-xs text-slate-600">{r.courseNameAr ?? r.courseNameFr ?? '—'}</td>
+                              <td className="py-2.5 px-3">
+                                <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${att.color}`}>
+                                  {att.label}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 text-xs text-slate-400 font-mono">
+                                {r.scannedAt
+                                  ? new Date(r.scannedAt).toLocaleTimeString('ar-DZ', { hour: '2-digit', minute: '2-digit' })
+                                  : r.plannedStartTime ?? '—'}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              }
+            </div>
+          )}
+
+          {/* المدفوعات */}
+          {tab === 'payments' && (
+            <div>
+              <div className="flex flex-wrap gap-2 mb-4">
+                {enrollments.filter((e: any) => e.status === 'active').map((en: any) => (
+                  <button
+                    key={en.id}
+                    onClick={() => { setTopUpTarget(en); setTopUpModal(true) }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-green-700 bg-green-50 border border-green-200 hover:bg-green-100 rounded-lg transition-colors"
+                  >
+                    <Plus size={12} /> شحن رصيد — {en.groupName}
+                  </button>
+                ))}
+              </div>
+
+              {payments.length === 0
+                ? <p className="text-sm text-slate-400 text-center py-8">لا توجد معاملات مالية مسجلة</p>
+                : (
+                  <div className="overflow-auto max-h-112.5 border border-slate-100 rounded-xl">
+                    <table className="w-full text-sm">
+                      <thead className="sticky top-0 bg-slate-50 border-b border-slate-200">
+                        <tr className="text-xs text-slate-600 font-semibold">
+                          <th className="py-2.5 px-3 text-right">رقم الوصل</th>
+                          <th className="py-2.5 px-3 text-right">نوع المعاملة</th>
+                          <th className="py-2.5 px-3 text-right">المجموعة</th>
+                          <th className="py-2.5 px-3 text-right">المبلغ</th>
+                          <th className="py-2.5 px-3 text-right">التاريخ</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50">
+                        {payments.map((p: any) => {
+                          const isCredit = ['credit', 'transfer_in'].includes(p.paymentType)
+                          const isRefund = p.paymentType === 'refund'
+                          return (
+                            <tr key={p.id} className="hover:bg-slate-50">
+                              <td className="py-2.5 px-3 font-mono text-xs text-blue-700 font-semibold">{p.receiptNumber}</td>
+                              <td className="py-2.5 px-3 text-xs">
+                                <span className={`px-2 py-0.5 rounded text-xs font-bold ${isCredit ? 'bg-green-50 text-green-700' : isRefund ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'}`}>
+                                  {PAYMENT_TYPE_LABELS[p.paymentType] ?? p.paymentType}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 text-xs text-slate-700 font-medium">{p.groupName ?? '—'}</td>
+                              <td className={`py-2.5 px-3 text-xs font-bold ${isCredit ? 'text-green-700' : isRefund ? 'text-amber-700' : 'text-red-600'}`}>
+                                {isCredit ? '+' : '-'}{p.amount?.toLocaleString('ar-DZ')} دج
+                              </td>
+                              <td className="py-2.5 px-3 text-xs text-slate-500 font-mono">{p.paymentDate}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              }
+            </div>
+          )}
+
+          {/* التسجيلات */}
+          {tab === 'enrollments' && (
+            <div className="space-y-3">
+              <div className="flex justify-end mb-2">
+                <button
+                  onClick={() => setEnrollModal(true)}
+                  className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-sm"
+                >
+                  <Plus size={14} /> تسجيل في فوج جديد
+                </button>
+              </div>
+
+              {enrollments.length === 0
+                ? <p className="text-sm text-slate-400 text-center py-8">لا توجد تسجيلات</p>
+                : enrollments.map((en: any) => (
+                  <div key={en.id} className="p-4 bg-white border border-slate-200 rounded-xl hover:border-slate-300 transition-colors">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-1.5 flex-1">
+                        <div className="flex items-center gap-2">
+                          <p className="font-bold text-slate-900 text-sm">{en.groupName}</p>
+                          <span className="text-xs text-slate-500 font-medium">({en.courseName})</span>
+                        </div>
+                        <p className="text-xs text-slate-600">الأستاذ: <span className="font-semibold text-slate-800">{en.teacherName}</span></p>
+                        <p className="text-xs text-slate-600">القاعة: {en.room}</p>
+                        <p className="text-xs text-slate-600">السعر الشهري: <span className="font-bold text-slate-800">{en.agreedPrice?.toLocaleString('ar-DZ')} دج</span></p>
+                        {en.balance !== null && (
+                          <p className={`text-xs font-bold ${en.balance < 0 ? 'text-red-600' : 'text-green-700'}`}>
+                            الرصيد المتبقي: {en.balance?.toLocaleString('ar-DZ')} دج
+                          </p>
+                        )}
+                        <p className="text-xs text-slate-400">تاريخ التسجيل: {en.enrollmentDate}</p>
+                      </div>
+                      <div className="flex flex-col gap-2 items-end shrink-0">
+                        <Badge variant={en.status === 'active' ? 'active' : 'inactive'}>
+                          {en.status === 'active' ? 'نشط' : en.status === 'completed' ? 'منتهٍ' : 'غير نشط'}
+                        </Badge>
+                        {en.status === 'active' && (
+                          <div className="flex items-center gap-2 mt-1">
+                            <button
+                              onClick={() => { setTransferFrom(en); setTransferToGroupId(''); setTransferModal(true) }}
+                              className="flex items-center gap-1 px-2.5 py-1 text-xs text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors font-medium border border-blue-200"
+                            >
+                              <ArrowLeftRight size={12} /> تحويل 100% من الرصيد
+                            </button>
+                            <button
+                              onClick={() => { setCancelEnrollTarget(en); setCancelEnrollModal(true) }}
+                              className="flex items-center gap-1 px-2.5 py-1 text-xs text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors font-medium border border-red-200"
+                            >
+                              <XCircle size={12} /> إلغاء التسجيل
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              }
+            </div>
+          )}
+
+          {/* الملاحظات - محمي ضد الانهيار */}
+          {tab === 'notes' && (
+            <div className="space-y-4">
+              <div className="flex gap-2">
+                <textarea
+                  value={newNote}
+                  onChange={e => setNewNote(e.target.value)}
+                  placeholder="اكتب ملاحظة جديدة حول الطالب..."
+                  rows={3}
+                  className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white resize-none"
+                  dir="rtl"
+                />
+                <button
+                  onClick={() => {
+                    const text = (newNote || '').trim()
+                    if (!text) return
+                    saveNotes([text, ...notes])
+                    setNewNote('')
+                  }}
+                  className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors self-end shadow-sm"
+                >
+                  <Plus size={16} /> إضافة
+                </button>
+              </div>
+              {notes.length === 0
+                ? <p className="text-sm text-slate-400 text-center py-6">لا توجد ملاحظات مسجلة</p>
+                : notes.map((note: string, i: number) => (
+                  <div key={i} className="flex items-start gap-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                    <p className="text-sm text-slate-800 flex-1 whitespace-pre-wrap leading-relaxed">{note}</p>
+                    <button onClick={() => saveNotes(notes.filter((_: any, j: number) => j !== i))}
+                      className="p-1 rounded text-slate-400 hover:text-red-500 transition-colors shrink-0"
+                      title="حذف الملاحظة">
+                      <Trash2 size={14} />
                     </button>
                   </div>
-
-                  <div className="space-y-2">
-                    {notes.map(n => (
-                      <div key={n.id} className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-start justify-between">
-                        <div>
-                          <p className="text-sm text-slate-800">{n.text}</p>
-                          <span className="text-[10px] text-slate-400 mt-1 block">{n.date}</span>
-                        </div>
-                        <button onClick={() => handleDeleteNote(n.id)} className="text-slate-400 hover:text-red-600 transition-colors p-1">
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+                ))
+              }
             </div>
-          </div>
+          )}
         </div>
       </div>
+
+      {/* Edit Student Modal */}
+      <Modal open={editModal} onClose={() => setEditModal(false)} title="تعديل معلومات الطالب" size="md">
+        <div className="space-y-3" dir="rtl">
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              ['الاسم الأول (عربي)', 'firstNameAr'],
+              ['اللقب (عربي)', 'lastNameAr'],
+              ['الاسم الأول (لاتيني)', 'firstNameFr'],
+              ['اللقب (لاتيني)', 'lastNameFr'],
+              ['الهاتف', 'phone'],
+              ['هاتف الولي', 'guardianPhone'],
+            ].map(([label, field]) => (
+              <div key={field}>
+                <label className="block text-xs font-medium text-slate-600 mb-1">{label}</label>
+                <input
+                  value={editForm[field] ?? ''}
+                  onChange={e => setEditForm((f: any) => ({ ...f, [field]: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
+                />
+              </div>
+            ))}
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">العنوان</label>
+            <input
+              value={editForm.address ?? ''}
+              onChange={e => setEditForm((f: any) => ({ ...f, address: e.target.value }))}
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+            <button onClick={() => setEditModal(false)} className="px-4 py-2 text-sm text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">إلغاء</button>
+            <button onClick={handleSaveEdit} disabled={saving}
+              className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-60">
+              {saving ? 'جارٍ الحفظ...' : 'حفظ التعديلات'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Simplified Enroll Modal */}
+      <Modal open={enrollModal} onClose={() => setEnrollModal(false)} title="تسجيل في فوج" size="sm">
+        <div className="space-y-4" dir="rtl">
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">الفوج / المجموعة *</label>
+            <select
+              value={enrollForm.groupId}
+              onChange={e => {
+                const g = groups.find((g: any) => g.id === Number(e.target.value))
+                setEnrollForm(f => ({ ...f, groupId: e.target.value, agreedPrice: String(g?.monthlyPrice ?? '') }))
+              }}
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
+            >
+              <option value="">اختر الفوج...</option>
+              {groups.filter((g: any) => g.status === 'active').map((g: any) => {
+                const course = courses.find((c: any) => c.id === g.courseId)
+                const teacher = teachers.find((t: any) => t.id === g.teacherId)
+                const tName = teacher ? `${teacher.lastNameAr || teacher.lastNameFr || ''} ${teacher.firstNameAr || teacher.firstNameFr || ''}`.trim() : ''
+                return (
+                  <option key={g.id} value={g.id}>
+                    {g.name} — {course?.nameAr ?? course?.nameFr ?? ''} {tName ? `(${tName})` : ''}
+                  </option>
+                )
+              })}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">السعر الشهري المتفق عليه (دج) *</label>
+            <input
+              type="number"
+              value={enrollForm.agreedPrice}
+              onChange={e => setEnrollForm(f => ({ ...f, agreedPrice: e.target.value }))}
+              placeholder="2500"
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white font-mono"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">تاريخ بدء التسجيل *</label>
+            <input
+              type="date"
+              value={enrollForm.enrollmentDate}
+              onChange={e => setEnrollForm(f => ({ ...f, enrollmentDate: e.target.value }))}
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white font-mono"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+            <button onClick={() => setEnrollModal(false)} className="px-4 py-2 text-sm text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">إلغاء</button>
+            <button onClick={handleEnroll} disabled={saving || !enrollForm.groupId}
+              className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-60 shadow-sm">
+              {saving ? 'جارٍ التسجيل...' : 'تأكيد التسجيل'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Cancel Enrollment Modal */}
+      <Modal open={cancelEnrollModal} onClose={() => { setCancelEnrollModal(false); setCancelEnrollTarget(null) }} title="إلغاء التسجيل واسترداد الرصيد" size="sm">
+        <div className="space-y-4" dir="rtl">
+          <p className="text-sm text-slate-700 leading-relaxed">
+            هل أنت متأكد من إلغاء تسجيل الطالب في <strong>{cancelEnrollTarget?.groupName}</strong>؟
+          </p>
+          {cancelEnrollTarget?.balance > 0 ? (
+            <div className="p-3 bg-green-50 border border-green-200 rounded-xl text-green-800 text-xs font-semibold">
+              سيتم استرداد وإرجاع كامل الرصيد المتبقي: <strong>{cancelEnrollTarget.balance?.toLocaleString('ar-DZ')} دج</strong>
+            </div>
+          ) : (
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-600 text-xs">
+              لا يوجد رصيد متبقٍ للاسترداد.
+            </div>
+          )}
+          <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+            <button onClick={() => { setCancelEnrollModal(false); setCancelEnrollTarget(null) }}
+              className="px-4 py-2 text-sm text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">إلغاء</button>
+            <button onClick={handleCancelEnrollment} disabled={saving}
+              className="px-4 py-2 text-sm font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg disabled:opacity-60 shadow-sm">
+              {saving ? 'جارٍ الإلغاء...' : 'تأكيد إلغاء التسجيل'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* 1-Click 100% Transfer Modal */}
+      <Modal open={transferModal} onClose={() => { setTransferModal(false); setTransferFrom(null) }} title="تحويل 100% من الرصيد المتبقي" size="sm">
+        <div className="space-y-4" dir="rtl">
+          <p className="text-sm text-slate-700 leading-relaxed">
+            سيتم تحويل كامل الرصيد المتبقي (<strong>{transferFrom?.balance?.toLocaleString('ar-DZ')} دج</strong>) من <strong>{transferFrom?.groupName}</strong> وإنهاء هذا التسجيل، ونقل الرصيد إلى:
+          </p>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">الفوج المستهدف *</label>
+            <select
+              value={transferToGroupId}
+              onChange={e => setTransferToGroupId(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
+            >
+              <option value="">اختر الفوج المستهدف...</option>
+              {enrollments
+                .filter((e: any) => e.id !== transferFrom?.id && e.status === 'active')
+                .map((e: any) => <option key={e.id} value={e.groupId}>{e.groupName}</option>)
+              }
+            </select>
+          </div>
+          <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+            <button onClick={() => { setTransferModal(false); setTransferFrom(null) }}
+              className="px-4 py-2 text-sm text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">إلغاء</button>
+            <button onClick={handleTransfer} disabled={saving || !transferToGroupId}
+              className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-60 shadow-sm">
+              {saving ? 'جارٍ التحويل...' : 'تأكيد تحويل الرصيد'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Top-up Modal */}
+      <Modal open={topUpModal} onClose={() => { setTopUpModal(false); setTopUpTarget(null) }} title="شحن الرصيد المالي" size="sm">
+        <div className="space-y-4" dir="rtl">
+          <p className="text-xs text-slate-600">شحن رصيد لفوج: <strong className="text-blue-900">{topUpTarget?.groupName}</strong></p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">المبلغ (دج) *</label>
+              <input type="number" value={topUpForm.amount}
+                onChange={e => setTopUpForm(f => ({ ...f, amount: e.target.value }))}
+                placeholder="2500"
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white font-mono" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">طريقة الدفع</label>
+              <select value={topUpForm.method} onChange={e => setTopUpForm(f => ({ ...f, method: e.target.value }))}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white">
+                <option value="cash">نقداً</option>
+                <option value="transfer">تحويل بنكي / CCP</option>
+                <option value="check">صك بريدي / شيك</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">تاريخ الدفع</label>
+            <input type="date" value={topUpForm.date} onChange={e => setTopUpForm(f => ({ ...f, date: e.target.value }))}
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white font-mono" />
+          </div>
+          <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+            <button onClick={() => { setTopUpModal(false); setTopUpTarget(null) }}
+              className="px-4 py-2 text-sm text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">إلغاء</button>
+            <button onClick={handleTopUp} disabled={saving || !topUpForm.amount}
+              className="px-4 py-2 text-sm font-semibold text-white bg-green-600 hover:bg-green-700 rounded-lg disabled:opacity-60 shadow-sm">
+              {saving ? 'جارٍ الشحن...' : 'تأكيد شحن الرصيد'}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }
+

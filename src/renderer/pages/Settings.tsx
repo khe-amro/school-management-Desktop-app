@@ -1,5 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../features/auth/AuthContext'
 import {
   Save, School, Wrench, Database, Shield,
   Eye, EyeOff, CheckCircle2, AlertCircle, FolderOpen,
@@ -20,6 +22,8 @@ interface AuditLog {
 
 export default function Settings() {
   const { t } = useTranslation()
+  const navigate = useNavigate()
+  const { logout } = useAuth()
   const [section, setSection] = useState<SettingsSection>('school')
   const [settings, setSettings] = useState<Partial<SchoolSettings>>({})
   const [loading, setLoading] = useState(true)
@@ -185,6 +189,8 @@ export default function Settings() {
       const restoreRes = await window.schoolApp.backups.restore(res.data.path, confirmPw)
       if (restoreRes.success) {
         alert(t('backups.restoreComplete'))
+        await logout()
+        navigate('/login', { replace: true })
       } else {
         alert(`${t('common.error')}: ${restoreRes.error}`)
       }

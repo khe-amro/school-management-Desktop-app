@@ -5,7 +5,7 @@ import {
   ArrowLeft, Edit2, QrCode, RefreshCw, Archive,
   Phone, MapPin, Calendar, User, Shield, CreditCard,
   BookOpen, Clock, CheckCircle2, XCircle, StickyNote,
-  Plus, AlertCircle, ArrowRightLeft, X, Check, ChevronDown, RotateCcw, AlertTriangle
+  Plus, AlertCircle, ArrowRightLeft, X, Check, ChevronDown, RotateCcw, AlertTriangle, Trash2
 } from 'lucide-react'
 import type { Student, Payment, Group, Course, Teacher } from '@shared/types/index'
 import { getCourseName, formatCurrency } from '../utils/format'
@@ -138,7 +138,7 @@ interface SessionHistoryItem {
   courseNameAr: string
   courseNameFr: string
   teacherName: string | null
-  attendanceStatus: 'present' | 'absent' | 'late' | 'not_active' | 'unmarked'
+  attendanceStatus: 'present' | 'absent' | 'inactive' | 'not_active' | 'unmarked'
   scannedAt: string | null
   source: string | null
 }
@@ -160,7 +160,7 @@ export default function StudentProfile() {
   const [payments, setPayments] = useState<Payment[]>([])
   const [sessionHistory, setSessionHistory] = useState<SessionHistoryItem[]>([])
   const [notes, setNotes] = useState<NoteItem[]>([])
-  const [newNote, setNewNote] = useState('')
+  const [newNote, setNewNote] = useState(() => (id ? sessionStorage.getItem(`draft_note_${id}`) || '' : ''))
   const [savingNote, setSavingNote] = useState(false)
   const [tabLoading, setTabLoading] = useState(false)
 
@@ -184,43 +184,6 @@ export default function StudentProfile() {
   const [transferCloseSource, setTransferCloseSource] = useState(true)
   const [transferReason, setTransferReason] = useState('')
   const [savingTransfer, setSavingTransfer] = useState(false)
-
-  const load = useCallback(async () => {
-    const res = await window.schoolApp.students.getById(Number(id))
-    if (res.success && res.data) {
-      setStudent(res.data)
-      if (res.data.photoPath) {
-        try {
-          const photoRes = await window.schoolApp.media.getImageUrl(res.data.photoPath)
-          if (photoRes.success && photoRes.data?.url) setPhotoUrl(photoRes.data.url)
-        } catch { /* ignore */ }
-      }
-    }
-    setLoading(false)
-  }, [id])
-
-  useEffect(() => { load() }, [load])
-
-  useEffect(() => {
-    if (student?.qrToken && qrCanvasRef.current) {
-      const payload = [
-        'EDUPILOT DZ',
-        `Matricule: ${student.studentNumber}`,
-        `Nom: ${student.lastNameAr} ${student.firstNameAr}`,
-        `Nom FR: ${student.lastNameFr} ${student.firstNameFr}`,
-        student.phone ? `Tél: ${student.phone}` : null,
-        `Statut: ${student.status === 'active' ? 'Actif' : student.status}`,
-        `ID: ${student.qrToken}`,
-      ].filter(Boolean).join('\n')
-
-      QRCode.toCanvas(qrCanvasRef.current, payload, {
-        width: 150,
-        margin: 1,
-        color: { dark: '#000000', light: '#FFFFFF' },
-        errorCorrectionLevel: 'M',
-      }).catch(() => {})
-    }
-  }, [student])
 
   // Helper to load enrollments along with their credit balances
   const loadEnrollmentsWithBalances = useCallback(async (studentId: number) => {
@@ -246,15 +209,51 @@ export default function StudentProfile() {
     }
   }, [])
 
+  const load = useCallback(async () => {
+    const res = await window.schoolApp.students.getById(Number(id))
+    if (res.success && res.data) {
+      setStudent(res.data)
+      // Always load enrollments with balances immediately so profile debt/balance badge is accurate on any tab
+      await loadEnrollmentsWithBalances(res.data.id)
+      if (res.data.photoPath) {
+        try {
+          const photoRes = await window.schoolApp.media.getImageUrl(res.data.photoPath)
+          if (photoRes.success && photoRes.data?.url) setPhotoUrl(photoRes.data.url)
+        } catch { /* ignore */ }
+      }
+    }
+    setLoading(false)
+  }, [id, loadEnrollmentsWithBalances])
+
+  useEffect(() => { load() }, [load])
+
   // Helper to load session history for student
   const loadSessionHistory = useCallback(async (studentId: number) => {
     try {
-      const hist = await window.schoolApp.attendance.getSessionHistory(studentId)
-      if (hist && Array.isArray(hist)) setSessionHistory(hist)
+      const res = await window.schoolApp.attendance.getSessionHistory(studentId)
+      const data = (res as any)?.data ?? res
+      if (Array.isArray(data)) setSessionHistory(data)
     } catch (err) {
       console.error('Failed to load session history:', err)
     }
   }, [])
+
+  // Helper to load notes for student
+  const loadStudentNotes = useCallback(async (studentId: number) => {
+    try {
+      const res = await window.schoolApp.notes.list(studentId)
+      if (res.success && Array.isArray(res.data)) {
+        setNotes(res.data.map((n: any) => ({
+          id: n.id,
+          noteText: n.noteText,
+          adminName: n.createdByName ?? t('common.administrator'),
+          createdAt: n.createdAt,
+        })))
+      }
+    } catch (err) {
+      console.error('Failed to load notes:', err)
+    }
+  }, [t])
 
   // Load tab data when switching
   useEffect(() => {
@@ -263,8 +262,8 @@ export default function StudentProfile() {
 
     async function loadTabData() {
       try {
+        await loadEnrollmentsWithBalances(student!.id)
         if (activeTab === 'enrollments' || activeTab === 'overview') {
-          await loadEnrollmentsWithBalances(student!.id)
           const [grpRes, crsRes, tchRes] = await Promise.all([
             window.schoolApp.groups.list({ status: 'active' }),
             window.schoolApp.courses.list({ status: 'active' }),
@@ -282,7 +281,7 @@ export default function StudentProfile() {
           if (res.success && res.data) setPayments(res.data)
         }
         if (activeTab === 'notes') {
-          setNotes([])
+          await loadStudentNotes(student!.id)
         }
       } finally {
         setTabLoading(false)
@@ -290,7 +289,7 @@ export default function StudentProfile() {
     }
 
     loadTabData()
-  }, [activeTab, student, loadEnrollmentsWithBalances, loadSessionHistory])
+  }, [activeTab, student, loadEnrollmentsWithBalances, loadSessionHistory, loadStudentNotes])
 
   // ─── Cascaded Combobox Options & Auto-fill Logic for Enrollment Modal ────────
   const getCourseNameHelper = useCallback((c: Course) => getCourseName(c, lang), [lang])
@@ -490,8 +489,8 @@ export default function StudentProfile() {
     if (student) await loadEnrollmentsWithBalances(student.id)
   }
 
-  // Mark student in a specific session (Present, Late, Absent, Not Active)
-  const handleMarkStudentInSession = async (sessionId: number, newStatus: 'present' | 'absent' | 'late' | 'not_active') => {
+  // Mark student in a specific session (Present, Absent, Inactive)
+  const handleMarkStudentInSession = async (sessionId: number, newStatus: 'present' | 'absent' | 'inactive') => {
     if (!student) return
     try {
       const res = await window.schoolApp.attendance.markSession(sessionId, student.id, newStatus)
@@ -504,18 +503,24 @@ export default function StudentProfile() {
     }
   }
 
-  // Mark next upcoming session as not_active for student in a group
-  const handleMarkNextSessionNotActive = async (groupId: number) => {
+  // Cancel Enrollment (Atomic refund remaining balance & mark cancelled)
+  const handleCancelEnrollment = async (enroll: EnrollmentWithDetails) => {
     if (!student) return
+    const bal = enroll.balance ?? 0
+    const confirmMsg = bal > 0
+      ? `${t('students.cancelEnrollmentConfirm')} (${t('payments.refund')}: ${bal.toLocaleString()} DA)`
+      : t('students.cancelEnrollmentConfirm')
+    if (!window.confirm(confirmMsg)) return
+
     try {
-      const res = await window.schoolApp.attendance.markNextNotActive(student.id, groupId)
+      const res = await window.schoolApp.enrollments.cancel(enroll.id, student.id)
       if (res.success) {
-        const sessDate = res.data?.sessionDate ?? ''
-        alert(lang === 'ar' ? `تم تعيين الطالب كغير نشط للحصة القادمة (${sessDate}) وتأجيل اقتطاع الرصيد` : `Prochaine séance marquée non active pour l'étudiant (${sessDate})`)
+        alert(t('students.enrollmentCancelledSuccess'))
         await loadEnrollmentsWithBalances(student.id)
-        await loadSessionHistory(student.id)
+        const payListRes = await window.schoolApp.payments.byStudent(student.id)
+        if (payListRes.success && payListRes.data) setPayments(payListRes.data)
       } else {
-        alert(lang === 'ar' ? 'تعذر العثور على حصة قادمة لهذه المجموعة' : 'Aucune séance future trouvée')
+        alert(res.error ?? t('common.error'))
       }
     } catch (err: any) {
       alert(err?.message ?? t('common.error'))
@@ -555,50 +560,108 @@ export default function StudentProfile() {
     }
   }
 
-  // Execute Credit Transfer between courses
+  // Execute Credit Transfer between courses (Atomic 100% positive balance transfer)
   const handleExecuteCreditTransfer = async () => {
-    if (!student || !transferModalSource || !transferTargetEnrollId || !transferAmount) return
+    if (!student || !transferModalSource || !transferTargetEnrollId) return
     setSavingTransfer(true)
     try {
-      const targetEnroll = enrollments.find((e) => e.id === Number(transferTargetEnrollId))
-      const amount = Number(transferAmount)
-      const currentMonth = new Date().toISOString().slice(0, 7)
-
-      // 1. Record credit payment onto destination enrollment
-      const sourceName = transferModalSource.courseName ?? `Groupe #${transferModalSource.groupId}`
-      const targetName = targetEnroll?.courseName ?? `Groupe #${targetEnroll?.groupId}`
-      const transferMemo = `Transfert de solde (${amount} DA) depuis [${sourceName}] vers [${targetName}]. ${transferReason}`
-
-      await window.schoolApp.payments.create({
+      const res = await window.schoolApp.payments.transfer({
+        fromEnrollmentId: transferModalSource.id,
+        toEnrollmentId: Number(transferTargetEnrollId),
         studentId: student.id,
-        enrollmentId: Number(transferTargetEnrollId),
-        billingPeriod: currentMonth,
-        amount: amount,
-        paymentMethod: 'transfer',
-        paymentDate: new Date().toISOString().slice(0, 10),
-        reference: `TRANSFER-${Date.now().toString().slice(-4)}`,
-        notes: transferMemo,
       })
 
-      // 2. Optionally close/complete the source enrollment
-      if (transferCloseSource) {
-        await window.schoolApp.enrollments.update(transferModalSource.id, { status: 'completed' })
+      if (res.success) {
+        setTransferModalSource(null)
+        setTransferTargetEnrollId('')
+        setTransferReason('')
+
+        // Reload data
+        await loadEnrollmentsWithBalances(student.id)
+        const payListRes = await window.schoolApp.payments.byStudent(student.id)
+        if (payListRes.success && payListRes.data) setPayments(payListRes.data)
+
+        alert(t('students.transferSuccess'))
+      } else {
+        alert(res.error ?? t('common.error'))
       }
-
-      setTransferModalSource(null)
-      setTransferTargetEnrollId('')
-      setTransferReason('')
-
-      // Reload tabs
-      await loadEnrollmentsWithBalances(student.id)
-      const payListRes = await window.schoolApp.payments.byStudent(student.id)
-      if (payListRes.success && payListRes.data) setPayments(payListRes.data)
-
-      alert(t('students.transferSuccess'))
     } catch (err: any) {
       alert(err?.message ?? t('common.error'))
     } finally {
       setSavingTransfer(false)
+    }
+  }
+
+  // Student Notes CRUD
+  const [editingNoteId, setEditingNoteId] = useState<number | null>(null)
+  const [editingNoteText, setEditingNoteText] = useState('')
+  const [savingEditNote, setSavingEditNote] = useState(false)
+
+  const handleCreateNote = async () => {
+    if (!student || !newNote.trim() || savingNote) return
+    setSavingNote(true)
+    const textToSave = newNote.trim()
+    try {
+      const res = await window.schoolApp.notes.create({
+        studentId: student.id,
+        noteText: textToSave,
+      })
+      if (res.success) {
+        if (res.data) {
+          setNotes(prev => [{
+            id: res.data.id,
+            noteText: res.data.noteText,
+            adminName: res.data.createdByName ?? t('common.administrator'),
+            createdAt: res.data.createdAt,
+          }, ...prev])
+        }
+        setNewNote('')
+        if (student) sessionStorage.removeItem(`draft_note_${student.id}`)
+      } else {
+        alert(res.error ?? t('common.error'))
+      }
+    } catch (err: any) {
+      alert(err?.message ?? t('common.error'))
+    } finally {
+      setSavingNote(false)
+    }
+  }
+
+  const handleUpdateNote = async (noteId: number) => {
+    if (!editingNoteText.trim() || savingEditNote) return
+    setSavingEditNote(true)
+    try {
+      const res = await window.schoolApp.notes.update(noteId, editingNoteText.trim())
+      if (res.success) {
+        if (res.data) {
+          setNotes(prev => prev.map(n => n.id === noteId ? {
+            ...n,
+            noteText: res.data.noteText,
+          } : n))
+        }
+        setEditingNoteId(null)
+        setEditingNoteText('')
+      } else {
+        alert(res.error ?? t('common.error'))
+      }
+    } catch (err: any) {
+      alert(err?.message ?? t('common.error'))
+    } finally {
+      setSavingEditNote(false)
+    }
+  }
+
+  const handleDeleteNote = async (noteId: number) => {
+    if (!window.confirm(t('students.deleteNoteConfirm') || 'Are you sure you want to delete this note?')) return
+    try {
+      const res = await window.schoolApp.notes.delete(noteId)
+      if (res.success) {
+        setNotes(prev => prev.filter(n => n.id !== noteId))
+      } else {
+        alert(res.error ?? t('common.error'))
+      }
+    } catch (err: any) {
+      alert(err?.message ?? t('common.error'))
     }
   }
 
@@ -684,13 +747,18 @@ export default function StudentProfile() {
 
                 {/* Overall Debt/Payment Status Badge */}
                 <div className="flex gap-2 justify-center mt-2.5 flex-wrap">
-                  {isStudentInDebt ? (
-                    <span className="text-xs px-3 py-1 rounded-full font-bold bg-red-100 text-red-700 border border-red-200 flex items-center gap-1">
+                  {totalNetBalance < 0 ? (
+                    <span className="text-xs px-3 py-1 rounded-full font-bold bg-red-100 text-red-700 border border-red-200 flex items-center gap-1 shadow-2xs">
                       <AlertCircle size={12} />
                       {t('students.inDebtWithAmount', { amount: Math.abs(totalNetBalance).toLocaleString() })}
                     </span>
+                  ) : totalNetBalance > 0 ? (
+                    <span className="text-xs px-3 py-1 rounded-full font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1 shadow-2xs">
+                      <CheckCircle2 size={12} />
+                      {t('students.positiveBalance', { amount: totalNetBalance.toLocaleString() })}
+                    </span>
                   ) : (
-                    <span className="text-xs px-3 py-1 rounded-full font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                    <span className="text-xs px-3 py-1 rounded-full font-bold bg-slate-100 text-slate-700 border border-slate-200 flex items-center gap-1 shadow-2xs">
                       <CheckCircle2 size={12} />
                       {t('students.paidZeroDebt')}
                     </span>
@@ -956,51 +1024,26 @@ export default function StudentProfile() {
                                     </td>
                                     <td className="px-3 py-2.5 text-slate-600 font-medium">{s.teacherName ?? '—'}</td>
                                     <td className="px-3 py-2.5">
-                                      <div className="flex items-center gap-1 flex-wrap">
-                                        <button
-                                          onClick={() => handleMarkStudentInSession(s.sessionId, 'present')}
-                                          className={`px-2 py-1 rounded-md font-bold transition-all text-[11px] ${
-                                            status === 'present'
-                                              ? 'bg-emerald-600 text-white shadow-xs'
-                                              : 'bg-slate-100 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700'
-                                          }`}
-                                        >
-                                          {t('attendance.present')}
-                                        </button>
-
-                                        <button
-                                          onClick={() => handleMarkStudentInSession(s.sessionId, 'late')}
-                                          className={`px-2 py-1 rounded-md font-bold transition-all text-[11px] ${
-                                            status === 'late'
-                                              ? 'bg-amber-500 text-white shadow-xs'
-                                              : 'bg-slate-100 text-slate-600 hover:bg-amber-50 hover:text-amber-700'
-                                          }`}
-                                        >
-                                          {t('attendance.late')}
-                                        </button>
-
-                                        <button
-                                          onClick={() => handleMarkStudentInSession(s.sessionId, 'absent')}
-                                          className={`px-2 py-1 rounded-md font-bold transition-all text-[11px] ${
-                                            status === 'absent'
-                                              ? 'bg-red-600 text-white shadow-xs'
-                                              : 'bg-slate-100 text-slate-600 hover:bg-red-50 hover:text-red-700'
-                                          }`}
-                                        >
-                                          {t('attendance.absent')}
-                                        </button>
-
-                                        <button
-                                          onClick={() => handleMarkStudentInSession(s.sessionId, 'not_active')}
-                                          className={`px-2 py-1 rounded-md font-bold transition-all text-[11px] ${
-                                            status === 'not_active'
-                                              ? 'bg-slate-700 text-white shadow-xs'
-                                              : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                                          }`}
-                                          title={t('students.notActiveSessionTooltip')}
-                                        >
-                                          {t('teachers.inactive')}
-                                        </button>
+                                      <div className="flex items-center gap-1">
+                                        {status === 'present' ? (
+                                          <span className="inline-flex items-center gap-1.5 text-xs px-3 py-1 rounded-lg font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 shadow-2xs">
+                                            <span className="font-extrabold">✓</span>
+                                            <span>{t('attendance.present')}</span>
+                                          </span>
+                                        ) : status === 'absent' ? (
+                                          <span className="inline-flex items-center gap-1.5 text-xs px-3 py-1 rounded-lg font-bold bg-red-100 text-red-800 border border-red-200 shadow-2xs">
+                                            <span className="font-extrabold">✗</span>
+                                            <span>{t('attendance.absent')}</span>
+                                          </span>
+                                        ) : status === 'inactive' || status === 'not_active' ? (
+                                          <span className="inline-flex items-center gap-1.5 text-xs px-3 py-1 rounded-lg font-bold bg-slate-100 text-slate-700 border border-slate-300 shadow-2xs">
+                                            <span>{t('teachers.inactive')}</span>
+                                          </span>
+                                        ) : (
+                                          <span className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg font-medium bg-slate-50 text-slate-400 border border-slate-200">
+                                            —
+                                          </span>
+                                        )}
                                       </div>
                                     </td>
                                   </tr>
@@ -1148,12 +1191,12 @@ export default function StudentProfile() {
                               {/* Action buttons on enrollment */}
                               <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-200/60 flex-wrap justify-end">
                                 {/* Transfer Credit action button */}
-                                {isActive && otherActiveEnrollments.length > 0 && (
+                                {isActive && (enroll.balance ?? 0) > 0 && otherActiveEnrollments.length > 0 && (
                                   <button
                                     onClick={() => {
                                       setTransferModalSource(enroll)
                                       setTransferTargetEnrollId(String(otherActiveEnrollments[0].id))
-                                      setTransferAmount('1000')
+                                      setTransferAmount(String(enroll.balance ?? 0))
                                       setTransferCloseSource(true)
                                     }}
                                     className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-500 text-white rounded text-xs font-semibold hover:bg-amber-600 transition-colors shadow-xs"
@@ -1163,17 +1206,7 @@ export default function StudentProfile() {
                                   </button>
                                 )}
 
-                                {/* Mark Next Session Not Active Button */}
-                                {isActive && (
-                                  <button
-                                    onClick={() => handleMarkNextSessionNotActive(enroll.groupId)}
-                                    className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-bold transition-colors bg-slate-700 text-white hover:bg-slate-800 shadow-2xs"
-                                    title={lang === 'ar' ? 'تعيين الطالب كغير نشط للحصة القادمة لإعفائه من اقتطاع الرصيد' : 'Marquer la prochaine séance non active'}
-                                  >
-                                    <XCircle size={12} />
-                                    <span>{lang === 'ar' ? 'غير نشط للحصة القادمة' : 'Non actif (prochaine séance)'}</span>
-                                  </button>
-                                )}
+
 
                                 {/* Module Active / Inactive Status Toggle */}
                                 <button
@@ -1205,27 +1238,29 @@ export default function StudentProfile() {
                     <div className="mb-4">
                       <textarea
                         value={newNote}
-                        onChange={(e) => setNewNote(e.target.value)}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          setNewNote(val)
+                          if (student) {
+                            if (val) sessionStorage.setItem(`draft_note_${student.id}`, val)
+                            else sessionStorage.removeItem(`draft_note_${student.id}`)
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                            handleCreateNote()
+                          }
+                        }}
                         placeholder={t('students.addNote')}
                         className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 resize-none bg-white"
                         rows={3}
                       />
-                      <div className="flex justify-end mt-2">
+                      <div className="flex justify-between items-center mt-2">
+                        <span className="text-[11px] text-slate-400">Ctrl + Enter {lang === 'ar' ? 'للحفظ السريع' : 'pour enregistrer'}</span>
                         <button
-                          onClick={async () => {
-                            if (!newNote.trim()) return
-                            setSavingNote(true)
-                            setNotes((prev) => [{
-                              id: Date.now(),
-                              noteText: newNote,
-                              adminName: t('common.administrator'),
-                              createdAt: new Date().toISOString(),
-                            }, ...prev])
-                            setNewNote('')
-                            setSavingNote(false)
-                          }}
+                          onClick={handleCreateNote}
                           disabled={!newNote.trim() || savingNote}
-                          className="flex items-center gap-2 px-4 py-2 bg-[#2563EB] text-white rounded-lg text-sm font-semibold hover:bg-[#1D4ED8] transition-colors disabled:opacity-50 shadow-xs"
+                          className="flex items-center gap-2 px-4 py-2 bg-[#2563EB] text-white rounded-lg text-sm font-semibold hover:bg-[#1D4ED8] transition-colors disabled:opacity-50 shadow-xs cursor-pointer"
                         >
                           <Plus size={14} />
                           {savingNote ? t('common.saving') : t('common.save')}
@@ -1241,11 +1276,20 @@ export default function StudentProfile() {
                     ) : (
                       <div className="space-y-3">
                         {notes.map((note) => (
-                          <div key={note.id} className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-                            <p className="text-sm text-[#0F172A] whitespace-pre-wrap">{note.noteText}</p>
-                            <div className="flex items-center justify-between mt-2 text-xs text-slate-400">
-                              <span>{note.adminName ?? 'Admin'}</span>
-                              <span>{new Date(note.createdAt).toLocaleString()}</span>
+                          <div key={note.id} className="bg-amber-50/80 border border-amber-200/80 rounded-xl p-4 shadow-2xs group relative">
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="text-sm text-[#0F172A] whitespace-pre-wrap flex-1">{note.noteText}</p>
+                              <button
+                                onClick={() => handleDeleteNote(note.id)}
+                                className="text-slate-400 hover:text-red-600 p-1 rounded-md transition-colors opacity-80 hover:opacity-100 cursor-pointer"
+                                title={t('common.delete')}
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                            <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-amber-200/50 text-xs text-slate-500 font-medium">
+                              <span>👤 {note.adminName ?? 'Admin'}</span>
+                              <span className="text-[11px] text-slate-400 font-mono">{new Date(note.createdAt).toLocaleString()}</span>
                             </div>
                           </div>
                         ))}
@@ -1397,44 +1441,21 @@ export default function StudentProfile() {
                 </select>
               </div>
 
-              {/* Amount to transfer */}
-              <div>
-                <label className="block font-medium text-slate-600 mb-1">
-                  {t('students.amountToTransfer')} *
-                </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white font-extrabold text-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] outline-none transition-all"
-                    value={transferAmount}
-                    onChange={(e) => setTransferAmount(normalizeNumberInput(e.target.value))}
-                    placeholder="0"
-                    dir="ltr"
-                  />
-                </div>
-                {/* Quick preset buttons */}
-                <div className="flex gap-1.5 mt-2 flex-wrap text-[11px]">
-                  {[500, 1000, 1500, 2000, 2500].map((amt) => (
-                    <button
-                      key={amt}
-                      type="button"
-                      onClick={() => setTransferAmount(String(amt))}
-                      className="px-2 py-0.5 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 rounded font-medium text-slate-600 transition-colors"
-                    >
-                      {amt} DA
-                    </button>
-                  ))}
-                  {transferModalSource && (
-                    <button
-                      type="button"
-                      onClick={() => setTransferAmount(String(transferModalSource.agreedPrice || 0))}
-                      className="px-2 py-0.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded font-bold transition-colors"
-                    >
-                      {t('students.fullAmount')} ({transferModalSource.agreedPrice} DA)
-                    </button>
-                  )}
-                </div>
+              {/* Remaining balance to transfer */}
+              <div className="p-3.5 bg-emerald-50 rounded-xl border border-emerald-200">
+                <p className="text-[11px] text-emerald-800 font-bold">
+                  {lang === 'ar' ? 'الرصيد المتبقي المراد تحويله بالكامل:' : lang === 'en' ? 'Remaining balance to transfer in full:' : 'Solde restant à transférer en totalité :'}
+                </p>
+                <p className="text-2xl font-black text-emerald-700 mt-1">
+                  {(transferModalSource.balance ?? 0).toLocaleString()} DA
+                </p>
+                <p className="text-[11px] text-emerald-600 mt-1">
+                  {lang === 'ar'
+                    ? 'سيتم تحويل كامل الرصيد المتبقي من هذا الفوج إلى الفوج المستهدف تلقائياً.'
+                    : lang === 'en'
+                    ? 'The entire remaining balance will be transferred to the target group.'
+                    : 'Le solde restant sera transféré intégralement vers le groupe cible.'}
+                </p>
               </div>
 
               {/* Checkbox: Close source group */}
@@ -1473,7 +1494,7 @@ export default function StudentProfile() {
               </button>
               <button
                 onClick={handleExecuteCreditTransfer}
-                disabled={savingTransfer || !transferTargetEnrollId || !transferAmount}
+                disabled={savingTransfer || !transferTargetEnrollId || (transferModalSource.balance ?? 0) <= 0}
                 className="px-4 py-2 bg-amber-600 text-white rounded-lg text-xs font-bold hover:bg-amber-700 disabled:opacity-60 flex items-center gap-1.5 shadow-xs"
               >
                 <ArrowRightLeft size={13} />

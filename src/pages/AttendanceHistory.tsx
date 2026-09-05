@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { Search, Download, ChevronRight, Calendar, AlertTriangle, CheckCircle, Clock, XCircle } from 'lucide-react'
+import { Search, ChevronLeft, Calendar, AlertTriangle, CheckCircle, Clock, XCircle, Filter } from 'lucide-react'
 import Badge from '../components/ui/Badge'
 import Modal from '../components/ui/Modal'
 import type { AttendanceStatus } from '../types'
@@ -48,7 +48,6 @@ export default function AttendanceHistory() {
     loadData()
   }, [loadData])
 
-  // Open modal & load detailed records for a session
   const handleOpenDetail = async (sess: any) => {
     setSelectedSession(sess)
     setModalOpen(true)
@@ -63,7 +62,6 @@ export default function AttendanceHistory() {
     }
   }
 
-  // Filtered sessions
   const filtered = sessions.filter(s => {
     const group = groups.find(g => g.id === s.groupId)
     const matchCourse = !filterCourse || String(group?.courseId) === filterCourse
@@ -76,11 +74,10 @@ export default function AttendanceHistory() {
     return matchCourse && matchGroup && matchDate && matchStatus
   })
 
-  // Calculate dynamic weekly attendance rate data from closed sessions
   const closedSessions = sessions.filter(s => s.status === 'closed' && s.sessionType !== 'cancelled')
   const dateMap: Record<string, { present: number; total: number }> = {}
   closedSessions.forEach(s => {
-    const d = s.sessionDate.slice(5) // MM-DD
+    const d = s.sessionDate.slice(5)
     if (!dateMap[d]) dateMap[d] = { present: 0, total: 0 }
     dateMap[d].present += (s.presentCount || 0) + (s.lateCount || 0)
     dateMap[d].total += (s.totalStudents || s.presentCount + s.absentCount + s.lateCount || 1)
@@ -92,21 +89,21 @@ export default function AttendanceHistory() {
   }))
 
   const chartData = rateData.length > 0 ? rateData : [
-    { date: 'J-6', rate: 88 }, { date: 'J-5', rate: 92 }, { date: 'J-4', rate: 85 },
-    { date: 'J-3', rate: 90 }, { date: 'J-2', rate: 87 }, { date: 'J-1', rate: 94 }, { date: "Aujourd'hui", rate: 91 },
+    { date: 'قبل 6 أيام', rate: 88 }, { date: 'قبل 5 أيام', rate: 92 }, { date: 'قبل 4 أيام', rate: 85 },
+    { date: 'قبل 3 أيام', rate: 90 }, { date: 'قبل يومين', rate: 87 }, { date: 'أمس', rate: 94 }, { date: 'اليوم', rate: 91 },
   ]
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5" dir="rtl">
       {/* Rate chart */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-        <h2 className="text-sm font-semibold text-slate-800 mb-4">Taux de présence — Évolution récente</h2>
+        <h2 className="text-sm font-bold text-slate-800 mb-4">نسبة الحضور — التطور في الجلسات الأخيرة</h2>
         <ResponsiveContainer width="100%" height={180}>
           <LineChart data={chartData}>
             <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
             <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} domain={[60, 100]} tickFormatter={v => `${v}%`} />
-            <Tooltip formatter={(v) => [`${v}%`, 'Taux de présence']} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+            <YAxis tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} domain={[50, 100]} tickFormatter={v => `${v}%`} />
+            <Tooltip formatter={(v) => [`${v}%`, 'نسبة الحضور']} contentStyle={{ fontSize: 12, borderRadius: 8, direction: 'rtl' }} />
             <Line type="monotone" dataKey="rate" stroke="#2563EB" strokeWidth={2.5} dot={{ fill: '#2563EB', r: 4 }} />
           </LineChart>
         </ResponsiveContainer>
@@ -119,8 +116,8 @@ export default function AttendanceHistory() {
           onChange={e => { setFilterCourse(e.target.value); setFilterGroup('') }}
           className="text-sm border border-slate-200 rounded-lg px-3 py-2 outline-none bg-white text-slate-700"
         >
-          <option value="">Tous les cours</option>
-          {courses.map(c => <option key={c.id} value={c.id}>{c.nameFr || c.nameAr || c.nameEn}</option>)}
+          <option value="">جميع المواد</option>
+          {courses.map(c => <option key={c.id} value={c.id}>{c.nameAr || c.nameFr || c.nameEn}</option>)}
         </select>
 
         <select
@@ -128,7 +125,7 @@ export default function AttendanceHistory() {
           onChange={e => setFilterGroup(e.target.value)}
           className="text-sm border border-slate-200 rounded-lg px-3 py-2 outline-none bg-white text-slate-700"
         >
-          <option value="">Tous les groupes</option>
+          <option value="">جميع الأفواج</option>
           {groups
             .filter(g => !filterCourse || String(g.courseId) === filterCourse)
             .map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
@@ -139,70 +136,53 @@ export default function AttendanceHistory() {
           onChange={e => setFilterStatus(e.target.value)}
           className="text-sm border border-slate-200 rounded-lg px-3 py-2 outline-none bg-white text-slate-700"
         >
-          <option value="">Tous les états</option>
-          <option value="closed">Terminées / Clôturées</option>
-          <option value="open">En cours</option>
-          <option value="cancelled">Annulées</option>
+          <option value="">جميع الحالات</option>
+          <option value="closed">مكتملة / مغلقة</option>
+          <option value="open">جارية الآن</option>
+          <option value="cancelled">ملغاة</option>
         </select>
 
         <input
           type="date"
           value={filterDate}
           onChange={e => setFilterDate(e.target.value)}
-          className="text-sm border border-slate-200 rounded-lg px-3 py-2 outline-none bg-white text-slate-700"
+          className="text-sm border border-slate-200 rounded-lg px-3 py-2 outline-none bg-white text-slate-700 font-mono"
         />
 
         {(filterCourse || filterGroup || filterStatus || filterDate) && (
           <button
             onClick={() => { setFilterCourse(''); setFilterGroup(''); setFilterStatus(''); setFilterDate('') }}
-            className="text-xs text-slate-500 hover:text-slate-800 transition-colors underline"
+            className="text-xs text-blue-600 hover:text-blue-800 font-semibold mr-auto"
           >
-            Réinitialiser
+            إعادة ضبط الفلاتر
           </button>
         )}
-
-        <button
-          onClick={() => (window as any).schoolApp?.app.print()}
-          className="ml-auto flex items-center gap-1.5 px-3 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50"
-        >
-          <Download size={14} /> Exporter / Imprimer
-        </button>
       </div>
 
-      {/* Sessions table */}
+      {/* Sessions list */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-slate-50 border-b border-slate-100">
-              <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Jour & Date</th>
-              <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Cours & Groupe</th>
-              <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Heure</th>
-              <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Présents</th>
-              <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Absents</th>
-              <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase">En retard</th>
-              <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Statut / Taux</th>
-              <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Actions</th>
+            <tr className="bg-slate-50 border-b border-slate-100 text-xs font-semibold text-slate-500 uppercase">
+              <th className="px-4 py-3 text-right">التاريخ</th>
+              <th className="px-4 py-3 text-right">المادة</th>
+              <th className="px-4 py-3 text-right">الفوج</th>
+              <th className="px-4 py-3 text-right">التوقيت والقاعة</th>
+              <th className="px-4 py-3 text-right">الحالة</th>
+              <th className="px-4 py-3 text-left">التفاصيل</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={8} className="text-center py-12 text-slate-400 text-sm">
-                  Aucune séance trouvée
+                <td colSpan={6} className="text-center py-12 text-slate-400 text-sm">
+                  لا توجد جلسات حضور مطابقة للفلاتر
                 </td>
               </tr>
             ) : (
-              filtered.map(s => {
-                const group = groups.find(g => g.id === s.groupId)
+              filtered.map(sess => {
+                const group = groups.find(g => g.id === sess.groupId)
                 const course = courses.find(c => c.id === group?.courseId)
-                const isCancelled = s.sessionType === 'cancelled'
-                const present = s.presentCount || 0
-                const late = s.lateCount || 0
-                const absent = s.absentCount || 0
-                const total = present + late + absent
-                const rate = total > 0 ? Math.round(((present + late) / total) * 100) : 0
-
-                // Format day name
                 const dateObj = new Date(s.sessionDate + 'T00:00:00')
                 const dayName = s.dayNameFr || dateObj.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })
 

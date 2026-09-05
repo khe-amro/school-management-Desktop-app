@@ -92,20 +92,34 @@ export function registerAttendanceHandlers(): void {
     const { sessionId, studentId, status } = z.object({
       sessionId: z.number().int().positive(),
       studentId: z.number().int().positive(),
-      status: z.enum(['present', 'absent', 'late', 'not_active']),
+      status: z.enum(['present', 'absent', 'late', 'not_active', 'inactive']),
     }).parse(payload)
     return markStudentInSession(sessionId, studentId, status)
   })
 
-  // ─── Mark next session as not_active for student in group ──────────────────
+  // ─── Shared mark session attended (QR or manual click) ────────────────────
 
-  handle(IPC_CHANNELS.ATTENDANCE_MARK_NEXT_NOT_ACTIVE, async (payload) => {
-    const { studentId, groupId } = z.object({
+  handle('attendance:markAttended', async (payload) => {
+    const { sessionId, studentId, source } = z.object({
+      sessionId: z.number().int().positive(),
       studentId: z.number().int().positive(),
-      groupId: z.number().int().positive(),
+      source: z.enum(['qr', 'manual']).optional(),
     }).parse(payload)
-    const { markNextSessionNotActive } = await import('../services/attendance.service')
-    return markNextSessionNotActive(studentId, groupId)
+    const { markSessionAttended } = await import('../services/attendance.service')
+    return markSessionAttended(sessionId, studentId, source ?? 'manual')
+  })
+
+  // ─── Offline attendance reconciliation ────────────────────────────────────
+
+  handle('attendance:reconcile', async () => {
+    const { reconcilePastSessionsAttendance } = await import('../services/attendance.service')
+    return reconcilePastSessionsAttendance()
+  })
+
+  // ─── Legacy mark next session not active (no-op stub for backward compat) ──
+
+  handle(IPC_CHANNELS.ATTENDANCE_MARK_NEXT_NOT_ACTIVE, async () => {
+    return { success: true }
   })
 
   // ─── Get complete session history for student ─────────────────────────────

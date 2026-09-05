@@ -107,8 +107,10 @@ export async function listStudents(opts: {
       COALESCE((
         SELECT SUM(
           CASE
-            WHEN payment_type IN ('credit', 'top_up', 'transfer_in') THEN amount
-            WHEN payment_type IN ('deduction', 'transfer_out', 'refund') THEN -amount
+            WHEN payment_type IN ('credit', 'payment', 'top_up', 'transfer_in', 'credit_transfer_in', 'session_refund') THEN amount
+            WHEN payment_type = 'refund' AND session_id IS NOT NULL THEN amount
+            WHEN payment_type = 'refund' AND session_id IS NULL THEN -amount
+            WHEN payment_type IN ('deduction', 'session_charge', 'transfer_out', 'credit_transfer_out', 'enrollment_refund') THEN -amount
             ELSE 0
           END
         )

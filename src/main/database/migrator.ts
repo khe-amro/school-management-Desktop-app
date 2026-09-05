@@ -428,6 +428,99 @@ const MIGRATIONS: { version: number; name: string; sql: string }[] = [
       INSERT OR REPLACE INTO app_metadata(key, value, updated_at) VALUES('schema_version', '7', datetime('now'));
     `,
   },
+  {
+    version: 8,
+    name: 'inactive_status_and_enrollment_cancellation',
+    sql: `
+      -- Add is_inactive flag to attendance_records
+      -- SQLite CHECK constraints cannot be altered, so we use a flag column
+      -- to represent the 'inactive' status at the application layer
+      ALTER TABLE attendance_records ADD COLUMN is_inactive INTEGER NOT NULL DEFAULT 0;
+
+      -- Add cancellation fields to enrollments
+      ALTER TABLE enrollments ADD COLUMN cancelled_at TEXT;
+      ALTER TABLE enrollments ADD COLUMN cancel_reason TEXT;
+      ALTER TABLE enrollments ADD COLUMN refund_amount REAL;
+
+      -- Indexes for fast lookups
+      CREATE INDEX IF NOT EXISTS idx_attendance_inactive ON attendance_records(is_inactive);
+      CREATE INDEX IF NOT EXISTS idx_enrollments_cancelled ON enrollments(cancelled_at);
+
+      INSERT OR REPLACE INTO app_metadata(key, value, updated_at)
+        VALUES('schema_version', '8', datetime('now'));
+    `,
+  },
+  {
+    version: 9,
+    name: 'ledger_normalization_and_late_removal',
+    sql: `
+      -- 1. Migrate any existing 'late' attendance records to 'present' (Requirement 8)
+      UPDATE attendance_records SET attendance_status = 'present' WHERE attendance_status = 'late';
+
+      -- 2. Ensure student_notes table exists (Requirement 44)
+      CREATE TABLE IF NOT EXISTS student_notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        student_id INTEGER NOT NULL REFERENCES students(id),
+        note_text TEXT NOT NULL,
+        created_by INTEGER NOT NULL REFERENCES administrators(id),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_notes_student ON student_notes(student_id);
+
+      -- 3. Recreate payments table to support full ledger model without restrictive CHECK constraints
+      CREATE TABLE IF NOT EXISTS payments_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        receipt_number TEXT NOT NULL UNIQUE,
+        student_id INTEGER NOT NULL REFERENCES students(id),
+        enrollment_id INTEGER NOT NULL REFERENCES enrollments(id),
+        billing_period TEXT NOT NULL DEFAULT '',
+        amount REAL NOT NULL,
+        payment_type TEXT NOT NULL DEFAULT 'credit',
+        session_id INTEGER REFERENCES attendance_sessions(id),
+        payment_method TEXT NOT NULL DEFAULT 'cash',
+        payment_date TEXT NOT NULL,
+        reference TEXT,
+        notes TEXT,
+        received_by INTEGER NOT NULL REFERENCES administrators(id),
+        status TEXT NOT NULL DEFAULT 'paid',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      INSERT INTO payments_new (
+        id, receipt_number, student_id, enrollment_id, billing_period,
+        amount, payment_type, session_id, payment_method, payment_date,
+        reference, notes, received_by, status, created_at, updated_at
+      )
+      SELECT
+        id, receipt_number, student_id, enrollment_id, billing_period,
+        amount, payment_type, session_id, COALESCE(payment_method, 'cash'), payment_date,
+        reference, notes, received_by, status, created_at, updated_at
+      FROM payments;
+
+      DROP TABLE payments;
+      ALTER TABLE payments_new RENAME TO payments;
+
+      -- 4. Recreate all payment indexes
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_receipt ON payments(receipt_number);
+      CREATE INDEX IF NOT EXISTS idx_payments_student ON payments(student_id);
+      CREATE INDEX IF NOT EXISTS idx_payments_date ON payments(payment_date);
+      CREATE INDEX IF NOT EXISTS idx_payments_period ON payments(billing_period);
+      CREATE INDEX IF NOT EXISTS idx_payments_enrollment_type ON payments(enrollment_id, payment_type, status);
+      CREATE INDEX IF NOT EXISTS idx_payments_session ON payments(session_id);
+      CREATE INDEX IF NOT EXISTS idx_payments_status_period ON payments(status, billing_period);
+
+      -- 5. Partial unique index to enforce strict session deduction idempotency (Requirement 13)
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_session_deduction
+        ON payments(enrollment_id, session_id, payment_type)
+        WHERE payment_type IN ('deduction', 'session_charge') AND status = 'paid';
+
+      -- 6. Update schema version
+      INSERT OR REPLACE INTO app_metadata(key, value, updated_at)
+        VALUES('schema_version', '9', datetime('now'));
+    `,
+  },
 ]
 
 // ─── Migration runner ─────────────────────────────────────────────────────────

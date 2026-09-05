@@ -3,7 +3,8 @@ import { IPC_CHANNELS } from '../shared/constants/index'
 import type {
   ApiResult, AuthSession, Student, Teacher, Course, Group,
   Enrollment, AttendanceSession, AttendanceRecord, Payment,
-  SchoolSettings, BackupInfo, QRScanResult, PaginatedResult
+  SchoolSettings, BackupInfo, QRScanResult, PaginatedResult,
+  StudentNote
 } from '../shared/types/index'
 
 // ─── Safe invoke helper — wraps every call ───────────────────────────────────
@@ -74,6 +75,8 @@ const api = {
       invoke<{ dataUrl: string | null }>(IPC_CHANNELS.STUDENTS_GET_PHOTO_URL, { filename, entityType }),
     searchByName: (query: string) =>
       invoke<any[]>(IPC_CHANNELS.STUDENTS_SEARCH_NAME, { query }),
+    getAttendanceHistory: (studentId: number) =>
+      invoke<any[]>('students:attendanceHistory', { studentId }),
   },
 
   teachers: {
@@ -120,6 +123,8 @@ const api = {
       invoke<Enrollment[]>(IPC_CHANNELS.ENROLLMENTS_BY_STUDENT, { studentId }),
     byGroup: (groupId: number) =>
       invoke<Enrollment[]>(IPC_CHANNELS.ENROLLMENTS_BY_GROUP, { groupId }),
+    cancel: (enrollmentId: number, studentId: number, reason?: string) =>
+      invoke<{ refunded: number }>('payments:cancelEnrollment', { enrollmentId, studentId, reason }),
   },
 
   attendance: {
@@ -143,8 +148,12 @@ const api = {
       invoke<{ count: number }>(IPC_CHANNELS.ATTENDANCE_REMAINING_SESSIONS, { enrollmentId }),
     resolveStudent: (token: string, date: string) =>
       invoke<any>(IPC_CHANNELS.ATTENDANCE_RESOLVE_STUDENT, { token, date }),
-    markSession: (sessionId: number, studentId: number, status: 'present' | 'absent' | 'late' | 'not_active') =>
+    markSession: (sessionId: number, studentId: number, status: 'present' | 'absent' | 'late' | 'not_active' | 'inactive') =>
       invoke<any>(IPC_CHANNELS.ATTENDANCE_MARK_SESSION, { sessionId, studentId, status }),
+    markAttended: (sessionId: number, studentId: number, source?: 'qr' | 'manual') =>
+      invoke<QRScanResult>('attendance:markAttended', { sessionId, studentId, source }),
+    reconcile: () =>
+      invoke<{ reconciledCount: number }>('attendance:reconcile'),
     markNextNotActive: (studentId: number, groupId: number) =>
       invoke<any>(IPC_CHANNELS.ATTENDANCE_MARK_NEXT_NOT_ACTIVE, { studentId, groupId }),
     getSessionHistory: (studentId: number) =>
@@ -206,17 +215,48 @@ const api = {
       invoke<any[]>('payments:debtReport'),
     studentDebt: (studentId: number) =>
       invoke<any>('payments:studentDebt', { studentId }),
-    // New credit ledger methods
     topUp: (data: { studentId: number; enrollmentId: number; amount: number; paymentMethod: 'cash' | 'transfer' | 'check'; paymentDate: string; reference?: string | null; notes?: string | null }) =>
       invoke<any>('payments:topUp', data),
     deductSession: (data: { studentId: number; enrollmentId: number; sessionId: number; sessionDate: string; sessionPrice: number }) =>
       invoke<{ deducted: boolean; newBalance: number; wasInDebt: boolean }>('payments:deductSession', data),
-    transfer: (data: { fromEnrollmentId: number; toEnrollmentId: number; studentId: number; amount?: number }) =>
+    // transfer always moves 100% of remaining balance — no amount param
+    transfer: (data: { fromEnrollmentId: number; toEnrollmentId: number; studentId: number }) =>
       invoke<{ transferred: number; newFromBalance: number; newToBalance: number }>('payments:transfer', data),
     refund: (data: { enrollmentId: number; studentId: number; notes?: string }) =>
       invoke<{ refunded: number }>('payments:refund', data),
     balance: (enrollmentId: number) =>
       invoke<{ balance: number; totalCharged: number; totalDeducted: number; sessionsUsed: number }>('payments:balance', { enrollmentId }),
+    cancelEnrollment: (enrollmentId: number, studentId: number, reason?: string) =>
+      invoke<{ refunded: number }>('payments:cancelEnrollment', { enrollmentId, studentId, reason }),
+    studentBalance: (studentId: number) =>
+      invoke<{
+        studentId: number
+        totalBalance: number
+        isDebt: boolean
+        enrollmentBalances: Array<{
+          enrollmentId: number
+          groupId: number
+          groupName: string
+          courseNameAr: string
+          courseNameFr: string
+          balance: number
+          isDebt: boolean
+          status: string
+        }>
+      }>('payments:studentBalance', { studentId }),
+    listAll: (opts?: { page?: number; pageSize?: number; studentId?: number }) =>
+      invoke<any>('payments:listAll', opts),
+  },
+
+  notes: {
+    list: (studentId: number) =>
+      invoke<StudentNote[]>(IPC_CHANNELS.NOTES_LIST, { studentId }),
+    create: (data: { studentId: number; noteText: string }) =>
+      invoke<StudentNote>(IPC_CHANNELS.NOTES_CREATE, data),
+    update: (id: number, noteText: string) =>
+      invoke<StudentNote>(IPC_CHANNELS.NOTES_UPDATE, { id, noteText }),
+    delete: (id: number) =>
+      invoke<boolean>(IPC_CHANNELS.NOTES_DELETE, { id }),
   },
 
   settings: {
@@ -267,6 +307,8 @@ const api = {
     openSaveDialog: () => invoke<{ canceled: boolean; path: string | null }>(IPC_CHANNELS.APP_SHOW_SAVE_DIALOG),
     print: () => invoke<boolean>(IPC_CHANNELS.APP_PRINT),
     printToPdf: (opts?: { pageSize?: 'A4' | 'Letter'; marginsType?: 0 | 1 | 2; filename?: string }) => invoke<{ path: string }>(IPC_CHANNELS.APP_PRINT_TO_PDF, opts),
+    logError: (details: { category?: string; message?: string; componentStack?: string }) =>
+      invoke<boolean>(IPC_CHANNELS.APP_LOG_ERROR, details),
   },
 } as const
 

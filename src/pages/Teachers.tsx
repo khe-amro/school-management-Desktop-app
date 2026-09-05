@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Search, Plus, MoreHorizontal, Pencil, Eye, ToggleLeft, Camera } from 'lucide-react'
+import { Search, Plus, MoreHorizontal, Pencil, ToggleLeft, Camera } from 'lucide-react'
 import Badge from '../components/ui/Badge'
 import Modal from '../components/ui/Modal'
 
@@ -37,7 +37,6 @@ export default function Teachers() {
       ])
 
       if (tRes.success && tRes.data) {
-        // Enriched with photo URLs
         const enriched = await Promise.all(
           tRes.data.map(async (t: any) => {
             let pUrl = null
@@ -63,7 +62,12 @@ export default function Teachers() {
 
   const filtered = teachers.filter(t => {
     const q = search.toLowerCase()
-    return !q || `${t.firstNameFr} ${t.lastNameFr} ${t.specialty || ''} ${t.email || ''}`.toLowerCase().includes(q)
+    return (
+      !q ||
+      `${t.firstNameFr ?? ''} ${t.lastNameFr ?? ''} ${t.firstNameAr ?? ''} ${t.lastNameAr ?? ''} ${t.specialty || ''} ${t.email || ''}`
+        .toLowerCase()
+        .includes(q)
+    )
   })
 
   const openAdd = () => {
@@ -116,33 +120,40 @@ export default function Teachers() {
   }
 
   const handleSave = async () => {
-    if (!api || !form.firstNameFr.trim() || !form.lastNameFr.trim()) {
-      alert('Veuillez renseigner le nom et prénom de l\'enseignant.')
+    if (!api || (!form.firstNameAr.trim() && !form.firstNameFr.trim())) {
+      alert('يرجى إدخال اسم ولقب الأستاذ.')
       return
     }
 
     try {
+      const fAr = form.firstNameAr.trim() || form.firstNameFr.trim()
+      const lAr = form.lastNameAr.trim() || form.lastNameFr.trim()
+      const fFr = form.firstNameFr.trim() || form.firstNameAr.trim()
+      const lFr = form.lastNameFr.trim() || form.lastNameAr.trim()
+
       if (editing) {
         await api.teachers.update(editing.id, {
-          firstNameFr: form.firstNameFr,
-          lastNameFr: form.lastNameFr,
-          firstNameAr: form.firstNameAr || form.firstNameFr,
-          lastNameAr: form.lastNameAr || form.lastNameFr,
+          firstNameFr: fFr,
+          lastNameFr: lFr,
+          firstNameAr: fAr,
+          lastNameAr: lAr,
           phone: form.phone || null,
           email: form.email || null,
           specialty: form.specialty || null,
           hourlyRate: Number(form.hourlyRate) || null,
+          photoPath,
         })
       } else {
         await api.teachers.create({
-          firstNameFr: form.firstNameFr,
-          lastNameFr: form.lastNameFr,
-          firstNameAr: form.firstNameAr || form.firstNameFr,
-          lastNameAr: form.lastNameAr || form.lastNameFr,
+          firstNameFr: fFr,
+          lastNameFr: lFr,
+          firstNameAr: fAr,
+          lastNameAr: lAr,
           phone: form.phone || null,
           email: form.email || null,
           specialty: form.specialty || null,
           hourlyRate: Number(form.hourlyRate) || null,
+          photoPath,
         })
       }
 
@@ -166,13 +177,13 @@ export default function Teachers() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" dir="rtl">
       <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex items-center gap-3">
         <div className="flex items-center gap-2 bg-slate-100 rounded-lg px-3 py-2 flex-1">
           <Search size={14} className="text-slate-400" />
           <input
             type="text"
-            placeholder="Rechercher un enseignant par nom, spécialité ou email..."
+            placeholder="البحث عن أستاذ بالاسم، التخصص أو البريد..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="bg-transparent text-sm outline-none w-full text-slate-700 placeholder-slate-400"
@@ -182,7 +193,7 @@ export default function Teachers() {
           onClick={openAdd}
           className="flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-sm"
         >
-          <Plus size={14} /> Ajouter
+          <Plus size={14} /> إضافة أستاذ
         </button>
       </div>
 
@@ -190,26 +201,29 @@ export default function Teachers() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-100 bg-slate-50">
-              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Photo</th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Nom (FR / AR)</th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Spécialité</th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Téléphone</th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Email</th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Groupes</th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Statut</th>
-              <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wide">Actions</th>
+              <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wide">الصورة</th>
+              <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wide">الاسم واللقب</th>
+              <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wide">التخصص</th>
+              <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wide">الهاتف</th>
+              <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wide">البريد الإلكتروني</th>
+              <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wide">المجموعات</th>
+              <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wide">الحالة</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">إجراءات</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
             {filtered.length === 0 ? (
               <tr>
                 <td colSpan={8} className="text-center py-12 text-slate-400 text-sm">
-                  Aucun enseignant trouvé
+                  لا يوجد أساتذة
                 </td>
               </tr>
             ) : (
               filtered.map(t => {
                 const assignedGroups = groups.filter(g => g.teacherId === t.id)
+                const fullNameAr = `${t.lastNameAr || ''} ${t.firstNameAr || ''}`.trim()
+                const fullNameFr = `${t.firstNameFr || ''} ${t.lastNameFr || ''}`.trim()
+
                 return (
                   <tr key={t.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-4 py-3">
@@ -217,27 +231,29 @@ export default function Teachers() {
                         <img src={t.photoUrl} alt="" className="w-9 h-9 rounded-full object-cover bg-slate-100 border border-slate-200" />
                       ) : (
                         <div className="w-9 h-9 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs">
-                          {t.firstNameFr?.charAt(0)}{t.lastNameFr?.charAt(0)}
+                          {t.firstNameAr?.charAt(0) || t.firstNameFr?.charAt(0) || '؟'}
                         </div>
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <p className="font-semibold text-slate-900">{t.firstNameFr} {t.lastNameFr}</p>
-                      {t.firstNameAr && <p className="text-xs text-slate-400" dir="rtl">{t.lastNameAr} {t.firstNameAr}</p>}
+                      <p className="font-semibold text-slate-900">{fullNameAr || fullNameFr}</p>
+                      {fullNameFr && fullNameAr && <p className="text-xs text-slate-400 font-mono">{fullNameFr}</p>}
                     </td>
                     <td className="px-4 py-3 text-slate-700 font-medium">{t.specialty || '—'}</td>
                     <td className="px-4 py-3 text-slate-600 font-mono text-xs">{t.phone || '—'}</td>
                     <td className="px-4 py-3 text-slate-600 text-xs">{t.email || '—'}</td>
                     <td className="px-4 py-3">
                       <span className="px-2 py-0.5 text-xs bg-slate-100 text-slate-700 rounded-full font-semibold">
-                        {assignedGroups.length} groupe(s)
+                        {assignedGroups.length} مجموعة
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <Badge variant={t.status}>{t.status}</Badge>
+                      <Badge variant={t.status === 'active' ? 'active' : 'inactive'}>
+                        {t.status === 'active' ? 'نشط' : 'غير نشط'}
+                      </Badge>
                     </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="relative inline-block text-left">
+                    <td className="px-4 py-3 text-left">
+                      <div className="relative inline-block text-right">
                         <button
                           onClick={() => setOpenMenu(openMenu === t.id ? null : t.id)}
                           className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
@@ -245,18 +261,18 @@ export default function Teachers() {
                           <MoreHorizontal size={16} />
                         </button>
                         {openMenu === t.id && (
-                          <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-10 w-40 overflow-hidden text-left">
+                          <div className="absolute left-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-10 w-40 overflow-hidden text-right">
                             <button
                               onClick={() => openEdit(t)}
                               className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50"
                             >
-                              <Pencil size={13} /> Modifier
+                              <Pencil size={13} /> تعديل
                             </button>
                             <button
                               onClick={() => toggleStatus(t)}
                               className={`flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-slate-50 ${t.status === 'active' ? 'text-amber-600' : 'text-green-600'}`}
                             >
-                              <ToggleLeft size={13} /> {t.status === 'active' ? 'Désactiver' : 'Activer'}
+                              <ToggleLeft size={13} /> {t.status === 'active' ? 'تعطيل' : 'تفعيل'}
                             </button>
                           </div>
                         )}
@@ -271,8 +287,8 @@ export default function Teachers() {
       </div>
 
       {/* Teacher Form Modal */}
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Modifier l\'enseignant' : 'Ajouter un enseignant'} size="md">
-        <div className="space-y-4">
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'تعديل بيانات الأستاذ' : 'إضافة أستاذ جديد'} size="md">
+        <div className="space-y-4" dir="rtl">
           <div className="flex justify-center mb-2">
             <div
               onClick={handleSelectPhoto}
@@ -288,62 +304,62 @@ export default function Teachers() {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Prénom (FR) *</label>
+              <label className="block text-xs font-medium text-slate-600 mb-1">الاسم الأول (عربي) *</label>
               <input
                 type="text"
-                placeholder="Ex: Karim"
-                value={form.firstNameFr}
-                onChange={e => setForm(f => ({ ...f, firstNameFr: e.target.value }))}
-                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Nom (FR) *</label>
-              <input
-                type="text"
-                placeholder="Ex: Mansouri"
-                value={form.lastNameFr}
-                onChange={e => setForm(f => ({ ...f, lastNameFr: e.target.value }))}
-                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Prénom (AR)</label>
-              <input
-                type="text"
-                placeholder="كريم"
+                placeholder="مثال: كريم"
                 value={form.firstNameAr}
                 onChange={e => setForm(f => ({ ...f, firstNameAr: e.target.value }))}
-                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white text-right"
-                dir="rtl"
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Nom (AR)</label>
+              <label className="block text-xs font-medium text-slate-600 mb-1">اللقب (عربي) *</label>
               <input
                 type="text"
-                placeholder="منصوري"
+                placeholder="مثال: منصوري"
                 value={form.lastNameAr}
                 onChange={e => setForm(f => ({ ...f, lastNameAr: e.target.value }))}
-                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white text-right"
-                dir="rtl"
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">الاسم الأول (لاتيني)</label>
+              <input
+                type="text"
+                placeholder="Karim"
+                value={form.firstNameFr}
+                onChange={e => setForm(f => ({ ...f, firstNameFr: e.target.value }))}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white text-left"
+                dir="ltr"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">اللقب (لاتيني)</label>
+              <input
+                type="text"
+                placeholder="Mansouri"
+                value={form.lastNameFr}
+                onChange={e => setForm(f => ({ ...f, lastNameFr: e.target.value }))}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white text-left"
+                dir="ltr"
               />
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Spécialité / Matière</label>
+              <label className="block text-xs font-medium text-slate-600 mb-1">التخصص / المادة</label>
               <input
                 type="text"
-                placeholder="Ex: Mathématiques, Anglais..."
+                placeholder="مثال: رياضيات، فيزياء..."
                 value={form.specialty}
                 onChange={e => setForm(f => ({ ...f, specialty: e.target.value }))}
                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Tarif horaire (DA)</label>
+              <label className="block text-xs font-medium text-slate-600 mb-1">السعر في الساعة (دج)</label>
               <input
                 type="number"
                 value={form.hourlyRate}
@@ -355,7 +371,7 @@ export default function Teachers() {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Téléphone</label>
+              <label className="block text-xs font-medium text-slate-600 mb-1">الهاتف</label>
               <input
                 type="tel"
                 placeholder="0550 000 000"
@@ -365,7 +381,7 @@ export default function Teachers() {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Email</label>
+              <label className="block text-xs font-medium text-slate-600 mb-1">البريد الإلكتروني</label>
               <input
                 type="email"
                 placeholder="prof@ecole.dz"
@@ -377,8 +393,8 @@ export default function Teachers() {
           </div>
 
           <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-            <button onClick={() => setModalOpen(false)} className="px-4 py-2 text-sm text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors">Annuler</button>
-            <button onClick={handleSave} className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors">Enregistrer</button>
+            <button onClick={() => setModalOpen(false)} className="px-4 py-2 text-sm text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors">إلغاء</button>
+            <button onClick={handleSave} className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors">حفظ</button>
           </div>
         </div>
       </Modal>

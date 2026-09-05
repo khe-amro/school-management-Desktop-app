@@ -168,7 +168,7 @@ export default function Teachers() {
                   : 'bg-white border border-border text-slate-600 hover:bg-slate-50'
               }`}
             >
-              {s === 'all' ? t('common.all') : s === 'active' ? t('teachers.active') : t('teachers.archived')}
+              {s === 'all' ? t('common.all') : s === 'active' ? t('teachers.active') : t('common.archived')}
             </button>
           ))}
         </div>
@@ -222,7 +222,7 @@ export default function Teachers() {
                       teacher.status === 'inactive' ? 'bg-amber-100 text-amber-700' :
                       'bg-slate-100 text-slate-500'
                     }`}>
-                      {teacher.status === 'active' ? t('teachers.active') : teacher.status === 'inactive' ? t('teachers.inactive') : t('teachers.archived')}
+                      {teacher.status === 'active' ? t('teachers.active') : teacher.status === 'inactive' ? t('teachers.inactive') : t('common.archived')}
                     </span>
                   </div>
 

@@ -146,6 +146,15 @@ export const IPC_CHANNELS = {
   MEDIA_UPLOAD_PHOTO: 'media:uploadPhoto',
   MEDIA_GET_URL: 'media:getUrl',
 
+  // Notes
+  NOTES_LIST: 'notes:list',
+  NOTES_CREATE: 'notes:create',
+  NOTES_UPDATE: 'notes:update',
+  NOTES_DELETE: 'notes:delete',
+
+  // Enrollments extended
+  ENROLLMENTS_CANCEL: 'enrollments:cancel',
+
   // App
   APP_GET_VERSION: 'app:getVersion',
   APP_GET_PATHS: 'app:getPaths',
@@ -154,4 +163,5 @@ export const IPC_CHANNELS = {
   APP_PRINT: 'app:print',
   APP_PRINT_TO_PDF: 'app:printToPdf',
   APP_SHOW_SAVE_DIALOG: 'app:showSaveDialog',
+  APP_LOG_ERROR: 'app:logError',
 } as const

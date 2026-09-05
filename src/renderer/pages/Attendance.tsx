@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLocation } from 'react-router-dom'
-import { ScanLine, Search, Calendar, CheckCircle2, Clock, XCircle, Volume2, VolumeX, ChevronLeft, ChevronRight, AlertCircle, CreditCard, Trash2 } from 'lucide-react'
+import { ScanLine, Search, Calendar, CheckCircle2, CheckCircle, Clock, XCircle, Volume2, VolumeX, ChevronLeft, ChevronRight, AlertCircle, CreditCard, Trash2 } from 'lucide-react'
 
 type Tab = 'scanner' | 'roster' | 'calendar'
 type StatusType = 'present' | 'absent' | 'late' | 'not_active' | null
@@ -11,6 +11,7 @@ const STATUS_CLS: Record<string, string> = {
   late: 'bg-amber-500 text-white font-bold',
   absent: 'bg-red-600 text-white font-bold',
   not_active: 'bg-slate-700 text-white font-bold',
+  inactive: 'bg-slate-700 text-white font-bold',
 }
 
 function today() {
@@ -294,7 +295,7 @@ function SmartScanner({ lang }: { lang: string }) {
             <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
               <p className="text-xs font-bold text-slate-600 flex items-center gap-1.5">
                 <CreditCard size={14} className="text-[#2563EB]" />
-                <span>{lang === 'ar' ? 'معلومات الاشتراك والمسح المالي:' : 'Solde des abonnements:'}</span>
+                <span>{lang === 'ar' ? 'معلومات الاشتراك والمسح المالي:' : lang === 'en' ? 'Subscription & Balance Details:' : 'Solde des abonnements:'}</span>
               </p>
               <div className="space-y-1.5">
                 {resolved.enrollmentsWithBalance.map((en: any) => (
@@ -314,11 +315,11 @@ function SmartScanner({ lang }: { lang: string }) {
                     <div className="flex items-center gap-2 font-mono">
                       {en.wasInDebt ? (
                         <span className="px-2 py-0.5 bg-red-600 text-white font-bold rounded-md animate-pulse text-[11px]">
-                          ⚠️ {lang === 'ar' ? `رصيد سالب: ${en.balance} د.ج (دين)` : `Solde négatif: ${en.balance} DA`}
+                          ⚠️ {lang === 'ar' ? `رصيد سالب: ${en.balance} د.ج (دين)` : lang === 'en' ? `Negative balance: ${en.balance} DA (debt)` : `Solde négatif: ${en.balance} DA`}
                         </span>
                       ) : (
                         <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 font-bold rounded-md text-[11px]">
-                          ✓ {lang === 'ar' ? `المتبقي: ${en.balance} د.ج (${en.remainingSessions} حصص)` : `Reste: ${en.balance} DA (${en.remainingSessions} s)`}
+                          ✓ {lang === 'ar' ? `المتبقي: ${en.balance} د.ج (${en.remainingSessions} حصص)` : lang === 'en' ? `Remaining: ${en.balance} DA (${en.remainingSessions} sessions)` : `Reste: ${en.balance} DA (${en.remainingSessions} s)`}
                         </span>
                       )}
                     </div>
@@ -345,7 +346,7 @@ function SmartScanner({ lang }: { lang: string }) {
           {/* Sessions chooser */}
           <div>
             <p className="text-xs font-semibold text-slate-500 mb-2">
-              {resolved.todaySessions?.length === 0 ? (lang === 'ar' ? 'حصص اليوم:' : "Séances d'aujourd'hui:")
+              {resolved.todaySessions?.length === 0 ? (lang === 'ar' ? 'حصص اليوم:' : lang === 'en' ? "Today's classes:" : "Séances d'aujourd'hui:")
                 : resolved.todaySessions?.length === 1 ? t('attendance.oneSessionToday')
                 : t('attendance.multipleSessionsToday')}
             </p>
@@ -353,11 +354,13 @@ function SmartScanner({ lang }: { lang: string }) {
               <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-4 text-center space-y-1 my-2">
                 <div className="flex items-center justify-center gap-2 font-bold text-sm">
                   <AlertCircle size={18} className="text-amber-600 shrink-0" />
-                  <span>{lang === 'ar' ? 'لا توجد حصص مجدولة لهذا الطالب اليوم' : "Cet étudiant n'a pas de séances aujourd'hui"}</span>
+                  <span>{lang === 'ar' ? 'لا توجد حصص مجدولة لهذا الطالب اليوم' : lang === 'en' ? 'No classes scheduled for this student today' : "Cet étudiant n'a pas de séances aujourd'hui"}</span>
                 </div>
                 <p className="text-xs text-amber-700">
                   {lang === 'ar'
                     ? 'جميع بيانات الطالب ورصيد الاشتراكات موضحة أعلاه.'
+                    : lang === 'en'
+                    ? 'All student details and balances are shown above.'
                     : "Toutes les informations et le solde de l'étudiant sont affichés ci-dessus."}
                 </p>
               </div>
@@ -491,6 +494,20 @@ function RosterView({ lang, initialSession }: { lang: string; initialSession?: {
     }
   }
 
+  const handleCloseSession = async (sessionId: number) => {
+    try {
+      const res = await window.schoolApp.attendance.endSession(sessionId)
+      if (res.success) {
+        await loadSessions()
+        await loadRoster(sessionId)
+      } else {
+        alert(res.error || 'Failed to close session')
+      }
+    } catch (err) {
+      console.error('Failed to close session:', err)
+    }
+  }
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
       {/* Sessions list */}
@@ -503,7 +520,7 @@ function RosterView({ lang, initialSession }: { lang: string; initialSession?: {
               className="text-xs text-[#2563EB] hover:underline font-semibold flex items-center gap-1"
             >
               <Calendar size={12} />
-              <span>{lang === 'ar' ? 'اليوم' : 'Aujourd\'hui'}</span>
+              <span>{lang === 'ar' ? 'اليوم' : lang === 'en' ? 'Today' : 'Aujourd\'hui'}</span>
             </button>
           </div>
           <input type="date" value={date} onChange={e => { setDate(e.target.value); setSelectedSession(null); setRoster(null) }}
@@ -551,14 +568,21 @@ function RosterView({ lang, initialSession }: { lang: string; initialSession?: {
                   <span className="text-amber-600 font-bold">{roster.session.stats.late} ⏱</span>
                   <span className="text-red-500 font-bold">{roster.session.stats.absent} ✗</span>
                 </div>
-                <button
-                  onClick={() => handleCancelSession(roster.session.id)}
-                  className="px-2.5 py-1.5 bg-red-50 border border-red-200 hover:bg-red-100 text-red-700 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs"
-                  title={lang === 'ar' ? 'إلغاء/حذف الحصة وإرجاع الأرصدة' : 'Annuler la séance'}
-                >
-                  <Trash2 size={13} />
-                  <span>{lang === 'ar' ? 'إلغاء الحصة' : 'Annuler'}</span>
-                </button>
+                {roster.session.status === 'open' ? (
+                  <button
+                    onClick={() => handleCloseSession(roster.session.id)}
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                    title={lang === 'ar' ? 'إغلاق الحصة وتثبيت الحضور' : lang === 'en' ? 'Close session and finalize attendance' : 'Clôturer la séance'}
+                  >
+                    <CheckCircle size={13} />
+                    <span>{lang === 'ar' ? 'إغلاق الحصة' : lang === 'en' ? 'Close Session' : 'Clôturer la séance'}</span>
+                  </button>
+                ) : (
+                  <span className="px-2.5 py-1 bg-slate-100 border border-slate-200 text-slate-600 text-xs font-bold rounded-lg flex items-center gap-1.5">
+                    <CheckCircle2 size={13} className="text-emerald-600" />
+                    <span>{lang === 'ar' ? 'حصة مغلقة' : lang === 'en' ? 'Closed' : 'Clôturée'}</span>
+                  </span>
+                )}
               </div>
             </div>
             <div className="divide-y divide-slate-50 max-h-[60vh] overflow-y-auto">
@@ -572,26 +596,53 @@ function RosterView({ lang, initialSession }: { lang: string; initialSession?: {
                       <p className="text-sm font-medium text-[#0F172A] truncate" dir="rtl">{s.lastNameAr} {s.firstNameAr}</p>
                       {s.wasInDebt ? (
                         <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-red-100 text-red-700 border border-red-200 shrink-0">
-                          ⚠️ {lang === 'ar' ? `رصيد سالب: ${s.creditBalance} د.ج` : `Solde: ${s.creditBalance} DA`}
+                          ⚠️ {lang === 'ar' ? `رصيد سالب: ${s.creditBalance} د.ج` : lang === 'en' ? `Negative: ${s.creditBalance} DA` : `Solde: ${s.creditBalance} DA`}
                         </span>
                       ) : s.creditBalance !== undefined && s.creditBalance !== null ? (
                         <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
-                          {lang === 'ar' ? `المتبقي: ${s.creditBalance} د.ج (${s.remainingSessions} حصص)` : `Reste: ${s.creditBalance} DA (${s.remainingSessions} s)`}
+                          {lang === 'ar' ? `المتبقي: ${s.creditBalance} د.ج (${s.remainingSessions} حصص)` : lang === 'en' ? `Remaining: ${s.creditBalance} DA (${s.remainingSessions} sessions)` : `Reste: ${s.creditBalance} DA (${s.remainingSessions} s)`}
                         </span>
                       ) : null}
                     </div>
                     <p className="text-xs text-slate-400 font-mono">#{s.studentNumber}</p>
                   </div>
-                  <div className="flex gap-1.5 shrink-0">
-                    {(['present', 'absent', 'not_active'] as const).map(st => (
-                      <button key={st} onClick={() => markStudent(s.id, st)}
-                        className={`text-xs px-2.5 py-1 rounded-lg font-bold transition-all ${s.attendanceStatus === st ? STATUS_CLS[st] + ' ring-2 ring-offset-1 ring-current' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                        title={st === 'not_active' ? (lang === 'ar' ? 'إعفاء الطالب من اقتطاع حصة هذه الجلسة وإرجاع الرصيد' : 'Exempter et rembourser la séance') : undefined}
-                      >
-                        {st === 'present' ? (lang === 'ar' ? 'حاضر ✓' : 'Présent ✓') : st === 'absent' ? (lang === 'ar' ? 'غائب ✗' : 'Absent ✗') : (lang === 'ar' ? 'غير نشط' : 'Non actif')}
-                      </button>
-                    ))}
-                  </div>
+                  {roster.session.status === 'closed' ? (
+                    <div className="shrink-0">
+                      {s.attendanceStatus === 'present' ? (
+                        <span className="text-xs px-3 py-1.5 rounded-lg font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1.5 shadow-2xs">
+                          <span className="font-extrabold">✓</span>
+                          <span>{lang === 'ar' ? 'حاضر' : lang === 'en' ? 'Present' : 'Présent'}</span>
+                        </span>
+                      ) : s.attendanceStatus === 'absent' ? (
+                        <span className="text-xs px-3 py-1.5 rounded-lg font-bold bg-red-100 text-red-800 border border-red-200 flex items-center gap-1.5 shadow-2xs">
+                          <span className="font-extrabold">✗</span>
+                          <span>{lang === 'ar' ? 'غائب' : lang === 'en' ? 'Absent' : 'Absent'}</span>
+                        </span>
+                      ) : s.attendanceStatus === 'not_active' || s.attendanceStatus === 'inactive' ? (
+                        <span className="text-xs px-3 py-1.5 rounded-lg font-bold bg-slate-100 text-slate-700 border border-slate-300 flex items-center gap-1.5 shadow-2xs">
+                          <span>{lang === 'ar' ? 'غير نشط' : lang === 'en' ? 'Inactive' : 'Non actif'}</span>
+                        </span>
+                      ) : (
+                        <span className="text-xs px-3 py-1.5 rounded-lg font-medium bg-slate-50 text-slate-400 border border-slate-200 shadow-2xs">
+                          {lang === 'ar' ? 'غير مسجل' : lang === 'en' ? 'Unmarked' : 'Non marqué'}
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex gap-1.5 shrink-0">
+                      {(['present', 'absent', 'not_active'] as const).map(st => {
+                        const isActive = s.attendanceStatus === st || (st === 'not_active' && s.attendanceStatus === 'inactive')
+                        return (
+                          <button key={st} onClick={() => markStudent(s.id, st)}
+                            className={`text-xs px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${isActive ? STATUS_CLS[st] + ' ring-2 ring-offset-1 ring-current shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                            title={st === 'not_active' ? (lang === 'ar' ? 'إعفاء الطالب من اقتطاع حصة هذه الجلسة وإرجاع الرصيد' : lang === 'en' ? 'Exempt student and refund session fee' : 'Exempter et rembourser la séance') : undefined}
+                          >
+                            {st === 'present' ? (lang === 'ar' ? 'حاضر ✓' : lang === 'en' ? 'Present ✓' : 'Présent ✓') : st === 'absent' ? (lang === 'ar' ? 'غائب ✗' : lang === 'en' ? 'Absent ✗' : 'Absent ✗') : (lang === 'ar' ? 'غير نشط' : lang === 'en' ? 'Inactive' : 'Non actif')}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -662,14 +713,14 @@ function CalendarView({ lang, onSessionClick }: { lang: string; onSessionClick: 
             <button
               onClick={prev}
               className="p-1.5 bg-white border border-border hover:bg-slate-100 text-slate-700 rounded-lg transition-colors shadow-2xs"
-              title={lang === 'ar' ? 'الشهر السابق' : 'Mois précédent'}
+              title={lang === 'ar' ? 'الشهر السابق' : lang === 'en' ? 'Previous month' : 'Mois précédent'}
             >
               <ChevronLeft size={18} />
             </button>
             <button
               onClick={next}
               className="p-1.5 bg-white border border-border hover:bg-slate-100 text-slate-700 rounded-lg transition-colors shadow-2xs"
-              title={lang === 'ar' ? 'الشهر التالي' : 'Mois suivant'}
+              title={lang === 'ar' ? 'الشهر التالي' : lang === 'en' ? 'Next month' : 'Mois suivant'}
             >
               <ChevronRight size={18} />
             </button>
@@ -684,7 +735,7 @@ function CalendarView({ lang, onSessionClick }: { lang: string; onSessionClick: 
               className="px-3 py-1.5 bg-white border border-border hover:bg-blue-50 hover:border-blue-200 text-[#2563EB] text-xs font-bold rounded-lg transition-all shadow-2xs flex items-center gap-1.5"
             >
               <Calendar size={13} />
-              <span>{lang === 'ar' ? 'اليوم' : 'Aujourd\'hui'}</span>
+              <span>{lang === 'ar' ? 'اليوم' : lang === 'en' ? 'Today' : 'Aujourd\'hui'}</span>
             </button>
           </div>
 

@@ -1,17 +1,16 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   School, Settings as SettingsIcon, HardDrive, Shield, Save,
-  FolderOpen, RotateCcw, Plus, Eye, EyeOff, User, History, Check, AlertTriangle
+  FolderOpen, Plus, Eye, EyeOff, User, History, Check, AlertTriangle, RefreshCw
 } from 'lucide-react'
-import ConfirmDialog from '../components/ui/ConfirmDialog'
 import Modal from '../components/ui/Modal'
 
 const TABS = [
-  { id: 'school', label: 'Profil scolaire', icon: School },
-  { id: 'app', label: 'Application', icon: SettingsIcon },
-  { id: 'admin', label: 'Profil Admin', icon: User },
-  { id: 'backup', label: 'Sauvegarde', icon: HardDrive },
-  { id: 'security', label: 'Sécurité & Logs', icon: Shield },
+  { id: 'school', label: 'الملف المدرسي', icon: School },
+  { id: 'app', label: 'إعدادات التطبيق', icon: SettingsIcon },
+  { id: 'admin', label: 'الملف الشخصي', icon: User },
+  { id: 'backup', label: 'النسخ الاحتياطي', icon: HardDrive },
+  { id: 'security', label: 'الأمان وسجل العمليات', icon: Shield },
 ]
 
 export default function Settings() {
@@ -26,10 +25,10 @@ export default function Settings() {
     schoolNameEn: 'Edupilot DZ',
     phone: '+213 555 000 000',
     email: 'contact@edupilot.dz',
-    address: 'Alger, Algérie',
+    address: 'الجزائر العاصمة',
     academicYear: '2025–2026',
     currency: 'DZD',
-    defaultLanguage: 'fr' as 'ar' | 'fr' | 'en',
+    defaultLanguage: 'ar' as 'ar' | 'fr' | 'en',
     backupDirectory: '',
     automaticBackupEnabled: true,
     backupsToRetain: 7,
@@ -39,8 +38,8 @@ export default function Settings() {
   const [adminProfile, setAdminProfile] = useState({
     id: 1,
     username: 'admin',
-    fullName: 'Administrateur Principal',
-    preferredLanguage: 'fr' as 'ar' | 'fr' | 'en',
+    fullName: 'المدير العام',
+    preferredLanguage: 'ar' as 'ar' | 'fr' | 'en',
     photoPath: null as string | null,
     photoUrl: null as string | null,
   })
@@ -56,10 +55,11 @@ export default function Settings() {
 
   // Backups
   const [backupsList, setBackupsList] = useState<any[]>([])
-  const [backupConfirm, setBackupConfirm] = useState(false)
+  const [creatingBackup, setCreatingBackup] = useState(false)
   const [restoreModal, setRestoreModal] = useState(false)
   const [restorePath, setRestorePath] = useState('')
   const [restorePassword, setRestorePassword] = useState('')
+  const [restoring, setRestoring] = useState(false)
 
   // Audit logs
   const [auditLogsModal, setAuditLogsModal] = useState(false)
@@ -119,7 +119,7 @@ export default function Settings() {
         setSaveSuccess(true)
         setTimeout(() => setSaveSuccess(false), 2500)
       } else {
-        alert(res.error?.message || 'Erreur enregistrement')
+        alert(res.error?.message || 'خطأ أثناء الحفظ')
       }
     } catch (err) {
       console.error(err)
@@ -139,7 +139,7 @@ export default function Settings() {
         setSaveSuccess(true)
         setTimeout(() => setSaveSuccess(false), 2500)
       } else {
-        alert(res.error?.message || 'Erreur mise à jour admin')
+        alert(res.error?.message || 'خطأ أثناء تحديث بيانات المدير')
       }
     } catch (err) {
       console.error(err)
@@ -165,11 +165,11 @@ export default function Settings() {
   const handleChangePassword = async () => {
     if (!api) return
     if (!pwForm.old || !pwForm.new || !pwForm.confirm) {
-      setPwMsg({ type: 'error', text: 'Veuillez remplir tous les champs du mot de passe.' })
+      setPwMsg({ type: 'error', text: 'يرجى ملء جميع حقول كلمة المرور.' })
       return
     }
     if (pwForm.new !== pwForm.confirm) {
-      setPwMsg({ type: 'error', text: 'Les nouveaux mots de passe ne correspondent pas.' })
+      setPwMsg({ type: 'error', text: 'كلمات المرور الجديدة غير متطابقة.' })
       return
     }
     try {
@@ -179,13 +179,13 @@ export default function Settings() {
         confirmPassword: pwForm.confirm,
       })
       if (res.success) {
-        setPwMsg({ type: 'success', text: 'Mot de passe modifié avec succès !' })
+        setPwMsg({ type: 'success', text: 'تم تحديث كلمة المرور بنجاح!' })
         setPwForm({ old: '', new: '', confirm: '' })
       } else {
-        setPwMsg({ type: 'error', text: res.error?.message || 'Mot de passe actuel incorrect.' })
+        setPwMsg({ type: 'error', text: res.error?.message || 'كلمة المرور الحالية غير صحيحة.' })
       }
     } catch (err) {
-      setPwMsg({ type: 'error', text: 'Erreur lors du changement de mot de passe.' })
+      setPwMsg({ type: 'error', text: 'حدث خطأ أثناء تغيير كلمة المرور.' })
     }
   }
 
@@ -203,16 +203,19 @@ export default function Settings() {
   // Create backup
   const handleCreateBackup = async () => {
     if (!api) return
+    setCreatingBackup(true)
     try {
       const res = await api.backups.create()
       if (res.success) {
-        alert('Sauvegarde créée avec succès !')
+        alert('تم إنشاء النسخة الاحتياطية بنجاح!')
         loadSettings()
       } else {
-        alert(res.error?.message || 'Erreur lors de la création de la sauvegarde')
+        alert(res.error?.message || 'حدث خطأ أثناء إنشاء النسخة الاحتياطية')
       }
     } catch (err) {
       console.error(err)
+    } finally {
+      setCreatingBackup(false)
     }
   }
 
@@ -232,22 +235,25 @@ export default function Settings() {
   // Restore backup
   const handleRestoreBackup = async () => {
     if (!api || !restorePath || !restorePassword) {
-      alert('Veuillez sélectionner une sauvegarde et entrer votre mot de passe administrateur.')
+      alert('يرجى تحديد ملف النسخة الاحتياطية وإدخال كلمة المرور للمدير.')
       return
     }
+    setRestoring(true)
     try {
       const res = await api.backups.restore({
         backupPath: restorePath,
         confirmPassword: restorePassword,
       })
       if (res.success) {
-        alert('Base de données restaurée avec succès ! L\'application va recharger.')
+        alert('تمت استعادة قاعدة البيانات بنجاح! سيتم إعادة تشغيل التطبيق.')
         window.location.reload()
       } else {
-        alert(res.error?.message || 'Mot de passe incorrect ou sauvegarde invalide')
+        alert(res.error?.message || 'كلمة المرور غير صحيحة أو ملف النسخة الاحتياطية غير صالح')
       }
     } catch (err) {
-      alert('Erreur restauration')
+      alert('حدث خطأ أثناء الاستعادة')
+    } finally {
+      setRestoring(false)
     }
   }
 
@@ -266,27 +272,35 @@ export default function Settings() {
   }
 
   const InputRow = ({ label, children }: { label: string; children: React.ReactNode }) => (
-    <div className="flex items-center justify-between py-3 border-b border-slate-50 last:border-0">
-      <label className="text-sm text-slate-700 w-56 shrink-0">{label}</label>
-      <div className="flex-1">{children}</div>
+    <div className="flex items-center justify-between py-3 border-b border-slate-100 last:border-0 gap-4">
+      <label className="text-sm font-medium text-slate-700 w-64 shrink-0">{label}</label>
+      <div className="flex-1 max-w-md">{children}</div>
     </div>
   )
 
   return (
-    <div className="flex gap-5">
+    <div className="flex gap-6" dir="rtl">
       {/* Sidebar navigation */}
-      <div className="w-48 shrink-0">
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          {TABS.map(t => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              className={`flex items-center gap-3 w-full px-4 py-3 text-sm font-medium transition-colors border-b border-slate-50 last:border-0 ${tab === t.id ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}
-            >
-              <t.icon size={15} />
-              {t.label}
-            </button>
-          ))}
+      <div className="w-56 shrink-0">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden p-1.5 space-y-1">
+          {TABS.map(t => {
+            const Icon = t.icon
+            const isActive = tab === t.id
+            return (
+              <button
+                key={t.id}
+                onClick={() => setTab(t.id)}
+                className={`flex items-center gap-3 w-full px-4 py-2.5 text-sm font-semibold rounded-lg transition-colors text-right ${
+                  isActive
+                    ? 'bg-blue-50 text-blue-700 border border-blue-100'
+                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 border border-transparent'
+                }`}
+              >
+                <Icon size={16} className={isActive ? 'text-blue-600' : 'text-slate-400'} />
+                <span>{t.label}</span>
+              </button>
+            )
+          })}
         </div>
       </div>
 
@@ -295,73 +309,85 @@ export default function Settings() {
         {/* Tab 1: School Profile */}
         {tab === 'school' && (
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-base font-semibold text-slate-900">Profil scolaire de l'établissement</h2>
+            <div className="flex items-center justify-between mb-5 pb-3 border-b border-slate-100">
+              <div>
+                <h2 className="text-base font-bold text-slate-900">الملف التعريفي للمؤسسة</h2>
+                <p className="text-xs text-slate-500 mt-0.5">تعديل معلومات وبيانات المدرسة التي تظهر في التقارير والوصولات</p>
+              </div>
               {saveSuccess && (
-                <span className="flex items-center gap-1 text-xs text-green-600 font-semibold bg-green-50 px-2.5 py-1 rounded-md border border-green-200">
-                  <Check size={12} /> Enregistré !
+                <span className="flex items-center gap-1.5 text-xs text-emerald-700 font-bold bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200">
+                  <Check size={14} /> تم الحفظ بنجاح!
                 </span>
               )}
             </div>
 
-            <div className="divide-y divide-slate-50">
-              <InputRow label="Nom de l'établissement (Français)">
-                <input
-                  type="text"
-                  value={school.schoolNameFr}
-                  onChange={e => setSchool(s => ({ ...s, schoolNameFr: e.target.value }))}
-                  className="w-full max-w-sm px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
-                />
-              </InputRow>
-              <InputRow label="Nom de l'établissement (Arabe)">
+            <div className="divide-y divide-slate-100">
+              <InputRow label="اسم المؤسسة (بالعربية)">
                 <input
                   type="text"
                   value={school.schoolNameAr}
                   onChange={e => setSchool(s => ({ ...s, schoolNameAr: e.target.value }))}
-                  className="w-full max-w-sm px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white text-right"
-                  dir="rtl"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
+                  placeholder="مثال: أكاديمية النجاح التعليمية"
                 />
               </InputRow>
-              <InputRow label="Téléphone">
+              <InputRow label="اسم المؤسسة (بالفرنسية / اللاتينية)">
+                <input
+                  type="text"
+                  value={school.schoolNameFr}
+                  onChange={e => setSchool(s => ({ ...s, schoolNameFr: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white text-left font-sans"
+                  dir="ltr"
+                  placeholder="ex: Académie Ennajah"
+                />
+              </InputRow>
+              <InputRow label="رقم الهاتف">
                 <input
                   type="tel"
                   value={school.phone || ''}
                   onChange={e => setSchool(s => ({ ...s, phone: e.target.value }))}
-                  className="w-full max-w-sm px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white font-mono"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white font-mono text-left"
+                  dir="ltr"
+                  placeholder="0555 00 00 00"
                 />
               </InputRow>
-              <InputRow label="Email de contact">
+              <InputRow label="البريد الإلكتروني">
                 <input
                   type="email"
                   value={school.email || ''}
                   onChange={e => setSchool(s => ({ ...s, email: e.target.value }))}
-                  className="w-full max-w-sm px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white text-left font-sans"
+                  dir="ltr"
+                  placeholder="contact@school.dz"
                 />
               </InputRow>
-              <InputRow label="Adresse physique">
+              <InputRow label="العنوان الجغرافي">
                 <input
                   type="text"
                   value={school.address || ''}
                   onChange={e => setSchool(s => ({ ...s, address: e.target.value }))}
-                  className="w-full max-w-sm px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
+                  placeholder="الجزائر العاصمة، الجزائر"
                 />
               </InputRow>
-              <InputRow label="Année académique">
+              <InputRow label="الموسم الدراسي">
                 <input
                   type="text"
                   value={school.academicYear}
                   onChange={e => setSchool(s => ({ ...s, academicYear: e.target.value }))}
-                  className="w-full max-w-xs px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white font-mono"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white font-mono text-left"
+                  dir="ltr"
+                  placeholder="2025–2026"
                 />
               </InputRow>
             </div>
 
-            <div className="mt-6 flex justify-end">
+            <div className="mt-6 pt-4 border-t border-slate-100 flex justify-end">
               <button
                 onClick={handleSaveSchool}
-                className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-colors"
+                className="flex items-center gap-2 px-5 py-2.5 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-colors cursor-pointer"
               >
-                <Save size={14} /> Enregistrer modifications
+                <Save size={16} /> حفظ التغييرات
               </button>
             </div>
           </div>
@@ -370,48 +396,68 @@ export default function Settings() {
         {/* Tab 2: App Settings */}
         {tab === 'app' && (
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-            <h2 className="text-base font-semibold text-slate-900 mb-4">Paramètres de l'application</h2>
-            <div className="divide-y divide-slate-50">
-              <InputRow label="Langue par défaut">
+            <div className="flex items-center justify-between mb-5 pb-3 border-b border-slate-100">
+              <div>
+                <h2 className="text-base font-bold text-slate-900">إعدادات التطبيق والنظام</h2>
+                <p className="text-xs text-slate-500 mt-0.5">تخصيص الخيارات العامة وسلوك البرنامج</p>
+              </div>
+              {saveSuccess && (
+                <span className="flex items-center gap-1.5 text-xs text-emerald-700 font-bold bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200">
+                  <Check size={14} /> تم الحفظ بنجاح!
+                </span>
+              )}
+            </div>
+
+            <div className="divide-y divide-slate-100">
+              <InputRow label="اللغة الافتراضية للواجهة">
                 <select
                   value={school.defaultLanguage}
                   onChange={e => setSchool(s => ({ ...s, defaultLanguage: e.target.value as any }))}
-                  className="w-full max-w-xs px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
                 >
-                  <option value="fr">Français</option>
-                  <option value="ar">العربية</option>
-                  <option value="en">English</option>
+                  <option value="ar">العربية (Algeria)</option>
+                  <option value="fr">الفرنسية (Français)</option>
+                  <option value="en">الإنجليزية (English)</option>
                 </select>
               </InputRow>
-              <InputRow label="Devise de facturation">
-                <div className="text-sm text-slate-700 py-1 font-semibold">Dinar algérien (DZD / DA)</div>
+              <InputRow label="العملة الرسمية المعتمدة">
+                <div className="text-sm text-slate-800 py-1 font-bold flex items-center gap-2">
+                  <span>الدينار الجزائري (دج / DZD)</span>
+                  <span className="text-xs text-slate-400 font-normal">عملة الفوترة المعتمدة</span>
+                </div>
               </InputRow>
-              <InputRow label="Sauvegarde automatique">
-                <label className="flex items-center gap-2 cursor-pointer">
+              <InputRow label="النسخ الاحتياطي التلقائي">
+                <label className="flex items-center gap-3 cursor-pointer py-1">
                   <input
                     type="checkbox"
                     checked={school.automaticBackupEnabled}
                     onChange={e => setSchool(s => ({ ...s, automaticBackupEnabled: e.target.checked }))}
-                    className="w-4 h-4 rounded accent-blue-600"
+                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 accent-blue-600 cursor-pointer"
                   />
-                  <span className="text-sm text-slate-700 font-medium">Activer la sauvegarde automatique quotidienne</span>
+                  <span className="text-sm text-slate-700 font-medium">تفعيل النسخ الاحتياطي اليومي التلقائي عند فتح التطبيق</span>
                 </label>
               </InputRow>
-              <InputRow label="Nombre de sauvegardes à conserver">
-                <input
-                  type="number"
-                  value={school.backupsToRetain}
-                  onChange={e => setSchool(s => ({ ...s, backupsToRetain: Number(e.target.value) || 7 }))}
-                  className="w-32 px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white font-mono"
-                />
+              <InputRow label="عدد النسخ الاحتياطية المحتفظ بها">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="1"
+                    max="90"
+                    value={school.backupsToRetain}
+                    onChange={e => setSchool(s => ({ ...s, backupsToRetain: Number(e.target.value) || 7 }))}
+                    className="w-24 px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white font-mono text-center"
+                  />
+                  <span className="text-xs text-slate-500">نسخ سابقة (يتم حذف الأقدم تلقائياً)</span>
+                </div>
               </InputRow>
             </div>
-            <div className="mt-6 flex justify-end">
+
+            <div className="mt-6 pt-4 border-t border-slate-100 flex justify-end">
               <button
                 onClick={handleSaveSchool}
-                className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-colors"
+                className="flex items-center gap-2 px-5 py-2.5 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-colors cursor-pointer"
               >
-                <Save size={14} /> Enregistrer
+                <Save size={16} /> حفظ الإعدادات
               </button>
             </div>
           </div>
@@ -420,54 +466,68 @@ export default function Settings() {
         {/* Tab 3: Admin Profile */}
         {tab === 'admin' && (
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-            <h2 className="text-base font-semibold text-slate-900 mb-4">Profil de l'administrateur</h2>
-            <div className="divide-y divide-slate-50">
-              <InputRow label="Photo de profil">
+            <div className="flex items-center justify-between mb-5 pb-3 border-b border-slate-100">
+              <div>
+                <h2 className="text-base font-bold text-slate-900">الملف الشخصي للمسؤول</h2>
+                <p className="text-xs text-slate-500 mt-0.5">تعديل بيانات الحساب الإداري وصورة الملف</p>
+              </div>
+              {saveSuccess && (
+                <span className="flex items-center gap-1.5 text-xs text-emerald-700 font-bold bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200">
+                  <Check size={14} /> تم التحديث بنجاح!
+                </span>
+              )}
+            </div>
+
+            <div className="divide-y divide-slate-100">
+              <InputRow label="صورة الحساب">
                 <div className="flex items-center gap-4">
                   {adminProfile.photoUrl ? (
-                    <img src={adminProfile.photoUrl} alt="" className="w-14 h-14 rounded-full object-cover border-2 border-slate-200" />
+                    <img src={adminProfile.photoUrl} alt="" className="w-14 h-14 rounded-full object-cover border-2 border-slate-200 shadow-sm" />
                   ) : (
-                    <div className="w-14 h-14 rounded-full bg-blue-600 text-white flex items-center justify-center text-xl font-bold">
+                    <div className="w-14 h-14 rounded-full bg-blue-600 text-white flex items-center justify-center text-xl font-bold shadow-sm">
                       {adminProfile.fullName.charAt(0)}
                     </div>
                   )}
                   <button
                     onClick={handleSelectAdminPhoto}
-                    className="px-3 py-1.5 text-xs text-blue-600 font-semibold bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors"
+                    className="px-3.5 py-1.5 text-xs text-blue-700 font-bold bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors cursor-pointer"
                   >
-                    Changer photo
+                    تغيير الصورة
                   </button>
                 </div>
               </InputRow>
-              <InputRow label="Nom complet">
+              <InputRow label="الاسم الكامل">
                 <input
                   type="text"
                   value={adminProfile.fullName}
                   onChange={e => setAdminProfile(p => ({ ...p, fullName: e.target.value }))}
-                  className="w-full max-w-sm px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
                 />
               </InputRow>
-              <InputRow label="Identifiant (Login)">
-                <div className="font-mono text-sm text-slate-600 py-1">{adminProfile.username}</div>
+              <InputRow label="اسم المستخدم (تسجيل الدخول)">
+                <div className="font-mono text-sm text-slate-700 py-1.5 bg-slate-50 px-3 rounded-lg border border-slate-200 max-w-xs text-left" dir="ltr">
+                  {adminProfile.username}
+                </div>
               </InputRow>
-              <InputRow label="Langue préférée">
+              <InputRow label="اللغة المفضلة">
                 <select
                   value={adminProfile.preferredLanguage}
                   onChange={e => setAdminProfile(p => ({ ...p, preferredLanguage: e.target.value as any }))}
-                  className="w-full max-w-xs px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
                 >
-                  <option value="fr">Français</option>
                   <option value="ar">العربية</option>
+                  <option value="fr">Français</option>
                   <option value="en">English</option>
                 </select>
               </InputRow>
             </div>
-            <div className="mt-6 flex justify-end">
+
+            <div className="mt-6 pt-4 border-t border-slate-100 flex justify-end">
               <button
                 onClick={handleSaveAdmin}
-                className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-colors"
+                className="flex items-center gap-2 px-5 py-2.5 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-colors cursor-pointer"
               >
-                <Save size={14} /> Mettre à jour profil
+                <Save size={16} /> حفظ بيانات الحساب
               </button>
             </div>
           </div>
@@ -475,71 +535,98 @@ export default function Settings() {
 
         {/* Tab 4: Backup & Restore */}
         {tab === 'backup' && (
-          <div className="space-y-4">
+          <div className="space-y-5">
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-              <h2 className="text-base font-semibold text-slate-900 mb-4">Sauvegarde & Restauration</h2>
-              <div className="divide-y divide-slate-50">
-                <InputRow label="Dossier de destination">
+              <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+                <div>
+                  <h2 className="text-base font-bold text-slate-900">النسخ الاحتياطي واستعادة البيانات</h2>
+                  <p className="text-xs text-slate-500 mt-0.5">حفظ نسخة كاملة من قاعدة البيانات والصور واستعادتها عند الحاجة</p>
+                </div>
+                <button
+                  onClick={handleCreateBackup}
+                  disabled={creatingBackup}
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg transition-colors shadow-sm cursor-pointer"
+                >
+                  {creatingBackup ? <RefreshCw size={15} className="animate-spin" /> : <Plus size={15} />}
+                  <span>إنشاء نسخة احتياطية الآن</span>
+                </button>
+              </div>
+
+              <div className="divide-y divide-slate-100">
+                <InputRow label="مجلد حفظ النسخ الاحتياطية">
                   <div className="flex items-center gap-2">
                     <input
                       type="text"
-                      value={school.backupDirectory || 'Dossier par défaut (AppData/backups)'}
+                      value={school.backupDirectory || 'المجلد الافتراضي (AppData/backups)'}
                       readOnly
-                      className="flex-1 max-w-sm px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none bg-slate-50 font-mono text-slate-600"
+                      className="flex-1 px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none bg-slate-50 font-mono text-slate-600 text-left"
+                      dir="ltr"
                     />
                     <button
                       onClick={handleChooseBackupDir}
-                      className="p-2 border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 transition-colors"
-                      title="Choisir dossier"
+                      className="p-2 border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 transition-colors cursor-pointer"
+                      title="تغيير المجلد"
                     >
-                      <FolderOpen size={15} />
+                      <FolderOpen size={16} />
                     </button>
                   </div>
                 </InputRow>
               </div>
-              <div className="flex gap-3 mt-5">
-                <button
-                  onClick={handleCreateBackup}
-                  className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-sm"
-                >
-                  <Plus size={14} /> Créer une sauvegarde
-                </button>
-              </div>
             </div>
 
+            {/* Backups List */}
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
-                <h3 className="text-sm font-semibold text-slate-800">Sauvegardes disponibles ({backupsList.length})</h3>
+              <div className="px-6 py-3.5 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between">
+                <h3 className="text-sm font-bold text-slate-800">
+                  قائمة النسخ الاحتياطية المتوفرة ({backupsList.length})
+                </h3>
+                <button
+                  onClick={loadSettings}
+                  className="text-xs text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1 cursor-pointer"
+                >
+                  <RefreshCw size={12} /> تحديث القائمة
+                </button>
               </div>
               {backupsList.length === 0 ? (
-                <div className="p-8 text-center text-slate-400 text-sm">Aucune sauvegarde trouvée</div>
+                <div className="p-10 text-center text-slate-400 text-sm">
+                  لا توجد أي نسخ احتياطية مسجلة حالياً
+                </div>
               ) : (
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="bg-slate-50 border-b border-slate-100 text-xs font-semibold text-slate-500 uppercase">
-                      <th className="px-5 py-2.5 text-left">Fichier / Date</th>
-                      <th className="px-5 py-2.5 text-left">Taille</th>
-                      <th className="px-5 py-2.5 text-right">Action</th>
+                    <tr className="bg-slate-50 border-b border-slate-100 text-xs font-bold text-slate-500">
+                      <th className="px-6 py-3 text-right">اسم الملف / المسار</th>
+                      <th className="px-6 py-3 text-right">الحجم</th>
+                      <th className="px-6 py-3 text-center">الإجراء</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {backupsList.map((b, i) => (
-                      <tr key={i} className="hover:bg-slate-50">
-                        <td className="px-5 py-3 font-mono text-xs text-slate-700">{b.filename || b.path}</td>
-                        <td className="px-5 py-3 text-xs text-slate-600 font-mono">{(b.sizeBytes / (1024 * 1024)).toFixed(2)} MB</td>
-                        <td className="px-5 py-3 text-right">
-                          <button
-                            onClick={() => {
-                              setRestorePath(b.path)
-                              setRestoreModal(true)
-                            }}
-                            className="text-xs text-amber-700 font-semibold hover:underline"
-                          >
-                            Restaurer
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                  <tbody className="divide-y divide-slate-100">
+                    {backupsList.map((b, i) => {
+                      const sizeMb = (b.sizeBytes / (1024 * 1024)).toFixed(2)
+                      const sizeKb = (b.sizeBytes / 1024).toFixed(0)
+                      const sizeLabel = b.sizeBytes > 1024 * 1024 ? `${sizeMb} ميغابايت` : `${sizeKb} كيلوبايت`
+                      return (
+                        <tr key={i} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="px-6 py-3.5 font-mono text-xs text-slate-700 text-left" dir="ltr">
+                            {b.filename || b.path}
+                          </td>
+                          <td className="px-6 py-3.5 text-xs text-slate-600 font-medium">
+                            {sizeLabel}
+                          </td>
+                          <td className="px-6 py-3.5 text-center">
+                            <button
+                              onClick={() => {
+                                setRestorePath(b.path)
+                                setRestoreModal(true)
+                              }}
+                              className="inline-flex items-center gap-1 text-xs text-amber-700 font-bold bg-amber-50 hover:bg-amber-100 border border-amber-200 px-3 py-1.5 rounded-md transition-colors cursor-pointer"
+                            >
+                              استعادة
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               )}
@@ -549,92 +636,101 @@ export default function Settings() {
 
         {/* Tab 5: Security, Auto-lock & Audit Logs */}
         {tab === 'security' && (
-          <div className="space-y-4">
+          <div className="space-y-5">
+            {/* Password Change */}
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-              <h2 className="text-base font-semibold text-slate-900 mb-4">Changer le mot de passe administrateur</h2>
+              <h2 className="text-base font-bold text-slate-900 mb-1">تغيير كلمة مرور المدير</h2>
+              <p className="text-xs text-slate-500 mb-4 pb-3 border-b border-slate-100">يُنصح بتعيين كلمة مرور قوية لحماية بيانات المؤسسة</p>
+              
               {pwMsg && (
-                <div className={`p-3 mb-4 rounded-lg text-xs font-semibold ${pwMsg.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-600 border border-red-200'}`}>
+                <div className={`p-3 mb-4 rounded-lg text-xs font-bold ${pwMsg.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
                   {pwMsg.text}
                 </div>
               )}
-              <div className="space-y-4 max-w-sm">
+              <div className="space-y-3.5 max-w-sm">
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1.5">Mot de passe actuel</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">كلمة المرور الحالية</label>
                   <div className="relative">
                     <input
                       type={showOldPw ? 'text' : 'password'}
                       value={pwForm.old}
                       onChange={e => setPwForm(p => ({ ...p, old: e.target.value }))}
-                      className="w-full px-3 py-2 pr-10 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
+                      className="w-full px-3 py-2 pl-10 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white font-mono"
+                      dir="ltr"
                     />
                     <button
                       type="button"
                       onClick={() => setShowOldPw(v => !v)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                     >
-                      {showOldPw ? <EyeOff size={14} /> : <Eye size={14} />}
+                      {showOldPw ? <EyeOff size={15} /> : <Eye size={15} />}
                     </button>
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1.5">Nouveau mot de passe</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">كلمة المرور الجديدة</label>
                   <div className="relative">
                     <input
                       type={showNewPw ? 'text' : 'password'}
                       value={pwForm.new}
                       onChange={e => setPwForm(p => ({ ...p, new: e.target.value }))}
-                      className="w-full px-3 py-2 pr-10 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
+                      className="w-full px-3 py-2 pl-10 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white font-mono"
+                      dir="ltr"
                     />
                     <button
                       type="button"
                       onClick={() => setShowNewPw(v => !v)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                     >
-                      {showNewPw ? <EyeOff size={14} /> : <Eye size={14} />}
+                      {showNewPw ? <EyeOff size={15} /> : <Eye size={15} />}
                     </button>
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1.5">Confirmer le nouveau mot de passe</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">تأكيد كلمة المرور الجديدة</label>
                   <input
                     type="password"
                     value={pwForm.confirm}
                     onChange={e => setPwForm(p => ({ ...p, confirm: e.target.value }))}
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white font-mono"
+                    dir="ltr"
                   />
                 </div>
                 <button
                   onClick={handleChangePassword}
-                  className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-sm"
+                  className="flex items-center gap-2 px-5 py-2.5 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-sm cursor-pointer mt-2"
                 >
-                  <Save size={14} /> Mettre à jour le mot de passe
+                  <Save size={15} /> تحديث كلمة المرور
                 </button>
               </div>
             </div>
 
+            {/* Auto-lock & Audit */}
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-              <h2 className="text-base font-semibold text-slate-900 mb-4">Paramètres de sécurité & Journal</h2>
-              <div className="divide-y divide-slate-50">
-                <InputRow label="Verrouillage automatique (inactivité)">
+              <h2 className="text-base font-bold text-slate-900 mb-1">الأمان التلقائي وسجل الأنشطة</h2>
+              <p className="text-xs text-slate-500 mb-4 pb-3 border-b border-slate-100">التحكم في قفل الشاشة عند الخمول ومراجعة العمليات</p>
+              
+              <div className="divide-y divide-slate-100">
+                <InputRow label="القفل التلقائي عند عدم النشاط">
                   <select
                     value={autoLockMinutes}
                     onChange={e => handleAutoLockChange(Number(e.target.value))}
-                    className="w-full max-w-xs px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
                   >
-                    <option value={0}>Désactivé</option>
-                    <option value={5}>Après 5 minutes d'inactivité</option>
-                    <option value={10}>Après 10 minutes d'inactivité</option>
-                    <option value={15}>Après 15 minutes d'inactivité</option>
-                    <option value={30}>Après 30 minutes d'inactivité</option>
-                    <option value={60}>Après 1 heure d'inactivité</option>
+                    <option value={0}>معطل (لا يتم القفل تلقائياً)</option>
+                    <option value={5}>بعد 5 دقائق من الخمول</option>
+                    <option value={10}>بعد 10 دقائق من الخمول</option>
+                    <option value={15}>بعد 15 دقيقة من الخمول</option>
+                    <option value={30}>بعد 30 دقيقة من الخمول</option>
+                    <option value={60}>بعد ساعة واحدة من الخمول</option>
                   </select>
                 </InputRow>
-                <InputRow label="Journal d'audit des actions">
+                <InputRow label="سجل العمليات والأنشطة (Audit Log)">
                   <button
                     onClick={handleOpenAuditLogs}
-                    className="text-sm text-blue-600 hover:text-blue-800 border border-blue-200 bg-blue-50 rounded-lg px-3 py-1.5 transition-colors font-medium flex items-center gap-1.5"
+                    className="text-sm text-blue-700 hover:text-blue-900 border border-blue-200 bg-blue-50 hover:bg-blue-100 rounded-lg px-4 py-2 transition-colors font-bold flex items-center gap-2 cursor-pointer"
                   >
-                    <History size={14} /> Consulter l'historique d'audit
+                    <History size={16} /> عرض سجل العمليات والأنشطة
                   </button>
                 </InputRow>
               </div>
@@ -644,51 +740,71 @@ export default function Settings() {
       </div>
 
       {/* Restore confirmation modal */}
-      <Modal open={restoreModal} onClose={() => setRestoreModal(false)} title="Restaurer la base de données" size="sm">
-        <div className="space-y-4">
-          <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 flex items-start gap-2">
-            <AlertTriangle size={16} className="text-amber-600 shrink-0 mt-0.5" />
-            <span>Attention : Cette opération remplacera l'intégralité des données actuelles par la sauvegarde choisie.</span>
+      <Modal open={restoreModal} onClose={() => setRestoreModal(false)} title="استعادة قاعدة البيانات" size="sm">
+        <div className="space-y-4" dir="rtl">
+          <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 flex items-start gap-2.5">
+            <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5" />
+            <span className="leading-relaxed">
+              <strong>تنبيه هام:</strong> ستؤدي عملية الاستعادة إلى استبدال كافة البيانات الحالية بالبيانات الموجودة في ملف النسخة الاحتياطية المحدد.
+            </span>
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1.5">Mot de passe de confirmation administrateur</label>
+            <label className="block text-xs font-bold text-slate-700 mb-1.5">كلمة مرور المدير للتأكيد</label>
             <input
               type="password"
-              placeholder="Votre mot de passe actuel..."
+              placeholder="أدخل كلمة المرور الحالية..."
               value={restorePassword}
               onChange={e => setRestorePassword(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white font-mono"
+              dir="ltr"
             />
           </div>
-          <div className="flex justify-end gap-2 pt-2">
-            <button onClick={() => setRestoreModal(false)} className="px-4 py-2 text-sm text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">Annuler</button>
-            <button onClick={handleRestoreBackup} className="px-4 py-2 text-sm font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg">Confirmer restauration</button>
+          <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-100">
+            <button
+              onClick={() => setRestoreModal(false)}
+              disabled={restoring}
+              className="px-4 py-2 text-sm font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
+            >
+              إلغاء
+            </button>
+            <button
+              onClick={handleRestoreBackup}
+              disabled={restoring}
+              className="px-4 py-2 text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded-lg cursor-pointer flex items-center gap-1.5"
+            >
+              {restoring && <RefreshCw size={14} className="animate-spin" />}
+              <span>تأكيد الاستعادة</span>
+            </button>
           </div>
         </div>
       </Modal>
 
       {/* Audit logs viewer modal */}
-      <Modal open={auditLogsModal} onClose={() => setAuditLogsModal(false)} title="Journal d'audit administratif" size="lg">
-        <div className="space-y-3 max-h-96 overflow-y-auto">
+      <Modal open={auditLogsModal} onClose={() => setAuditLogsModal(false)} title="سجل العمليات والأنشطة الإدارية" size="lg">
+        <div className="space-y-3 max-h-96 overflow-y-auto" dir="rtl">
           {auditLogs.length === 0 ? (
-            <p className="text-center py-8 text-slate-400 text-sm">Aucun événement d'audit enregistré</p>
+            <p className="text-center py-8 text-slate-400 text-sm">لا توجد أي أنشطة مسجلة في السجل</p>
           ) : (
             <table className="w-full text-xs">
               <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 sticky top-0 text-slate-500 font-semibold">
-                  <th className="p-2 text-left">Date / Heure</th>
-                  <th className="p-2 text-left">Action</th>
-                  <th className="p-2 text-left">Entité</th>
-                  <th className="p-2 text-left">Détails</th>
+                <tr className="bg-slate-50 border-b border-slate-200 sticky top-0 text-slate-600 font-bold">
+                  <th className="p-2.5 text-right">التاريخ والوقت</th>
+                  <th className="p-2.5 text-right">العملية</th>
+                  <th className="p-2.5 text-right">العنصر</th>
+                  <th className="p-2.5 text-right">التفاصيل</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 font-mono">
+              <tbody className="divide-y divide-slate-100 font-sans">
                 {auditLogs.map((log, idx) => (
                   <tr key={idx} className="hover:bg-slate-50">
-                    <td className="p-2 text-slate-500 whitespace-nowrap">{new Date(log.createdAt).toLocaleString('fr-DZ')}</td>
-                    <td className="p-2 font-semibold text-slate-800">{log.action}</td>
-                    <td className="p-2 text-slate-600">{log.entityType ? `${log.entityType} #${log.entityId}` : '—'}</td>
-                    <td className="p-2 text-slate-500 truncate max-w-xs">{log.details ? JSON.stringify(log.details) : '—'}</td>
+                    <td className="p-2.5 text-slate-500 whitespace-nowrap font-mono text-left" dir="ltr">
+                      {new Date(log.createdAt).toLocaleString('ar-DZ')}
+                    </td>
+                    <td className="p-2.5 font-bold text-slate-800">{log.action}</td>
+                    <td className="p-2.5 text-slate-600">{log.entityType ? `${log.entityType} #${log.entityId}` : '—'}</td>
+                    <td className="p-2.5 text-slate-500 truncate max-w-xs font-mono text-left" dir="ltr">
+                      {log.details ? JSON.stringify(log.details) : '—'}
+                    </td>
                   </tr>
                 ))}
               </tbody>

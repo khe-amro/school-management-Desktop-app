@@ -1,13 +1,13 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Search, Plus, Download, Printer, TrendingUp, AlertCircle,
-  DollarSign, Users, X, XCircle, CreditCard, CheckCircle2, Clock, Filter
+  Search, Plus, Printer, TrendingUp, AlertCircle,
+  DollarSign, Users, X, XCircle, CreditCard, CheckCircle2
 } from 'lucide-react'
 import Badge from '../components/ui/Badge'
 import Modal from '../components/ui/Modal'
 import StatCard from '../components/ui/StatCard'
 import StudentCombobox from '../components/ui/StudentCombobox'
-import type { Payment, PaymentMethod } from '../types'
+import type { PaymentMethod } from '../types'
 
 function Receipt({ payment, student, group, course, schoolSettings, onClose }: {
   payment: any
@@ -22,72 +22,82 @@ function Receipt({ payment, student, group, course, schoolSettings, onClose }: {
     if (api) await api.app.print()
   }
 
+  const methodLabel: Record<string, string> = {
+    cash: 'نقداً',
+    transfer: 'تحويل بنكي / CCP',
+    check: 'شيك بنكي',
+  }
+
   return (
-    <div>
-      <div className="border border-dashed border-slate-300 rounded-xl p-6 bg-white font-mono text-sm shadow-sm" style={{ width: 300, margin: '0 auto' }}>
+    <div dir="rtl">
+      <div className="border border-dashed border-slate-300 rounded-xl p-6 bg-white font-sans text-sm shadow-sm" style={{ width: 320, margin: '0 auto' }}>
         <div className="text-center mb-4">
-          <p className="font-bold text-base text-slate-900 tracking-wider">✦ EDUPILOT DZ ✦</p>
-          <p className="text-xs text-slate-600 font-semibold mt-0.5">{schoolSettings?.schoolNameFr || 'Edupilot School'}</p>
-          <p className="text-[11px] text-slate-400 mt-1">Reçu N° {payment.receiptNumber}</p>
+          <p className="font-bold text-base text-slate-900 tracking-wider">✦ {schoolSettings?.schoolNameAr || 'إيدوبيلوت الجزائر'} ✦</p>
+          {schoolSettings?.schoolNameFr && (
+            <p className="text-xs text-slate-500 font-medium font-sans" dir="ltr">{schoolSettings.schoolNameFr}</p>
+          )}
+          <p className="text-xs text-slate-600 font-bold mt-1.5 font-mono" dir="ltr">وصل تسديد N° {payment.receiptNumber}</p>
         </div>
         <div className="border-t border-dashed border-slate-300 my-3" />
-        <div className="space-y-1.5 text-xs">
+        <div className="space-y-2 text-xs">
           <div className="flex justify-between">
-            <span className="text-slate-500">Étudiant:</span>
-            <span className="font-bold text-slate-800">{student ? `${student.firstNameFr} ${student.lastNameFr}` : `N° ${payment.studentId}`}</span>
+            <span className="text-slate-500">الطالب:</span>
+            <span className="font-bold text-slate-800">
+              {student ? (student.firstNameAr ? `${student.lastNameAr} ${student.firstNameAr}` : `${student.firstNameFr} ${student.lastNameFr}`) : `رقم #${payment.studentId}`}
+            </span>
           </div>
           <div className="flex justify-between">
-            <span className="text-slate-500">N° Étudiant:</span>
-            <span className="font-mono text-slate-700">{student?.studentNumber}</span>
+            <span className="text-slate-500">رقم القيد:</span>
+            <span className="font-mono text-slate-700" dir="ltr">{student?.studentNumber}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-slate-500">Cours:</span>
-            <span>{course?.nameFr || course?.nameAr || '—'}</span>
+            <span className="text-slate-500">المادة / الدورة:</span>
+            <span className="font-medium text-slate-800">{course?.nameAr || course?.nameFr || '—'}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-slate-500">Groupe:</span>
-            <span>{group?.name || '—'}</span>
+            <span className="text-slate-500">الفوج:</span>
+            <span className="font-medium text-slate-800">{group?.name || '—'}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-slate-500">Période:</span>
-            <span className="font-semibold">{payment.billingPeriod}</span>
+            <span className="text-slate-500">الفترة / الشهر:</span>
+            <span className="font-bold font-mono text-slate-800" dir="ltr">{payment.billingPeriod}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-slate-500">Mode:</span>
-            <span className="capitalize">{payment.paymentMethod || payment.method}</span>
+            <span className="text-slate-500">طريقة الدفع:</span>
+            <span className="font-medium text-slate-800">{methodLabel[payment.paymentMethod || payment.method] || payment.paymentMethod || 'نقداً'}</span>
           </div>
           {payment.reference && (
             <div className="flex justify-between">
-              <span className="text-slate-500">Réf:</span>
-              <span>{payment.reference}</span>
+              <span className="text-slate-500">رقم المرجع / الشيك:</span>
+              <span className="font-mono text-slate-700" dir="ltr">{payment.reference}</span>
             </div>
           )}
           <div className="flex justify-between">
-            <span className="text-slate-500">Date:</span>
-            <span>{new Date(payment.paymentDate || payment.date).toLocaleDateString('fr-DZ')}</span>
+            <span className="text-slate-500">تاريخ الدفع:</span>
+            <span className="font-mono" dir="ltr">{new Date(payment.paymentDate || payment.date).toLocaleDateString('ar-DZ')}</span>
           </div>
         </div>
         <div className="border-t border-dashed border-slate-300 my-3" />
         <div className="flex justify-between font-bold text-base text-slate-900">
-          <span>TOTAL</span>
-          <span>{Number(payment.amount).toLocaleString('fr-DZ')} DA</span>
+          <span>المبلغ الإجمالي:</span>
+          <span className="font-mono text-emerald-700" dir="ltr">{Number(payment.amount).toLocaleString('ar-DZ')} دج</span>
         </div>
         <div className="border-t border-dashed border-slate-300 my-3" />
-        <p className="text-[10px] text-slate-400 text-center">Merci pour votre confiance !</p>
+        <p className="text-[11px] text-slate-500 text-center font-medium">شكراً لثقتكم بنا!</p>
       </div>
 
-      <div className="flex justify-end gap-2 mt-5">
+      <div className="flex justify-end gap-2.5 mt-5">
         <button
           onClick={handlePrint}
-          className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-lg shadow-sm transition-colors"
+          className="flex items-center gap-1.5 px-4 py-2 text-sm font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg shadow-sm transition-colors cursor-pointer"
         >
-          <Printer size={14} /> Imprimer reçu
+          <Printer size={15} /> طباعة الوصل
         </button>
         <button
           onClick={onClose}
-          className="px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+          className="px-4 py-2 text-sm font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
         >
-          Fermer
+          إغلاق
         </button>
       </div>
     </div>
@@ -197,7 +207,7 @@ export default function Payments() {
 
   const handleAddPayment = async () => {
     if (!api || !form.studentId || !form.enrollmentId || !form.amount) {
-      alert('Veuillez sélectionner un étudiant avec inscription et renseigner le montant')
+      alert('يرجى تحديد الطالب مع الفوج المسجل به وإدخال المبلغ المدفوع')
       return
     }
 
@@ -218,7 +228,7 @@ export default function Payments() {
         setReceiptModal(res.data)
         loadData()
       } else {
-        alert(res.error?.message || 'Erreur lors de l\'enregistrement du paiement')
+        alert(res.error?.message || 'خطأ أثناء تسجيل الدفعة')
       }
     } catch (err) {
       console.error(err)
@@ -226,14 +236,14 @@ export default function Payments() {
   }
 
   const handleCancelPayment = async (id: number) => {
-    const reason = prompt('Motif d\'annulation :')
+    const reason = prompt('سبب إلغاء هذا الوصل :')
     if (reason === null || !api) return
     try {
       const res = await api.payments.cancel(id, reason)
       if (res.success) {
         loadData()
       } else {
-        alert(res.error?.message || 'Erreur annulation')
+        alert(res.error?.message || 'خطأ أثناء الإلغاء')
       }
     } catch (err) {
       console.error(err)
@@ -282,43 +292,43 @@ export default function Payments() {
     return matchSearch && matchFilter
   })
 
-  const methodLabels: Record<PaymentMethod, string> = { cash: 'Espèces', transfer: 'Virement', check: 'Chèque' }
+  const methodLabels: Record<PaymentMethod, string> = { cash: 'نقداً', transfer: 'تحويل بنكي/CCP', check: 'شيك' }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5" dir="rtl">
       {/* Stats */}
       <div className="grid grid-cols-4 gap-4">
         <StatCard
-          title="Revenus ce mois"
-          value={`${summary.monthRevenue.toLocaleString('fr-DZ')} DA`}
-          change="Facturation mensuelle"
+          title="مداخيل هذا الشهر"
+          value={`${summary.monthRevenue.toLocaleString('ar-DZ')} دج`}
+          change="الفوترة الشهرية"
           changePositive
           icon={TrendingUp}
           iconColor="text-blue-600"
           iconBg="bg-blue-50"
         />
         <StatCard
-          title="Collecté aujourd'hui"
-          value={`${summary.todayCollected.toLocaleString('fr-DZ')} DA`}
+          title="المحصل اليوم"
+          value={`${summary.todayCollected.toLocaleString('ar-DZ')} دج`}
           icon={DollarSign}
-          iconColor="text-green-600"
-          iconBg="bg-green-50"
+          iconColor="text-emerald-600"
+          iconBg="bg-emerald-50"
         />
         <StatCard
-          title="Solde total en attente"
-          value={`${summary.outstanding.toLocaleString('fr-DZ')} DA`}
-          change="Dettes cumulées"
+          title="إجمالي الديون المعلقة"
+          value={`${summary.outstanding.toLocaleString('ar-DZ')} دج`}
+          change="مستحقات على الطلاب"
           icon={AlertCircle}
           iconColor="text-amber-600"
           iconBg="bg-amber-50"
         />
         <StatCard
-          title="Élèves en retard"
+          title="الطلاب المتأخرون عن الدفع"
           value={summary.overdue}
-          change="Nécessite relance"
+          change="بحاجة إلى تذكير"
           icon={Users}
-          iconColor="text-red-500"
-          iconBg="bg-red-50"
+          iconColor="text-rose-500"
+          iconBg="bg-rose-50"
         />
       </div>
 
@@ -327,23 +337,23 @@ export default function Payments() {
         <div className="flex gap-4">
           <button
             onClick={() => setActiveTab('receipts')}
-            className={`pb-3 text-sm font-semibold transition-all border-b-2 flex items-center gap-2 ${
+            className={`pb-3 text-sm font-bold transition-all border-b-2 flex items-center gap-2 cursor-pointer ${
               activeTab === 'receipts'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
+                ? 'border-blue-600 text-blue-700'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            <Printer size={16} /> Reçus & Encaissements ({payments.length})
+            <Printer size={16} /> الوصولات والمدفوعات ({payments.length})
           </button>
           <button
             onClick={() => setActiveTab('debts')}
-            className={`pb-3 text-sm font-semibold transition-all border-b-2 flex items-center gap-2 ${
+            className={`pb-3 text-sm font-bold transition-all border-b-2 flex items-center gap-2 cursor-pointer ${
               activeTab === 'debts'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
+                ? 'border-blue-600 text-blue-700'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            <AlertCircle size={16} /> Suivi des Frais & Dettes ({debtReport.filter(d => d.totalDebt > 0).length} en retard)
+            <AlertCircle size={16} /> تقرير الديون والمستحقات ({debtReport.filter(d => d.totalDebt > 0).length} متأخر)
           </button>
         </div>
 
@@ -361,30 +371,30 @@ export default function Payments() {
             })
             setAddModalOpen(true)
           }}
-          className="flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-sm mb-2"
+          className="flex items-center gap-1.5 px-4 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-sm mb-2 cursor-pointer"
         >
-          <Plus size={15} /> Enregistrer un paiement
+          <Plus size={16} /> تسجيل دفعة جديدة
         </button>
       </div>
 
       {/* Toolbar */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex items-center gap-3">
         <div className="flex items-center gap-2 bg-slate-100 rounded-lg px-3 py-2 flex-1">
-          <Search size={15} className="text-slate-400" />
+          <Search size={16} className="text-slate-400" />
           <input
             type="text"
             placeholder={
               activeTab === 'receipts'
-                ? 'Rechercher par élève (FR/AR), N° matricule, N° reçu, cours, groupe...'
-                : 'Rechercher par nom d\'élève ou N° matricule...'
+                ? 'البحث عن طالب (بالعربية/الفرنسية)، رقم القيد، رقم الوصل، الفوج، المادة...'
+                : 'البحث عن طالب بالاسم أو رقم القيد...'
             }
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="bg-transparent text-sm outline-none w-full placeholder-slate-400 text-slate-700"
+            className="bg-transparent text-sm outline-none w-full placeholder-slate-400 text-slate-800"
           />
           {search && (
-            <button onClick={() => setSearch('')} className="text-slate-400 hover:text-slate-600">
-              <X size={14} />
+            <button onClick={() => setSearch('')} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+              <X size={15} />
             </button>
           )}
         </div>
@@ -393,46 +403,46 @@ export default function Payments() {
           <select
             value={filterStatus}
             onChange={e => setFilterStatus(e.target.value)}
-            className="text-sm border border-slate-200 rounded-lg px-3 py-2 outline-none bg-white text-slate-700"
+            className="text-sm border border-slate-200 rounded-lg px-3 py-2 outline-none bg-white text-slate-700 font-medium"
           >
-            <option value="">Tous les statuts</option>
-            <option value="paid">Payé</option>
-            <option value="cancelled">Annulé</option>
+            <option value="">جميع الحالات</option>
+            <option value="paid">مدفوع</option>
+            <option value="cancelled">ملغى</option>
           </select>
         ) : (
           <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
             <button
               onClick={() => setDebtFilter('all')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                debtFilter === 'all' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors cursor-pointer ${
+                debtFilter === 'all' ? 'bg-white text-slate-800 shadow-xs' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              Tous ({debtReport.length})
+              الكل ({debtReport.length})
             </button>
             <button
               onClick={() => setDebtFilter('overdue')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
-                debtFilter === 'overdue' ? 'bg-red-600 text-white shadow-sm' : 'text-red-600 hover:bg-red-50'
+              className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors cursor-pointer ${
+                debtFilter === 'overdue' ? 'bg-rose-600 text-white shadow-xs' : 'text-rose-600 hover:bg-rose-50'
               }`}
             >
-              En retard ({debtReport.filter(d => d.totalDebt > 0).length})
+              عليهم ديون ({debtReport.filter(d => d.totalDebt > 0).length})
             </button>
             <button
               onClick={() => setDebtFilter('up_to_date')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                debtFilter === 'up_to_date' ? 'bg-green-600 text-white shadow-sm' : 'text-green-700 hover:bg-green-50'
+              className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors cursor-pointer ${
+                debtFilter === 'up_to_date' ? 'bg-emerald-600 text-white shadow-xs' : 'text-emerald-700 hover:bg-emerald-50'
               }`}
             >
-              À jour ({debtReport.filter(d => d.totalDebt === 0).length})
+              مستوفون ({debtReport.filter(d => d.totalDebt === 0).length})
             </button>
           </div>
         )}
 
         <button
           onClick={() => (window as any).schoolApp?.app.print()}
-          className="flex items-center gap-1.5 px-3 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+          className="flex items-center gap-1.5 px-3.5 py-2 text-sm font-semibold text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer"
         >
-          <Printer size={14} /> Imprimer
+          <Printer size={15} /> طباعة
         </button>
       </div>
 
@@ -444,16 +454,16 @@ export default function Payments() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-100">
-                  {['N° Reçu', 'Élève', 'Cours & Groupe', 'Période', 'Montant', 'Méthode', 'Date', 'Statut', 'Actions'].map(h => (
-                    <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">{h}</th>
+                  {['رقم الوصل', 'الطالب', 'المادة والفوج', 'الفترة', 'المبلغ', 'طريقة الدفع', 'التاريخ', 'الحالة', 'الإجراءات'].map(h => (
+                    <th key={h} className="px-4 py-3 text-right text-xs font-bold text-slate-600">{h}</th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50">
+              <tbody className="divide-y divide-slate-100">
                 {filteredPayments.length === 0 ? (
                   <tr>
                     <td colSpan={9} className="text-center py-12 text-slate-400 text-sm">
-                      Aucun paiement trouvé
+                      لا توجد أي مدفوعات مسجلة
                     </td>
                   </tr>
                 ) : (
@@ -461,42 +471,44 @@ export default function Payments() {
                     const student = students.find(s => s.id === p.studentId)
                     return (
                       <tr key={p.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-4 py-3 font-mono text-xs text-blue-700 font-semibold">{p.receiptNumber}</td>
+                        <td className="px-4 py-3 font-mono text-xs text-blue-700 font-bold text-left" dir="ltr">{p.receiptNumber}</td>
                         <td className="px-4 py-3">
-                          <span className="font-semibold text-slate-800">
-                            {student ? `${student.firstNameFr} ${student.lastNameFr}` : (p.studentName || `Élève #${p.studentId}`)}
+                          <span className="font-bold text-slate-800">
+                            {student ? (student.firstNameAr ? `${student.lastNameAr} ${student.firstNameAr}` : `${student.firstNameFr} ${student.lastNameFr}`) : (p.studentName || `طالب #${p.studentId}`)}
                           </span>
-                          <p className="text-[11px] font-mono text-slate-400">{student?.studentNumber || p.studentNumber}</p>
+                          <p className="text-[11px] font-mono text-slate-400 text-left" dir="ltr">{student?.studentNumber || p.studentNumber}</p>
                         </td>
                         <td className="px-4 py-3 text-xs text-slate-600">
-                          <p className="font-medium text-slate-700">{p.groupName || '—'}</p>
-                          <p className="text-slate-400">{p.courseNameFr || p.courseNameAr || ''}</p>
+                          <p className="font-bold text-slate-700">{p.groupName || '—'}</p>
+                          <p className="text-slate-400">{p.courseNameAr || p.courseNameFr || ''}</p>
                         </td>
-                        <td className="px-4 py-3 text-slate-600 font-mono text-xs">{p.billingPeriod || '—'}</td>
-                        <td className="px-4 py-3 font-semibold text-green-700">{Number(p.amount).toLocaleString('fr-DZ')} DA</td>
-                        <td className="px-4 py-3 capitalize text-slate-600">{methodLabels[p.paymentMethod as PaymentMethod] || p.paymentMethod || 'Espèces'}</td>
-                        <td className="px-4 py-3 text-slate-600 text-xs">{new Date(p.paymentDate).toLocaleDateString('fr-DZ')}</td>
+                        <td className="px-4 py-3 text-slate-600 font-mono text-xs text-left" dir="ltr">{p.billingPeriod || '—'}</td>
+                        <td className="px-4 py-3 font-bold text-emerald-700 font-mono text-left" dir="ltr">{Number(p.amount).toLocaleString('ar-DZ')} دج</td>
+                        <td className="px-4 py-3 text-slate-700 font-medium">{methodLabels[p.paymentMethod as PaymentMethod] || p.paymentMethod || 'نقداً'}</td>
+                        <td className="px-4 py-3 text-slate-600 text-xs font-mono text-left" dir="ltr">{new Date(p.paymentDate).toLocaleDateString('ar-DZ')}</td>
                         <td className="px-4 py-3">
                           <Badge variant={p.status === 'paid' ? 'success' : 'error'}>
-                            {p.status === 'paid' ? 'Payé' : 'Annulé'}
+                            {p.status === 'paid' ? 'مدفوع' : 'ملغى'}
                           </Badge>
                         </td>
-                        <td className="px-4 py-3 flex items-center gap-2">
-                          <button
-                            onClick={() => setReceiptModal(p)}
-                            className="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
-                          >
-                            <Printer size={12} /> Reçu
-                          </button>
-                          {p.status === 'paid' && (
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
                             <button
-                              onClick={() => handleCancelPayment(p.id)}
-                              className="text-xs text-red-500 hover:text-red-700 font-medium ml-1"
-                              title="Annuler ce reçu"
+                              onClick={() => setReceiptModal(p)}
+                              className="text-xs text-blue-700 hover:text-blue-900 font-bold flex items-center gap-1 cursor-pointer"
                             >
-                              <XCircle size={13} />
+                              <Printer size={13} /> الوصل
                             </button>
-                          )}
+                            {p.status === 'paid' && (
+                              <button
+                                onClick={() => handleCancelPayment(p.id)}
+                                className="text-xs text-rose-500 hover:text-rose-700 font-bold cursor-pointer"
+                                title="إلغاء هذا الوصل"
+                              >
+                                <XCircle size={14} />
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     )
@@ -513,96 +525,96 @@ export default function Payments() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-100">
-                  {['Élève', 'Groupes & Cours', 'Tarif / mois', 'Mois facturés', 'Total Payé', 'Dette / Reste dû', 'Dernier paiement', 'Statut', 'Action'].map(h => (
-                    <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">{h}</th>
+                  {['الطالب', 'الأفواج والمواد', 'السعر الشهري', 'الأشهر المحتسبة', 'إجمالي المدفوع', 'الدين / المتبقي', 'آخر دفعة', 'الوضعية', 'الإجراء'].map(h => (
+                    <th key={h} className="px-4 py-3 text-right text-xs font-bold text-slate-600">{h}</th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50">
+              <tbody className="divide-y divide-slate-100">
                 {filteredDebtReport.length === 0 ? (
                   <tr>
                     <td colSpan={9} className="text-center py-12 text-slate-400 text-sm">
-                      Aucun élève trouvé
+                      لا توجد أي بيانات مطابقة
                     </td>
                   </tr>
                 ) : (
                   filteredDebtReport.map(item => (
                     <tr key={item.studentId} className="hover:bg-slate-50 transition-colors">
                       <td className="px-4 py-3">
-                        <span className="font-semibold text-slate-800">
-                          {item.firstNameFr} {item.lastNameFr}
+                        <span className="font-bold text-slate-900">
+                          {item.firstNameAr ? `${item.lastNameAr} ${item.firstNameAr}` : `${item.firstNameFr} ${item.lastNameFr}`}
                         </span>
-                        {item.firstNameAr && (
-                          <span className="text-xs text-slate-400 block">
-                            {item.lastNameAr} {item.firstNameAr}
+                        {item.firstNameFr && item.firstNameAr && (
+                          <span className="text-xs text-slate-400 block font-sans" dir="ltr">
+                            {item.firstNameFr} {item.lastNameFr}
                           </span>
                         )}
-                        <span className="font-mono text-[11px] text-slate-400">{item.studentNumber}</span>
+                        <span className="font-mono text-[11px] text-slate-400 block text-left" dir="ltr">{item.studentNumber}</span>
                       </td>
                       <td className="px-4 py-3">
                         {item.enrollments.map((en: any) => (
                           <div key={en.enrollmentId} className="text-xs">
-                            <span className="font-medium text-slate-700">{en.groupName}</span>
+                            <span className="font-bold text-slate-700">{en.groupName}</span>
                             <span className="text-slate-400"> ({en.courseName})</span>
                           </div>
                         ))}
                       </td>
-                      <td className="px-4 py-3 text-xs font-medium text-slate-700">
+                      <td className="px-4 py-3 text-xs font-bold text-slate-700 font-mono text-left" dir="ltr">
                         {item.enrollments.map((en: any) => (
                           <div key={en.enrollmentId}>
-                            {en.agreedPrice.toLocaleString('fr-DZ')} DA
+                            {Number(en.agreedPrice).toLocaleString('ar-DZ')} دج
                           </div>
                         ))}
                       </td>
                       <td className="px-4 py-3 text-xs text-slate-600">
                         {item.enrollments.map((en: any) => (
                           <div key={en.enrollmentId}>
-                            {en.monthsBilled} mois ({en.totalDue.toLocaleString('fr-DZ')} DA)
+                            {en.monthsBilled} شهر ({Number(en.totalDue).toLocaleString('ar-DZ')} دج)
                           </div>
                         ))}
                       </td>
-                      <td className="px-4 py-3 text-xs font-semibold text-green-700">
-                        {item.totalPaid.toLocaleString('fr-DZ')} DA
+                      <td className="px-4 py-3 text-xs font-bold text-emerald-700 font-mono text-left" dir="ltr">
+                        {Number(item.totalPaid).toLocaleString('ar-DZ')} دج
                       </td>
                       <td className="px-4 py-3">
                         {item.totalDebt > 0 ? (
                           <div>
-                            <span className="font-bold text-red-600 text-sm">
-                              {item.totalDebt.toLocaleString('fr-DZ')} DA
+                            <span className="font-bold text-rose-600 text-sm font-mono text-left block" dir="ltr">
+                              {Number(item.totalDebt).toLocaleString('ar-DZ')} دج
                             </span>
-                            <span className="text-[11px] text-red-500 block">
-                              ({item.monthsOverdue} mois de retard)
+                            <span className="text-[11px] text-rose-500 block">
+                              ({item.monthsOverdue} شهر تأخير)
                             </span>
                           </div>
                         ) : (
-                          <span className="text-xs font-medium text-green-700 flex items-center gap-1">
-                            <CheckCircle2 size={13} /> 0 DA
+                          <span className="text-xs font-bold text-emerald-700 flex items-center gap-1">
+                            <CheckCircle2 size={14} /> 0 دج
                           </span>
                         )}
                       </td>
                       <td className="px-4 py-3 text-xs text-slate-500">
                         {item.lastPaymentDate ? (
                           <div>
-                            <span>{new Date(item.lastPaymentDate).toLocaleDateString('fr-DZ')}</span>
-                            <span className="text-slate-400 block font-mono text-[10px]">
-                              {Number(item.lastPaymentAmount).toLocaleString('fr-DZ')} DA
+                            <span className="font-mono" dir="ltr">{new Date(item.lastPaymentDate).toLocaleDateString('ar-DZ')}</span>
+                            <span className="text-slate-400 block font-mono text-[10px] text-left" dir="ltr">
+                              {Number(item.lastPaymentAmount).toLocaleString('ar-DZ')} دج
                             </span>
                           </div>
                         ) : (
-                          <span className="text-slate-400 italic">Aucun paiement</span>
+                          <span className="text-slate-400 italic">لا يوجد</span>
                         )}
                       </td>
                       <td className="px-4 py-3">
                         <Badge variant={item.totalDebt > 0 ? 'error' : 'success'}>
-                          {item.totalDebt > 0 ? 'En retard' : 'À jour'}
+                          {item.totalDebt > 0 ? 'متأخر' : 'مستوفٍ'}
                         </Badge>
                       </td>
                       <td className="px-4 py-3">
                         <button
                           onClick={() => handleQuickPayForStudent(item.studentId)}
-                          className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors shadow-sm"
+                          className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors shadow-sm cursor-pointer"
                         >
-                          <CreditCard size={13} /> Payer
+                          <CreditCard size={13} /> تسديد
                         </button>
                       </td>
                     </tr>
@@ -614,23 +626,23 @@ export default function Payments() {
         </div>
       )}
 
-      {/* Add payment modal with Searchable Combobox */}
-      <Modal open={addModalOpen} onClose={() => setAddModalOpen(false)} title="Enregistrer un paiement" size="md">
-        <div className="space-y-4">
+      {/* Add payment modal */}
+      <Modal open={addModalOpen} onClose={() => setAddModalOpen(false)} title="تسجيل دفعة مالية جديدة" size="md">
+        <div className="space-y-4" dir="rtl">
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2">
-              <label className="block text-xs font-medium text-slate-600 mb-1.5">Élève *</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">الطالب *</label>
               <StudentCombobox
                 students={students.filter(s => s.status === 'active')}
                 value={form.studentId}
                 onChange={handleStudentSelect}
                 debtMap={debtMap}
-                placeholder="Rechercher par nom, prénom, matricule ou QR..."
+                placeholder="ابحث عن طالب بالاسم، اللقب، أو رقم القيد..."
               />
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1.5">Inscription / Groupe *</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">التسجيل / الفوج *</label>
               <select
                 value={form.enrollmentId}
                 onChange={e => {
@@ -644,100 +656,101 @@ export default function Payments() {
                 }}
                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
               >
-                <option value="">Sélectionner l'inscription</option>
+                <option value="">-- اختر الفوج الدراسي --</option>
                 {enrollments.map(en => {
                   const g = groups.find(grp => grp.id === en.groupId)
                   return (
-                    <option key={en.id} value={en.id}>{g?.name || `Groupe #${en.groupId}`} — {en.agreedPrice} DA/mois</option>
+                    <option key={en.id} value={en.id}>{g?.name || `فوج #${en.groupId}`} — {en.agreedPrice} دج/شهر</option>
                   )
                 })}
               </select>
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1.5">Période de facturation (Mois)</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">شهر الفوترة</label>
               <input
                 type="month"
                 value={form.billingPeriod}
                 onChange={e => setForm(f => ({ ...f, billingPeriod: e.target.value }))}
-                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white font-mono"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1.5">Montant à encaisser (DA) *</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">المبلغ المقبوض (دج) *</label>
               <input
                 type="number"
                 value={form.amount}
                 onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
                 placeholder="2500"
-                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white font-semibold text-slate-800"
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white font-bold text-slate-900 font-mono"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1.5">Méthode de paiement</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">طريقة الدفع</label>
               <select
                 value={form.method}
                 onChange={e => setForm(f => ({ ...f, method: e.target.value as PaymentMethod }))}
                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
               >
-                <option value="cash">Espèces</option>
-                <option value="transfer">Virement bancaire / CCP</option>
-                <option value="check">Chèque</option>
+                <option value="cash">نقداً (Espèces)</option>
+                <option value="transfer">تحويل بنكي / CCP</option>
+                <option value="check">شيك بنكي (Chèque)</option>
               </select>
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1.5">Date du paiement</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">تاريخ الدفع</label>
               <input
                 type="date"
                 value={form.date}
                 onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
-                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white font-mono"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1.5">Référence / N° Chèque (optionnel)</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">رقم المرجع / الشيك (اختياري)</label>
               <input
                 type="text"
-                placeholder="Ex: CHQ-882109"
+                placeholder="مثال: CHQ-882109"
                 value={form.reference}
                 onChange={e => setForm(f => ({ ...f, reference: e.target.value }))}
-                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500"
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 font-mono text-left"
+                dir="ltr"
               />
             </div>
           </div>
 
           {/* Student current debt notice if applicable */}
           {form.studentId && debtMap[Number(form.studentId)] && debtMap[Number(form.studentId)].debt > 0 && (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2.5">
-              <AlertCircle size={16} className="text-amber-600 shrink-0 mt-0.5" />
-              <div className="text-xs text-amber-800">
-                <p className="font-semibold">
-                  Solde en attente pour cet élève : {debtMap[Number(form.studentId)].debt.toLocaleString('fr-DZ')} DA ({debtMap[Number(form.studentId)].monthsOverdue} mois de retard)
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3.5 flex items-start gap-2.5">
+              <AlertCircle size={18} className="text-amber-600 shrink-0 mt-0.5" />
+              <div className="text-xs text-amber-900 leading-relaxed">
+                <p className="font-bold">
+                  مستحقات سابقة على هذا الطالب: {debtMap[Number(form.studentId)].debt.toLocaleString('ar-DZ')} دج ({debtMap[Number(form.studentId)].monthsOverdue} شهر تأخير)
                 </p>
-                <p className="mt-0.5 text-amber-700">
-                  L'enregistrement de ce paiement de {Number(form.amount || 0).toLocaleString('fr-DZ')} DA sera déduit de sa dette totale.
+                <p className="mt-1 text-amber-800">
+                  سيتم خصم مبلغ هذه الدفعة البالغ {Number(form.amount || 0).toLocaleString('ar-DZ')} دج من إجمالي ديون الطالب.
                 </p>
               </div>
             </div>
           )}
 
-          <div className="flex justify-end gap-2 pt-2">
-            <button onClick={() => setAddModalOpen(false)} className="px-4 py-2 text-sm text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">
-              Annuler
+          <div className="flex justify-end gap-2.5 pt-4 border-t border-slate-100">
+            <button onClick={() => setAddModalOpen(false)} className="px-4 py-2 text-sm font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer">
+              إلغاء
             </button>
-            <button onClick={handleAddPayment} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm">
-              Enregistrer & Émettre reçu
+            <button onClick={handleAddPayment} className="px-4 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm cursor-pointer">
+              تسجيل الدفعة واستخراج الوصل
             </button>
           </div>
         </div>
       </Modal>
 
       {/* Receipt Modal */}
-      <Modal open={receiptModal !== null} onClose={() => setReceiptModal(null)} title="Reçu de paiement" size="sm">
+      <Modal open={receiptModal !== null} onClose={() => setReceiptModal(null)} title="وصل تسديد رسوم" size="sm">
         {receiptModal && (
           <Receipt
             payment={receiptModal}

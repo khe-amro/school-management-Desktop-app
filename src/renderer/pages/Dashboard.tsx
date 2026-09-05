@@ -8,6 +8,7 @@ import {
 
 const WEEKDAY_AR = ['الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت', 'الأحد']
 const WEEKDAY_FR = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche']
+const WEEKDAY_EN = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
 /** Returns 0 (Mon)…6 (Sun) for today */
 function todayWeekday(): number {
@@ -94,7 +95,7 @@ function FilterCombobox({
   )
 
   return (
-    <div className="relative min-w-[160px] flex-1">
+    <div className="relative min-w-40 flex-1">
       <div className="relative flex items-center">
         <input
           type="text"
@@ -242,11 +243,11 @@ export default function Dashboard() {
       sub: t('dashboard.plannedSessions'),
     },
     {
-      label: lang === 'ar' ? 'المحصّل اليوم' : "Collecté aujourd'hui",
+      label: lang === 'ar' ? 'المحصّل اليوم' : lang === 'en' ? 'Collected Today' : "Collecté aujourd'hui",
       value: `${stats.todayCollected.toLocaleString()} DA`,
       icon: CreditCard,
       color: 'bg-teal-50 text-teal-600',
-      sub: lang === 'ar' ? 'دفعات اليوم' : "Paiements du jour",
+      sub: lang === 'ar' ? 'دفعات اليوم' : lang === 'en' ? "Today's payments" : "Paiements du jour",
     },
   ]
 
@@ -258,7 +259,7 @@ export default function Dashboard() {
   ]
 
   const todayWd = todayWeekday()
-  const dayLabel = (wd: number) => (lang === 'ar' ? WEEKDAY_AR[wd]! : WEEKDAY_FR[wd]!)
+  const dayLabel = (wd: number) => (lang === 'ar' ? WEEKDAY_AR[wd]! : lang === 'en' ? WEEKDAY_EN[wd]! : WEEKDAY_FR[wd]!)
 
   // ─── Cascaded Filter Handlers & Auto-fill Logic ──────────────────────────────
   const handleModuleChange = (newMod: string) => {
@@ -453,7 +454,7 @@ export default function Dashboard() {
             <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
               <h3 className="font-bold text-[#0F172A] text-sm flex items-center gap-2">
                 <Calendar size={16} className="text-[#2563EB]" />
-                {lang === 'ar' ? 'الجدول الأسبوعي' : 'Planning hebdomadaire'}
+                {lang === 'ar' ? 'الجدول الأسبوعي' : lang === 'en' ? 'Weekly Schedule' : 'Planning hebdomadaire'}
               </h3>
               <div className="flex items-center gap-2">
                 <button
@@ -461,10 +462,10 @@ export default function Dashboard() {
                   className="flex items-center gap-1 text-xs text-[#2563EB] bg-blue-50 border border-blue-100 font-semibold px-2.5 py-1 rounded-lg hover:bg-blue-100 transition-colors"
                 >
                   <Maximize2 size={13} />
-                  <span>{lang === 'ar' ? 'توسيع الجدول' : 'Agrandir'}</span>
+                  <span>{lang === 'ar' ? 'توسيع الجدول' : lang === 'en' ? 'Expand' : 'Agrandir'}</span>
                 </button>
                 <button onClick={() => navigate('/courses')} className="text-xs text-slate-500 hover:text-[#2563EB]">
-                  {lang === 'ar' ? 'إدارة' : 'Gérer'}
+                  {lang === 'ar' ? 'إدارة' : lang === 'en' ? 'Manage' : 'Gérer'}
                 </button>
               </div>
             </div>
@@ -472,7 +473,7 @@ export default function Dashboard() {
             {weeklySlots.length === 0 ? (
               <div className="text-center py-8 text-slate-400">
                 <Calendar size={28} className="mx-auto mb-2 opacity-40" />
-                <p className="text-xs">{lang === 'ar' ? 'لا توجد جداول مسجّلة' : 'Aucun planning enregistré'}</p>
+                <p className="text-xs">{lang === 'ar' ? 'لا توجد جداول مسجّلة' : lang === 'en' ? 'No schedule recorded' : 'Aucun planning enregistré'}</p>
               </div>
             ) : (
               <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
@@ -483,9 +484,9 @@ export default function Dashboard() {
                     <div key={wd} className={`rounded-xl ${wd === todayWd ? 'bg-blue-50/80 border border-blue-200' : 'bg-slate-50 border border-slate-100'} p-2.5`}>
                       <div className="flex items-center justify-between mb-1.5">
                         <span className={`text-xs font-bold ${wd === todayWd ? 'text-[#2563EB]' : 'text-slate-700'}`}>
-                          {dayLabel(wd)} {wd === todayWd && (lang === 'ar' ? '← اليوم' : '← Aujourd\'hui')}
+                          {dayLabel(wd)} {wd === todayWd && (lang === 'ar' ? '← اليوم' : lang === 'en' ? '← Today' : '← Aujourd\'hui')}
                         </span>
-                        <span className="text-[10px] text-slate-400 font-mono">{daySlots.length} {lang === 'ar' ? 'حصص' : 'séances'}</span>
+                        <span className="text-[10px] text-slate-400 font-mono">{daySlots.length} {lang === 'ar' ? 'حصص' : lang === 'en' ? 'sessions' : 'séances'}</span>
                       </div>
                       <div className="space-y-1">
                         {daySlots.map((s, i) => {
@@ -524,7 +525,7 @@ export default function Dashboard() {
             className="w-full mt-3 text-xs text-center py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg transition-colors flex items-center justify-center gap-1.5"
           >
             <Filter size={13} />
-            <span>{lang === 'ar' ? 'عرض الجدول المفصّل مع الفلاتر' : 'Voir le planning complet avec filtres'}</span>
+            <span>{lang === 'ar' ? 'عرض الجدول المفصّل مع الفلاتر' : lang === 'en' ? 'View full schedule with filters' : 'Voir le planning complet avec filtres'}</span>
           </button>
         </div>
 
@@ -534,7 +535,7 @@ export default function Dashboard() {
             <div>
               <h3 className="font-bold text-[#0F172A] text-sm flex items-center gap-2">
                 <Clock size={16} className="text-[#2563EB] animate-pulse" />
-                {lang === 'ar' ? 'حصص اليوم' : "Séances d'aujourd'hui"}
+                {lang === 'ar' ? 'حصص اليوم' : lang === 'en' ? "Today's Classes" : "Séances d'aujourd'hui"}
               </h3>
               <div className="flex items-center gap-2 mt-1.5 font-mono text-[11px] font-bold">
                 <span className="bg-blue-50 text-[#2563EB] px-2.5 py-0.5 rounded-md border border-blue-100 flex items-center gap-1">
@@ -546,7 +547,7 @@ export default function Dashboard() {
               </div>
             </div>
             <button onClick={() => navigate('/attendance')} className="text-xs font-semibold text-[#2563EB] hover:underline bg-blue-50 px-2.5 py-1.5 rounded-lg border border-blue-100 transition-colors hover:bg-blue-100">
-              {lang === 'ar' ? 'متابعة الحضور' : 'Présence'}
+              {lang === 'ar' ? 'متابعة الحضور' : lang === 'en' ? 'Attendance' : 'Présence'}
             </button>
           </div>
 
@@ -605,10 +606,10 @@ export default function Dashboard() {
                 </div>
                 <div>
                   <h2 className="text-base font-bold">
-                    {lang === 'ar' ? 'الجدول الأسبوعي المفصّل (جدول البيانات)' : 'Planning hebdomadaire interactif'}
+                    {lang === 'ar' ? 'الجدول الأسبوعي المفصّل (جدول البيانات)' : lang === 'en' ? 'Interactive Weekly Schedule' : 'Planning hebdomadaire interactif'}
                   </h2>
                   <p className="text-xs text-slate-400">
-                    {lang === 'ar' ? 'جدول كامل مع تحديد سريعات للحصص حسب ساعة البداية والفلاتر' : 'Vue détaillée des séances par heure de début'}
+                    {lang === 'ar' ? 'جدول كامل مع تحديد سريعات للحصص حسب ساعة البداية والفلاتر' : lang === 'en' ? 'Detailed view of sessions by start time and filters' : 'Vue détaillée des séances par heure de début'}
                   </p>
                 </div>
               </div>
@@ -624,13 +625,13 @@ export default function Dashboard() {
             <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center gap-3 shrink-0">
               <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
                 <Filter size={15} className="text-[#2563EB]" />
-                <span>{lang === 'ar' ? 'تصفية وحصر الحصص:' : 'Filtrer les séances:'}</span>
+                <span>{lang === 'ar' ? 'تصفية وحصر الحصص:' : lang === 'en' ? 'Filter sessions:' : 'Filtrer les séances:'}</span>
               </div>
 
               {/* Module Filter (Choose + Typing) */}
               <FilterCombobox
-                label={lang === 'ar' ? 'جميع المواد (Modules)' : 'Tous les modules'}
-                placeholder={lang === 'ar' ? 'اختر أو اكتب المادة...' : 'Module...'}
+                label={lang === 'ar' ? 'جميع المواد (Modules)' : lang === 'en' ? 'All Modules' : 'Tous les modules'}
+                placeholder={lang === 'ar' ? 'اختر أو اكتب المادة...' : lang === 'en' ? 'Module...' : 'Module...'}
                 value={selectedModule}
                 onChange={handleModuleChange}
                 options={availableModules}
@@ -638,8 +639,8 @@ export default function Dashboard() {
 
               {/* Teacher Filter (Choose + Typing) */}
               <FilterCombobox
-                label={lang === 'ar' ? 'جميع الأساتذة (Enseignants)' : 'Tous les enseignants'}
-                placeholder={lang === 'ar' ? 'اختر أو اكتب الأستاذ...' : 'Enseignant...'}
+                label={lang === 'ar' ? 'جميع الأساتذة (Enseignants)' : lang === 'en' ? 'All Teachers' : 'Tous les enseignants'}
+                placeholder={lang === 'ar' ? 'اختر أو اكتب الأستاذ...' : lang === 'en' ? 'Teacher...' : 'Enseignant...'}
                 value={selectedTeacher}
                 onChange={handleTeacherChange}
                 options={availableTeachers}
@@ -647,21 +648,21 @@ export default function Dashboard() {
 
               {/* Group Filter (Choose + Typing) */}
               <FilterCombobox
-                label={lang === 'ar' ? 'جميع الأفواج (Groupes)' : 'Tous les groupes'}
-                placeholder={lang === 'ar' ? 'اختر أو اكتب الفوج...' : 'Groupe...'}
+                label={lang === 'ar' ? 'جميع الأفواج (Groupes)' : lang === 'en' ? 'All Groups' : 'Tous les groupes'}
+                placeholder={lang === 'ar' ? 'اختر أو اكتب الفوج...' : lang === 'en' ? 'Group...' : 'Groupe...'}
                 value={selectedGroup}
                 onChange={handleGroupChange}
                 options={availableGroups}
               />
 
               {/* Live Search Input */}
-              <div className="relative flex-1 min-w-[200px]">
+              <div className="relative flex-1 min-w-50">
                 <Search size={14} className="absolute left-3 top-2.5 text-slate-400 pointer-events-none ms-1" />
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder={lang === 'ar' ? 'اكتب للبحث بالتسمية أو القاعة...' : 'Recherche par nom, salle...'}
+                  placeholder={lang === 'ar' ? 'اكتب للبحث بالتسمية أو القاعة...' : lang === 'en' ? 'Search by name, room...' : 'Recherche par nom, salle...'}
                   className="w-full text-xs bg-white border border-slate-300 rounded-lg ps-8 pe-3 py-2 focus:ring-2 focus:ring-[#2563EB] focus:outline-none"
                 />
               </div>
@@ -673,19 +674,19 @@ export default function Dashboard() {
                   className="flex items-center gap-1.5 text-xs text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 font-bold px-3 py-2 rounded-lg transition-colors"
                 >
                   <RotateCcw size={13} />
-                  <span>{lang === 'ar' ? 'إعادة ضبط الفلاتر' : 'Réinitialiser'}</span>
+                  <span>{lang === 'ar' ? 'إعادة ضبط الفلاتر' : lang === 'en' ? 'Reset Filters' : 'Réinitialiser'}</span>
                 </button>
               )}
             </div>
 
             {/* Extended Spreadsheet Table */}
             <div className="flex-1 overflow-auto p-4 bg-slate-100">
-              <div className="min-w-[950px] bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="min-w-237.5 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                 <table className="w-full border-collapse text-left dir-auto">
                   <thead>
                     <tr className="bg-slate-900 text-white text-xs">
                       <th className="p-3 border-b border-r border-slate-800 text-center w-24 sticky top-0 bg-slate-900 z-10 font-bold">
-                        ⏱ {lang === 'ar' ? 'التوقيت' : 'Heure'}
+                        ⏱ {lang === 'ar' ? 'التوقيت' : lang === 'en' ? 'Time' : 'Heure'}
                       </th>
                       {WEEKDAYS.map(wd => (
                         <th
@@ -694,7 +695,7 @@ export default function Dashboard() {
                             wd === todayWd ? 'bg-[#2563EB] text-white' : 'bg-slate-900'
                           }`}
                         >
-                          {dayLabel(wd)} {wd === todayWd && ' (اليوم)'}
+                          {dayLabel(wd)} {wd === todayWd && (lang === 'ar' ? ' (اليوم)' : lang === 'en' ? ' (Today)' : ' (Aujourd\'hui)')}
                         </th>
                       ))}
                     </tr>
@@ -715,7 +716,7 @@ export default function Dashboard() {
                             return (
                               <td
                                 key={wd}
-                                className={`p-2 border-r border-slate-200 align-top min-w-[130px] h-20 ${
+                                className={`p-2 border-r border-slate-200 align-top min-w-32.5 h-20 ${
                                   wd === todayWd ? 'bg-blue-50/20' : ''
                                 }`}
                               >
@@ -742,7 +743,7 @@ export default function Dashboard() {
                                           </div>
                                           <div className="text-[10px] text-slate-800 mt-1 flex items-center gap-1 font-semibold bg-white/80 px-1.5 py-0.5 rounded-md border border-slate-200/70 w-fit">
                                             <User size={10} className="text-slate-600 shrink-0" />
-                                            <span className="truncate">{teacherName || (lang === 'ar' ? 'أستاذ غير محدد' : 'Enseignant non spécifié')}</span>
+                                            <span className="truncate">{teacherName || (lang === 'ar' ? 'أستاذ غير محدد' : lang === 'en' ? 'Unspecified teacher' : 'Enseignant non spécifié')}</span>
                                           </div>
                                           <div className="mt-1.5 flex flex-wrap items-center justify-between text-[10px] font-mono text-slate-500 pt-1 border-t border-slate-200/60">
                                             <span>⏱ {slot.startTime}–{slot.endTime}</span>
@@ -767,13 +768,13 @@ export default function Dashboard() {
             {/* Modal Footer */}
             <div className="p-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
               <div>
-                <span>{lang === 'ar' ? `عدد الحصص المعروضة: ${filteredSlots.length} من أصل ${weeklySlots.length}` : `Séances affichées: ${filteredSlots.length} / ${weeklySlots.length}`}</span>
+                <span>{lang === 'ar' ? `عدد الحصص المعروضة: ${filteredSlots.length} من أصل ${weeklySlots.length}` : lang === 'en' ? `Sessions displayed: ${filteredSlots.length} / ${weeklySlots.length}` : `Séances affichées: ${filteredSlots.length} / ${weeklySlots.length}`}</span>
               </div>
               <button
                 onClick={() => setIsModalOpen(false)}
                 className="px-4 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-lg transition-colors"
               >
-                {lang === 'ar' ? 'إغلاق' : 'Fermer'}
+                {lang === 'ar' ? 'إغلاق' : lang === 'en' ? 'Close' : 'Fermer'}
               </button>
             </div>
           </div>
@@ -782,7 +783,7 @@ export default function Dashboard() {
 
       {/* INSPECT SLOT DIALOG */}
       {inspectSlot && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-[60] flex items-center justify-center p-4 animate-fade-in">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-60 flex items-center justify-center p-4 animate-fade-in">
           <div className="bg-white max-w-md w-full rounded-2xl p-6 shadow-2xl border border-slate-200 space-y-4">
             <div className="flex items-start justify-between border-b border-slate-100 pb-3">
               <div>
@@ -790,7 +791,7 @@ export default function Dashboard() {
                   {dayLabel(inspectSlot.weekday)} · {inspectSlot.startTime} – {inspectSlot.endTime}
                 </span>
                 <h3 className="font-bold text-lg text-[#0F172A] mt-1">
-                  {(lang === 'ar' ? inspectSlot.courseNameAr || inspectSlot.courseNameFr : inspectSlot.courseNameFr || inspectSlot.courseNameAr) || 'Cours'}
+                  {(lang === 'ar' ? inspectSlot.courseNameAr || inspectSlot.courseNameFr : inspectSlot.courseNameFr || inspectSlot.courseNameAr) || (lang === 'en' ? 'Course' : 'Cours')}
                 </h3>
               </div>
               <button onClick={() => setInspectSlot(null)} className="text-slate-400 hover:text-slate-600 p-1">
@@ -800,13 +801,13 @@ export default function Dashboard() {
 
             <div className="space-y-2.5 text-xs text-slate-700">
               <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-100">
-                <span className="font-medium text-slate-500">{lang === 'ar' ? 'الفوج:' : 'Groupe:'}</span>
+                <span className="font-medium text-slate-500">{lang === 'ar' ? 'الفوج:' : lang === 'en' ? 'Group:' : 'Groupe:'}</span>
                 <span className="font-bold text-[#0F172A]">{inspectSlot.groupName}</span>
               </div>
 
               {(inspectSlot.teacherNameAr || inspectSlot.teacherNameFr) && (
                 <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-100">
-                  <span className="font-medium text-slate-500">{lang === 'ar' ? 'الأستاذ:' : 'Enseignant:'}</span>
+                  <span className="font-medium text-slate-500">{lang === 'ar' ? 'الأستاذ:' : lang === 'en' ? 'Teacher:' : 'Enseignant:'}</span>
                   <span className="font-bold text-[#0F172A]">
                     {(lang === 'ar' ? inspectSlot.teacherNameAr || inspectSlot.teacherNameFr : inspectSlot.teacherNameFr || inspectSlot.teacherNameAr)}
                   </span>
@@ -815,7 +816,7 @@ export default function Dashboard() {
 
               {inspectSlot.room && (
                 <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-100">
-                  <span className="font-medium text-slate-500">{lang === 'ar' ? 'القاعة:' : 'Salle:'}</span>
+                  <span className="font-medium text-slate-500">{lang === 'ar' ? 'القاعة:' : lang === 'en' ? 'Room:' : 'Salle:'}</span>
                   <span className="font-bold text-[#0F172A]">{inspectSlot.room}</span>
                 </div>
               )}
@@ -840,13 +841,13 @@ export default function Dashboard() {
                 }}
                 className="flex-1 py-2 bg-[#2563EB] hover:bg-blue-700 text-white font-bold text-xs rounded-xl transition-colors text-center"
               >
-                {lang === 'ar' ? 'فتح كشف الحضور' : 'Ouvrir la présence'}
+                {lang === 'ar' ? 'فتح كشف الحضور' : lang === 'en' ? 'Open Attendance' : 'Ouvrir la présence'}
               </button>
               <button
                 onClick={() => setInspectSlot(null)}
                 className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors"
               >
-                {lang === 'ar' ? 'إغلاق' : 'Fermer'}
+                {lang === 'ar' ? 'إغلاق' : lang === 'en' ? 'Close' : 'Fermer'}
               </button>
             </div>
           </div>

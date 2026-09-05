@@ -239,3 +239,56 @@ async function enforceRetention(backupDir: string, maxCount: number): Promise<vo
     log.warn('Backup retention enforcement failed:', err)
   }
 }
+
+export async function runDailyAutoBackup(): Promise<void> {
+  try {
+    const backupDir = getDefaultBackupDir()
+    if (!fs.existsSync(backupDir)) {
+      fs.mkdirSync(backupDir, { recursive: true })
+    }
+    const today = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
+    const existing = fs.readdirSync(backupDir).some(f => f.includes(today) && f.endsWith('.zip'))
+    if (existing) {
+      log.info(`Daily backup for ${today} already exists. Skipping auto-backup.`)
+      return
+    }
+
+    const filename = `backup_${today}.zip`
+    const backupPath = path.join(backupDir, filename)
+    const dbPath = getDatabasePath_()
+    const userData = app.getPath('userData')
+
+    await new Promise<void>((resolve, reject) => {
+      const output = fs.createWriteStream(backupPath)
+      const archive = archiver('zip', { zlib: { level: 9 } })
+
+      output.on('close', resolve)
+      archive.on('error', reject)
+      archive.pipe(output)
+
+      archive.file(dbPath, { name: 'data/school-management.sqlite' })
+      const mediaDir = path.join(userData, 'media')
+      if (fs.existsSync(mediaDir)) {
+        archive.directory(mediaDir, 'media')
+      }
+      archive.append(
+        JSON.stringify({
+          version: app.getVersion(),
+          createdAt: new Date().toISOString(),
+          appName: 'edupilot-dz',
+          type: 'daily_auto',
+        }),
+        { name: 'manifest.json' }
+      )
+      archive.finalize()
+    })
+
+    const hash = computeFileHash(backupPath)
+    fs.writeFileSync(`${backupPath}.sha256`, hash)
+    await enforceRetention(backupDir, 30)
+    log.info(`Daily auto-backup completed: ${filename}`)
+  } catch (err) {
+    log.warn('Daily auto-backup failed:', err)
+  }
+}
+

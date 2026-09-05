@@ -24,6 +24,21 @@ if (!gotLock) {
   app.quit()
 }
 
+// Global exception and rejection diagnostics (Requirement 3)
+process.on('uncaughtException', (error: Error) => {
+  log.error(`[CRASH:uncaughtException] [${new Date().toISOString()}] [main]`, {
+    name: error.name,
+    message: error.message,
+    stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+  })
+})
+
+process.on('unhandledRejection', (reason: unknown) => {
+  log.error(`[CRASH:unhandledRejection] [${new Date().toISOString()}] [main]`, {
+    reason: reason instanceof Error ? { name: reason.name, message: reason.message } : String(reason),
+  })
+})
+
 let mainWindow: BrowserWindow | null = null
 
 app.on('second-instance', () => {
@@ -37,6 +52,14 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+app.on('child-process-gone', (_event, details) => {
+  log.error(`[CRASH:child-process-gone] [${new Date().toISOString()}] [${details.type}]`, {
+    reason: details.reason,
+    exitCode: details.exitCode,
+    name: details.name,
+  })
 })
 
 app.on('activate', () => {
@@ -72,6 +95,38 @@ async function bootstrap(): Promise<void> {
 
     // 4. Create main window
     mainWindow = createMainWindow()
+
+    // WebContents crash and failure monitoring (Requirement 3)
+    mainWindow.webContents.on('render-process-gone', (_event, details) => {
+      log.error(`[CRASH:render-process-gone] [${new Date().toISOString()}] [renderer]`, {
+        reason: details.reason,
+        exitCode: details.exitCode,
+      })
+    })
+
+    mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+      log.warn(`[WARN:did-fail-load] [${new Date().toISOString()}] [${errorCode}]`, {
+        description: errorDescription,
+        url: validatedURL,
+      })
+    })
+
+    // 5. Run offline attendance reconciliation on startup (Requirement 16)
+    try {
+      const { reconcilePastSessionsAttendance } = await import('./services/attendance.service')
+      await reconcilePastSessionsAttendance()
+      log.info('Offline attendance reconciliation completed on startup')
+    } catch (e) {
+      log.warn('Attendance reconciliation startup error:', e)
+    }
+
+    // 6. Trigger daily auto-backup asynchronously (Requirement 53)
+    try {
+      const { runDailyAutoBackup } = await import('./services/backup.service')
+      runDailyAutoBackup().catch(e => log.warn('Auto backup background error:', e))
+    } catch (e) {
+      log.warn('Auto backup init error:', e)
+    }
 
     log.info('Bootstrap complete')
   } catch (err) {

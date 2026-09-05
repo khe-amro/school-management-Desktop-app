@@ -1,21 +1,20 @@
 import { useState, useRef, useEffect } from 'react'
-import { Search, Bell, ChevronDown, User, Settings, LogOut, X } from 'lucide-react'
+import { Search, ChevronDown, User, Settings, LogOut, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
 interface HeaderProps {
   title: string
 }
 
-const today = new Date().toLocaleDateString('fr-DZ', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+const today = new Date().toLocaleDateString('ar-DZ', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
 
 export default function Header({ title }: HeaderProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<any[]>([])
   const [showSearch, setShowSearch] = useState(false)
-  const [showNotif, setShowNotif] = useState(false)
   const [showProfile, setShowProfile] = useState(false)
   const [adminUser, setAdminUser] = useState<{ fullName: string; photoUrl: string | null }>({
-    fullName: 'Admin',
+    fullName: 'مدير النظام',
     photoUrl: null,
   })
 
@@ -36,7 +35,7 @@ export default function Header({ title }: HeaderProps) {
             if (pRes.success) photoUrl = pRes.data.url
           }
           setAdminUser({
-            fullName: res.data.fullName || 'Admin',
+            fullName: res.data.fullName || 'مدير النظام',
             photoUrl,
           })
         }
@@ -62,19 +61,19 @@ export default function Header({ title }: HeaderProps) {
         ])
 
         const matchedStudents = (sRes.success && sRes.data?.items ? sRes.data.items : []).map((s: any) => ({
-          type: 'Étudiant',
-          label: `${s.firstNameFr} ${s.lastNameFr}`,
+          type: 'طالب',
+          label: `${s.lastNameAr || s.lastNameFr || ''} ${s.firstNameAr || s.firstNameFr || ''}`.trim(),
           sub: s.studentNumber,
           to: `/students/${s.id}`
         }))
 
         const matchedCourses = (cRes.success && cRes.data ? cRes.data : [])
-          .filter((c: any) => (c.nameFr || c.nameAr || '').toLowerCase().includes(searchQuery.toLowerCase()))
+          .filter((c: any) => (c.nameAr || c.nameFr || '').toLowerCase().includes(searchQuery.toLowerCase()))
           .slice(0, 3)
           .map((c: any) => ({
-            type: 'Cours',
-            label: c.nameFr || c.nameAr,
-            sub: c.code || 'Formation',
+            type: 'مادة',
+            label: c.nameAr || c.nameFr,
+            sub: c.code || 'مادة تعليمية',
             to: '/courses'
           }))
 
@@ -98,8 +97,8 @@ export default function Header({ title }: HeaderProps) {
   }, [])
 
   return (
-    <header className="h-14 bg-white border-b border-slate-200 flex items-center px-6 gap-4 shrink-0 z-20">
-      <h1 className="text-base font-semibold text-slate-900 whitespace-nowrap">{title}</h1>
+    <header className="h-14 bg-white border-b border-slate-200 flex items-center px-6 gap-4 shrink-0 z-20" dir="rtl">
+      <h1 className="text-base font-bold text-slate-900 whitespace-nowrap">{title}</h1>
       <div className="flex-1" />
 
       {/* Search */}
@@ -108,11 +107,11 @@ export default function Header({ title }: HeaderProps) {
           <Search size={14} className="text-slate-400 shrink-0" />
           <input
             type="text"
-            placeholder="Rechercher étudiant, cours..."
+            placeholder="بحث عن طالب أو مادة..."
             value={searchQuery}
             onChange={e => { setSearchQuery(e.target.value); setShowSearch(true) }}
             onFocus={() => setShowSearch(true)}
-            className="bg-transparent text-sm outline-none w-full text-slate-700 placeholder-slate-400"
+            className="bg-transparent text-sm outline-none w-full text-slate-700 placeholder-slate-400 text-right"
           />
           {searchQuery && (
             <button onClick={() => { setSearchQuery(''); setShowSearch(false) }}>
@@ -125,7 +124,7 @@ export default function Header({ title }: HeaderProps) {
             {searchResults.map((r, i) => (
               <button
                 key={i}
-                className="flex items-center justify-between w-full px-4 py-2.5 hover:bg-slate-50 text-left transition-colors border-b border-slate-50 last:border-0"
+                className="flex items-center justify-between w-full px-4 py-2.5 hover:bg-slate-50 text-right transition-colors border-b border-slate-50 last:border-0"
                 onClick={() => { navigate(r.to); setShowSearch(false); setSearchQuery('') }}
               >
                 <div>
@@ -140,12 +139,12 @@ export default function Header({ title }: HeaderProps) {
       </div>
 
       {/* Date */}
-      <span className="text-xs text-slate-500 whitespace-nowrap hidden xl:block capitalize">{today}</span>
+      <span className="text-xs text-slate-500 whitespace-nowrap hidden xl:block">{today}</span>
 
       {/* Profile Menu */}
       <div className="relative">
         <button
-          onClick={() => { setShowProfile(!showProfile); setShowNotif(false) }}
+          onClick={() => setShowProfile(!showProfile)}
           className="flex items-center gap-2.5 p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
         >
           {adminUser.photoUrl ? (
@@ -159,16 +158,16 @@ export default function Header({ title }: HeaderProps) {
           <ChevronDown size={13} className="text-slate-400" />
         </button>
         {showProfile && (
-          <div className="absolute top-full mt-1 right-0 bg-white rounded-xl border border-slate-200 shadow-lg w-48 z-50 overflow-hidden">
+          <div className="absolute top-full mt-1 left-0 bg-white rounded-xl border border-slate-200 shadow-lg w-48 z-50 overflow-hidden text-right">
             <button onClick={() => { navigate('/settings'); setShowProfile(false) }} className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors">
-              <User size={14} /> Profil & École
+              <User size={14} /> الملف الشخصي
             </button>
             <button onClick={() => { navigate('/settings'); setShowProfile(false) }} className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors">
-              <Settings size={14} /> Paramètres
+              <Settings size={14} /> الإعدادات
             </button>
             <div className="border-t border-slate-100" />
             <button onClick={() => { navigate('/login'); setShowProfile(false) }} className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors">
-              <LogOut size={14} /> Verrouiller / Quitter
+              <LogOut size={14} /> تسجيل الخروج
             </button>
           </div>
         )}

@@ -121,6 +121,9 @@ export const enrollments = sqliteTable('enrollments', {
   agreedPrice: real('agreed_price').notNull(),
   enrollmentDate: text('enrollment_date').notNull().default(sql`(date('now'))`),
   status: text('status', { enum: ['active', 'inactive', 'completed'] }).notNull().default('active'),
+  cancelledAt: text('cancelled_at'),
+  cancelReason: text('cancel_reason'),
+  refundAmount: real('refund_amount'),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
   updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
 }, (table) => ({
@@ -197,7 +200,8 @@ export const attendanceRecords = sqliteTable('attendance_records', {
   sessionId: integer('session_id').notNull().references(() => attendanceSessions.id),
   studentId: integer('student_id').notNull().references(() => students.id),
   scannedAt: text('scanned_at'),
-  attendanceStatus: text('attendance_status', { enum: ['present', 'absent', 'late', 'not_active'] }).notNull(),
+  attendanceStatus: text('attendance_status', { enum: ['present', 'absent', 'inactive', 'not_active'] }).notNull(),
+  isInactive: integer('is_inactive', { mode: 'boolean' }).notNull().default(false),
   source: text('source', { enum: ['qr', 'manual'] }).notNull().default('qr'),
   wasEnrolled: integer('was_enrolled', { mode: 'boolean' }).notNull().default(true),
   notes: text('notes'),
@@ -220,7 +224,13 @@ export const payments = sqliteTable('payments', {
   enrollmentId: integer('enrollment_id').notNull().references(() => enrollments.id),
   billingPeriod: text('billing_period').notNull().default(''),
   amount: real('amount').notNull(),
-  paymentType: text('payment_type', { enum: ['credit', 'deduction', 'transfer_in', 'transfer_out', 'refund'] }).notNull().default('credit'),
+  paymentType: text('payment_type', {
+    enum: [
+      'credit', 'deduction', 'transfer_in', 'transfer_out', 'refund',
+      'payment', 'session_charge', 'session_refund', 'enrollment_refund',
+      'payment_cancellation', 'manual_adjustment'
+    ]
+  }).notNull().default('credit'),
   sessionId: integer('session_id').references(() => attendanceSessions.id),
   paymentMethod: text('payment_method', { enum: ['cash', 'transfer', 'check'] }),
   paymentDate: text('payment_date').notNull(),

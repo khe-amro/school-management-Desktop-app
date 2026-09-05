@@ -465,7 +465,7 @@ export default function Payments() {
         <div className="bg-white p-5 rounded-xl border border-border shadow-xs">
           <div className="flex items-center gap-2 mb-1">
             <AlertTriangle size={14} className="text-red-500" />
-            <p className="text-xs text-slate-400 font-medium">{lang === 'ar' ? 'ديون متراكمة' : 'Dettes en cours'}</p>
+            <p className="text-xs text-slate-400 font-medium">{lang === 'ar' ? 'ديون متراكمة' : lang === 'en' ? 'Outstanding Debt' : 'Dettes en cours'}</p>
           </div>
           <p className="text-2xl font-bold text-red-600">{summary.outstanding.toLocaleString()} DA</p>
         </div>
@@ -488,7 +488,7 @@ export default function Payments() {
           onClick={() => openForm()}
           className="flex items-center gap-2 bg-[#2563EB] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#1D4ED8] transition-colors"
         >
-          <Plus size={15} /> {lang === 'ar' ? 'شحن رصيد' : 'Recharger'}
+          <Plus size={15} /> {lang === 'ar' ? 'شحن رصيد' : lang === 'en' ? 'Add Credit' : 'Recharger'}
         </button>
       </div>
 
@@ -536,11 +536,11 @@ export default function Payments() {
                       p.paymentType === 'transfer_out' ? 'bg-amber-100 text-amber-700' :
                       'bg-red-100 text-red-700'
                     }`}>
-                      {p.paymentType === 'credit' ? (lang === 'ar' ? 'شحن' : 'Crédit') :
-                       p.paymentType === 'deduction' ? (lang === 'ar' ? 'حصة' : 'Séance') :
-                       p.paymentType === 'transfer_in' ? (lang === 'ar' ? 'تحويل+' : 'Transfert+') :
-                       p.paymentType === 'transfer_out' ? (lang === 'ar' ? 'تحويل-' : 'Transfert-') :
-                       (lang === 'ar' ? 'استرداد' : 'Remboursement')}
+                      {p.paymentType === 'credit' ? (lang === 'ar' ? 'شحن' : lang === 'en' ? 'Credit' : 'Crédit') :
+                       p.paymentType === 'deduction' ? (lang === 'ar' ? 'حصة' : lang === 'en' ? 'Session' : 'Séance') :
+                       p.paymentType === 'transfer_in' ? (lang === 'ar' ? 'تحويل+' : 'Transfer+') :
+                       p.paymentType === 'transfer_out' ? (lang === 'ar' ? 'تحويل-' : 'Transfer-') :
+                       (lang === 'ar' ? 'استرداد' : lang === 'en' ? 'Refund' : 'Remboursement')}
                     </span>
                   </td>
                   <td className="px-4 py-3 font-bold text-[#2563EB]">{p.amount?.toLocaleString()} DA</td>
@@ -572,7 +572,7 @@ export default function Payments() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowForm(false)}>
           <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fade-in max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-4">
-              <h3 className="font-bold text-base text-[#0F172A]">{lang === 'ar' ? 'شحن رصيد' : 'Recharger le crédit'}</h3>
+              <h3 className="font-bold text-base text-[#0F172A]">{lang === 'ar' ? 'شحن رصيد' : lang === 'en' ? 'Add Credit' : 'Recharger le crédit'}</h3>
               <button onClick={() => setShowForm(false)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
             </div>
 
@@ -627,7 +627,7 @@ export default function Payments() {
                   enrollmentBalance.balance < 0 ? 'bg-red-50 border-red-200 text-red-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'
                 }`}>
                   <div className="flex items-center justify-between">
-                    <span>{lang === 'ar' ? 'الرصيد الحالي لهذا المادة' : 'Solde pour cette matière'}:</span>
+                    <span>{lang === 'ar' ? 'الرصيد الحالي لهذا المادة' : lang === 'en' ? 'Current balance for this course' : 'Solde pour cette matière'}:</span>
                     <span className="font-bold text-base">{enrollmentBalance.balance.toLocaleString()} DA</span>
                   </div>
                   {enrollmentBalance.balance > 0 && (
@@ -637,14 +637,14 @@ export default function Payments() {
                         onClick={() => setShowTransfer({ enrollmentId: Number(form.enrollmentId), studentId: Number(form.studentId), balance: enrollmentBalance.balance })}
                         className="px-2.5 py-1 bg-teal-600 text-white rounded text-[11px] font-semibold hover:bg-teal-700 transition-colors"
                       >
-                        {lang === 'ar' ? 'تحويل الرصيد' : 'Transférer'}
+                        {lang === 'ar' ? 'تحويل الرصيد' : lang === 'en' ? 'Transfer' : 'Transférer'}
                       </button>
                       <button
                         type="button"
                         onClick={() => setShowRefund({ enrollmentId: Number(form.enrollmentId), studentId: Number(form.studentId), balance: enrollmentBalance.balance })}
                         className="px-2.5 py-1 bg-red-600 text-white rounded text-[11px] font-semibold hover:bg-red-700 transition-colors"
                       >
-                        {lang === 'ar' ? 'إلغاء واسترداد' : 'Annuler & Rembourser'}
+                        {lang === 'ar' ? 'إلغاء واسترداد' : lang === 'en' ? 'Cancel & Refund' : 'Annuler & Rembourser'}
                       </button>
                     </div>
                   )}
@@ -652,7 +652,7 @@ export default function Payments() {
               )}
               {/* Amount */}
               <div>
-                <label className={labelCls}>{lang === 'ar' ? 'مبلغ الشحن (DA)' : 'Montant à créditer (DA)'} *</label>
+                <label className={labelCls}>{lang === 'ar' ? 'مبلغ الشحن (DA)' : lang === 'en' ? 'Credit Amount (DA)' : 'Montant à créditer (DA)'} *</label>
                 <input
                   type="text" inputMode="decimal" className={inputCls}
                   value={form.amount}
@@ -810,20 +810,20 @@ export default function Payments() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowTransfer(null)}>
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl animate-fade-in" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center pb-3 border-b border-slate-200 mb-4">
-              <h3 className="font-bold text-[#0F172A]">{lang === 'ar' ? 'تحويل الرصيد المتبقي' : 'Transférer le solde'}</h3>
+              <h3 className="font-bold text-[#0F172A]">{lang === 'ar' ? 'تحويل الرصيد المتبقي' : lang === 'en' ? 'Transfer Remaining Balance' : 'Transférer le solde'}</h3>
               <button onClick={() => setShowTransfer(null)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
             </div>
 
             <div className="space-y-3.5 text-xs">
               <div className="p-3 bg-teal-50 border border-teal-200 rounded-xl text-teal-800">
-                <span className="block font-semibold mb-0.5">{lang === 'ar' ? 'الرصيد المتاح للتحويل' : 'Solde disponible'}</span>
+                <span className="block font-semibold mb-0.5">{lang === 'ar' ? 'الرصيد المتاح للتحويل' : lang === 'en' ? 'Available balance' : 'Solde disponible'}</span>
                 <span className="text-lg font-bold text-teal-700">{showTransfer.balance.toLocaleString()} DA</span>
               </div>
 
               <div>
-                <label className={labelCls}>{lang === 'ar' ? 'التحويل إلى الفوج/المادة' : 'Transférer vers le groupe/matière'}</label>
+                <label className={labelCls}>{lang === 'ar' ? 'التحويل إلى الفوج/المادة' : lang === 'en' ? 'Transfer to group/course' : 'Transférer vers le groupe/matière'}</label>
                 <select className={inputCls} value={toEnrollmentId} onChange={(e) => setToEnrollmentId(e.target.value)}>
-                  <option value="">{lang === 'ar' ? '— اختر الفوج المستهدف —' : '— Choisir le groupe cible —'}</option>
+                  <option value="">{lang === 'ar' ? '— اختر الفوج المستهدف —' : lang === 'en' ? '— Choose target group —' : '— Choisir le groupe cible —'}</option>
                   {enrollments.filter(e => e.id !== showTransfer.enrollmentId).map((e) => (
                     <option key={e.id} value={e.id}>
                       {e.courseName ? `${e.courseName} — ` : ''}{e.groupName ?? `Groupe #${e.groupId}`}
@@ -838,7 +838,7 @@ export default function Payments() {
                 {t('common.cancel')}
               </button>
               <button onClick={handleTransfer} disabled={saving || !toEnrollmentId} className="px-4 py-2 bg-teal-600 text-white rounded-lg text-xs font-semibold hover:bg-teal-700 disabled:opacity-50">
-                {saving ? (lang === 'ar' ? 'جاري التحويل...' : 'Transfert...') : (lang === 'ar' ? 'تأكيد التحويل' : 'Confirmer le transfert')}
+                {saving ? (lang === 'ar' ? 'جاري التحويل...' : lang === 'en' ? 'Transferring...' : 'Transfert...') : (lang === 'ar' ? 'تأكيد التحويل' : lang === 'en' ? 'Confirm Transfer' : 'Confirmer le transfert')}
               </button>
             </div>
           </div>
@@ -850,15 +850,15 @@ export default function Payments() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowRefund(null)}>
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl animate-fade-in" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center pb-3 border-b border-slate-200 mb-4">
-              <h3 className="font-bold text-[#0F172A]">{lang === 'ar' ? 'إلغاء واسترداد الرصيد' : 'Annuler & Rembourser le solde'}</h3>
+              <h3 className="font-bold text-[#0F172A]">{lang === 'ar' ? 'إلغاء واسترداد الرصيد' : lang === 'en' ? 'Cancel & Refund Balance' : 'Annuler & Rembourser le solde'}</h3>
               <button onClick={() => setShowRefund(null)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
             </div>
 
             <div className="space-y-3.5 text-xs">
               <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-800">
-                <p className="font-bold mb-1">{lang === 'ar' ? 'سيتم إرجاع المبلغ المتبقي للطالب:' : 'Montant à rembourser à l\'étudiant :'}</p>
+                <p className="font-bold mb-1">{lang === 'ar' ? 'سيتم إرجاع المبلغ المتبقي للطالب:' : lang === 'en' ? 'Amount to be refunded to the student:' : 'Montant à rembourser à l\'étudiant :'}</p>
                 <p className="text-2xl font-black text-red-600">{showRefund.balance.toLocaleString()} DA</p>
-                <p className="text-[11px] text-slate-500 mt-1">{lang === 'ar' ? 'وسيتم تغيير حالة الاشتراك إلى ملغى.' : 'Le statut d\'inscription sera défini sur annulé.'}</p>
+                <p className="text-[11px] text-slate-500 mt-1">{lang === 'ar' ? 'وسيتم تغيير حالة الاشتراك إلى ملغى.' : lang === 'en' ? 'And the enrollment status will be set to cancelled.' : 'Le statut d\'inscription sera défini sur annulé.'}</p>
               </div>
             </div>
 
@@ -867,7 +867,7 @@ export default function Payments() {
                 {t('common.cancel')}
               </button>
               <button onClick={handleRefund} disabled={saving} className="px-4 py-2 bg-red-600 text-white rounded-lg text-xs font-semibold hover:bg-red-700 disabled:opacity-50">
-                {saving ? (lang === 'ar' ? 'جاري الاسترداد...' : 'Remboursement...') : (lang === 'ar' ? 'تأكيد الاسترداد' : 'Confirmer le remboursement')}
+                {saving ? (lang === 'ar' ? 'جاري الاسترداد...' : lang === 'en' ? 'Refunding...' : 'Remboursement...') : (lang === 'ar' ? 'تأكيد الاسترداد' : lang === 'en' ? 'Confirm Refund' : 'Confirmer le remboursement')}
               </button>
             </div>
           </div>

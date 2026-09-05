@@ -498,8 +498,13 @@ export default function Students() {
                             <AlertCircle size={11} />
                             {t('students.inDebtWithAmount', { amount: absDebt.toLocaleString() })}
                           </span>
-                        ) : (
+                        ) : (student.netBalance ?? 0) > 0 ? (
                           <span className="inline-flex items-center gap-1 text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            <CheckCircle2 size={11} />
+                            {t('students.positiveBalance', { amount: (student.netBalance ?? 0).toLocaleString() })}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-slate-100 text-slate-700 border border-slate-200">
                             <CheckCircle2 size={11} />
                             {t('students.paidZeroDebt')}
                           </span>

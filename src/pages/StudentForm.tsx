@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, RefreshCw, Save, Printer, AlertTriangle, Camera, Upload } from 'lucide-react'
+import { ArrowRight, RefreshCw, Save, Printer, AlertTriangle, Camera } from 'lucide-react'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 
 function generateToken() {
@@ -40,16 +40,16 @@ export default function StudentForm() {
   const [loading, setLoading] = useState(false)
 
   const [form, setForm] = useState({
-    firstNameFr: '',
-    lastNameFr: '',
     firstNameAr: '',
     lastNameAr: '',
+    firstNameFr: '',
+    lastNameFr: '',
     dateOfBirth: '',
     gender: 'male' as 'male' | 'female',
     phone: '',
     address: '',
     guardianName: '',
-    guardianRelationship: 'Père',
+    guardianRelationship: 'أب',
     guardianPhone: '',
     guardianPhone2: '',
     courseId: '',
@@ -88,7 +88,7 @@ export default function StudentForm() {
         const sRes = await api.students.getById(Number(id))
         if (sRes.success && sRes.data) {
           const s = sRes.data
-          setToken(s.qrToken)
+          setToken(s.qrToken || generateToken())
           setPhotoPath(s.photoPath)
 
           if (s.photoPath) {
@@ -102,16 +102,16 @@ export default function StudentForm() {
           const group = groups.find(g => g.id === active?.groupId)
 
           setForm({
-            firstNameFr: s.firstNameFr || '',
-            lastNameFr: s.lastNameFr || '',
             firstNameAr: s.firstNameAr || '',
             lastNameAr: s.lastNameAr || '',
+            firstNameFr: s.firstNameFr || '',
+            lastNameFr: s.lastNameFr || '',
             dateOfBirth: s.dateOfBirth || '',
             gender: s.gender || 'male',
             phone: s.phone || '',
             address: s.address || '',
             guardianName: s.guardianName || '',
-            guardianRelationship: s.guardianRelationship || 'Père',
+            guardianRelationship: s.guardianRelationship || 'أب',
             guardianPhone: s.guardianPhone || '',
             guardianPhone2: s.secondaryPhone || '',
             courseId: group ? String(group.courseId) : '',
@@ -151,9 +151,9 @@ export default function StudentForm() {
 
   const validate = () => {
     const e: Record<string, string> = {}
-    if (!form.firstNameFr.trim()) e.firstNameFr = 'Prénom requis'
-    if (!form.lastNameFr.trim()) e.lastNameFr = 'Nom requis'
-    if (!isEdit && !form.groupId) e.groupId = 'Groupe requis'
+    if (!form.firstNameAr.trim() && !form.firstNameFr.trim()) e.firstNameAr = 'الاسم مطلوب'
+    if (!form.lastNameAr.trim() && !form.lastNameFr.trim()) e.lastNameAr = 'اللقب مطلوب'
+    if (!isEdit && !form.groupId) e.groupId = 'يرجى اختيار الفوج'
     setErrors(e)
     return Object.keys(e).length === 0
   }
@@ -163,29 +163,34 @@ export default function StudentForm() {
     setLoading(true)
     try {
       let savedId = id ? Number(id) : null
+      const fAr = form.firstNameAr.trim() || form.firstNameFr.trim()
+      const lAr = form.lastNameAr.trim() || form.lastNameFr.trim()
+      const fFr = form.firstNameFr.trim() || form.firstNameAr.trim()
+      const lFr = form.lastNameFr.trim() || form.lastNameAr.trim()
 
       if (isEdit && savedId) {
         const updateRes = await api.students.update(savedId, {
-          firstNameFr: form.firstNameFr,
-          lastNameFr: form.lastNameFr,
-          firstNameAr: form.firstNameAr || form.firstNameFr,
-          lastNameAr: form.lastNameAr || form.lastNameFr,
+          firstNameAr: fAr,
+          lastNameAr: lAr,
+          firstNameFr: fFr,
+          lastNameFr: lFr,
           dateOfBirth: form.dateOfBirth || null,
           gender: form.gender,
           phone: form.phone || null,
           guardianName: form.guardianName || null,
           status: form.status,
+          photoPath,
         })
         if (!updateRes.success) {
-          alert(updateRes.error?.message || 'Erreur lors de la mise à jour')
+          alert(updateRes.error?.message || 'حدث خطأ أثناء تحديث بيانات الطالب')
           return
         }
       } else {
         const createRes = await api.students.create({
-          firstNameFr: form.firstNameFr,
-          lastNameFr: form.lastNameFr,
-          firstNameAr: form.firstNameAr || form.firstNameFr,
-          lastNameAr: form.lastNameAr || form.lastNameFr,
+          firstNameAr: fAr,
+          lastNameAr: lAr,
+          firstNameFr: fFr,
+          lastNameFr: lFr,
           gender: form.gender,
           dateOfBirth: form.dateOfBirth || null,
           phone: form.phone || null,
@@ -197,7 +202,7 @@ export default function StudentForm() {
         })
 
         if (!createRes.success || !createRes.data) {
-          alert(createRes.error?.message || 'Erreur lors de la création')
+          alert(createRes.error?.message || 'حدث خطأ أثناء إنشاء الطالب')
           return
         }
 
@@ -235,22 +240,22 @@ export default function StudentForm() {
 
   const Field = ({ label, children, error }: { label: string; children: React.ReactNode; error?: string }) => (
     <div>
-      <label className="block text-xs font-medium text-slate-600 mb-1.5">{label}</label>
+      <label className="block text-xs font-semibold text-slate-700 mb-1.5">{label}</label>
       {children}
-      {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
+      {error && <p className="text-xs text-red-600 mt-1 font-medium">{error}</p>}
     </div>
   )
 
   return (
-    <div>
-      <div className="flex items-center gap-3 mb-6">
-        <button onClick={handleBack} className="p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition-colors">
-          <ArrowLeft size={18} />
+    <div dir="rtl" className="space-y-5">
+      <div className="flex items-center gap-3 mb-2">
+        <button onClick={handleBack} className="p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition-colors" title="رجوع">
+          <ArrowRight size={18} />
         </button>
-        <h2 className="text-lg font-semibold text-slate-900">{isEdit ? 'Modifier l\'étudiant' : 'Ajouter un étudiant'}</h2>
+        <h2 className="text-lg font-bold text-slate-900">{isEdit ? 'تعديل بيانات الطالب' : 'إضافة طالب جديد'}</h2>
         {dirty && (
-          <span className="flex items-center gap-1.5 text-xs text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200">
-            <AlertTriangle size={11} /> Modifications non enregistrées
+          <span className="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200 mr-auto font-medium">
+            <AlertTriangle size={12} /> توجد تعديلات غير محفوظة
           </span>
         )}
       </div>
@@ -259,77 +264,79 @@ export default function StudentForm() {
         {/* Personal info */}
         <div className="col-span-2 space-y-5">
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-            <h3 className="text-sm font-semibold text-slate-800 mb-4 pb-3 border-b border-slate-100">Informations personnelles</h3>
+            <h3 className="text-sm font-bold text-slate-800 mb-4 pb-3 border-b border-slate-100">المعلومات الشخصية</h3>
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Prénom (Français) *" error={errors.firstNameFr}>
+              <Field label="الاسم الأول (بالعربية) *" error={errors.firstNameAr}>
                 <input
                   type="text"
-                  placeholder="Ex: Meriem"
-                  value={form.firstNameFr}
-                  onChange={e => update('firstNameFr', e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
-                />
-              </Field>
-              <Field label="Nom (Français) *" error={errors.lastNameFr}>
-                <input
-                  type="text"
-                  placeholder="Ex: Benhamouda"
-                  value={form.lastNameFr}
-                  onChange={e => update('lastNameFr', e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
-                />
-              </Field>
-              <Field label="Prénom (Arabe)">
-                <input
-                  type="text"
-                  placeholder="مريم"
+                  placeholder="مثال: مريم"
                   value={form.firstNameAr}
                   onChange={e => update('firstNameAr', e.target.value)}
                   className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white text-right"
                   dir="rtl"
                 />
               </Field>
-              <Field label="Nom (Arabe)">
+              <Field label="اللقب (بالعربية) *" error={errors.lastNameAr}>
                 <input
                   type="text"
-                  placeholder="بن حمودة"
+                  placeholder="مثال: بن حمودة"
                   value={form.lastNameAr}
                   onChange={e => update('lastNameAr', e.target.value)}
                   className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white text-right"
                   dir="rtl"
                 />
               </Field>
-              <Field label="Date de naissance">
+              <Field label="الاسم الأول (بالفرنسية / اللاتينية)">
+                <input
+                  type="text"
+                  placeholder="Meriem"
+                  value={form.firstNameFr}
+                  onChange={e => update('firstNameFr', e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white text-left font-sans"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="اللقب (بالفرنسية / اللاتينية)">
+                <input
+                  type="text"
+                  placeholder="Benhamouda"
+                  value={form.lastNameFr}
+                  onChange={e => update('lastNameFr', e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white text-left font-sans"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="تاريخ الميلاد">
                 <input
                   type="date"
                   value={form.dateOfBirth}
                   onChange={e => update('dateOfBirth', e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white font-mono"
                 />
               </Field>
-              <Field label="Genre">
+              <Field label="الجنس">
                 <select
                   value={form.gender}
                   onChange={e => update('gender', e.target.value as 'male' | 'female')}
                   className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
                 >
-                  <option value="male">Masculin</option>
-                  <option value="female">Féminin</option>
+                  <option value="male">ذكر</option>
+                  <option value="female">أنثى</option>
                 </select>
               </Field>
-              <Field label="Téléphone étudiant">
+              <Field label="هاتف الطالب">
                 <input
                   type="tel"
                   placeholder="0555 000 000"
                   value={form.phone}
                   onChange={e => update('phone', e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white font-mono"
                 />
               </Field>
-              <Field label="Adresse">
+              <Field label="العنوان">
                 <input
                   type="text"
-                  placeholder="Rue, Ville..."
+                  placeholder="الشارع، المدينة..."
                   value={form.address}
                   onChange={e => update('address', e.target.value)}
                   className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
@@ -339,95 +346,100 @@ export default function StudentForm() {
           </div>
 
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-            <h3 className="text-sm font-semibold text-slate-800 mb-4 pb-3 border-b border-slate-100">Informations du tuteur</h3>
+            <h3 className="text-sm font-bold text-slate-800 mb-4 pb-3 border-b border-slate-100">معلومات ولي الأمر</h3>
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Nom complet du tuteur">
+              <Field label="اسم ولي الأمر الكامل">
                 <input
                   type="text"
-                  placeholder="Mohamed Benhamouda"
+                  placeholder="محمد بن حمودة"
                   value={form.guardianName}
                   onChange={e => update('guardianName', e.target.value)}
                   className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
                 />
               </Field>
-              <Field label="Lien de parenté">
+              <Field label="صلة القرابة">
                 <select
                   value={form.guardianRelationship}
                   onChange={e => update('guardianRelationship', e.target.value)}
                   className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
                 >
-                  <option>Père</option><option>Mère</option><option>Frère</option><option>Sœur</option><option>Oncle</option><option>Autre</option>
+                  <option value="أب">أب</option>
+                  <option value="أم">أم</option>
+                  <option value="أخ">أخ</option>
+                  <option value="أخت">أخت</option>
+                  <option value="عم / خال">عم / خال</option>
+                  <option value="ولي أمر">ولي أمر</option>
                 </select>
               </Field>
-              <Field label="Téléphone principal">
+              <Field label="الهاتف الرئيسي للولي">
                 <input
                   type="tel"
                   placeholder="0661 000 000"
                   value={form.guardianPhone}
                   onChange={e => update('guardianPhone', e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white font-mono"
                 />
               </Field>
-              <Field label="Téléphone secondaire">
+              <Field label="هاتف ثانوي (اختياري)">
                 <input
                   type="tel"
                   placeholder="0770 000 000"
                   value={form.guardianPhone2}
                   onChange={e => update('guardianPhone2', e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white font-mono"
                 />
               </Field>
             </div>
           </div>
 
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-            <h3 className="text-sm font-semibold text-slate-800 mb-4 pb-3 border-b border-slate-100">Inscription & Cours</h3>
+            <h3 className="text-sm font-bold text-slate-800 mb-4 pb-3 border-b border-slate-100">التسجيل في الفوج والمادة</h3>
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Cours">
+              <Field label="المادة التعليمية">
                 <select
                   value={form.courseId}
                   onChange={e => { update('courseId', e.target.value); update('groupId', '') }}
                   className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
                 >
-                  <option value="">Sélectionner un cours</option>
-                  {courses.map(c => <option key={c.id} value={c.id}>{c.nameFr || c.nameAr}</option>)}
+                  <option value="">اختر المادة...</option>
+                  {courses.map(c => <option key={c.id} value={c.id}>{c.nameAr || c.nameFr}</option>)}
                 </select>
               </Field>
-              <Field label="Groupe *" error={errors.groupId}>
+              <Field label="الفوج / المجموعة *" error={errors.groupId}>
                 <select
                   value={form.groupId}
                   onChange={e => update('groupId', e.target.value)}
                   className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
                 >
-                  <option value="">Sélectionner un groupe</option>
+                  <option value="">اختر الفوج...</option>
                   {availableGroups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
                 </select>
               </Field>
-              <Field label="Date d'inscription">
+              <Field label="تاريخ التسجيل">
                 <input
                   type="date"
                   value={form.registrationDate}
                   onChange={e => update('registrationDate', e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white font-mono"
                 />
               </Field>
-              <Field label="Tarif mensuel convenu (DA)">
+              <Field label="السعر الشهري المتفق عليه (دج)">
                 <input
                   type="number"
                   placeholder="2500"
                   value={form.monthlyFee}
                   onChange={e => update('monthlyFee', e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white font-mono"
                 />
               </Field>
-              <Field label="Statut">
+              <Field label="حالة الطالب">
                 <select
                   value={form.status}
                   onChange={e => update('status', e.target.value as 'active' | 'inactive')}
                   className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white"
                 >
-                  <option value="active">Actif</option>
-                  <option value="inactive">Inactif</option>
+                  <option value="active">نشط</option>
+                  <option value="inactive">غير نشط</option>
                 </select>
               </Field>
             </div>
@@ -437,7 +449,7 @@ export default function StudentForm() {
         {/* Right column: Photo, Token & Save */}
         <div className="space-y-5">
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-            <h3 className="text-sm font-semibold text-slate-800 mb-4 pb-3 border-b border-slate-100">Photo de l'étudiant</h3>
+            <h3 className="text-sm font-bold text-slate-800 mb-4 pb-3 border-b border-slate-100">صورة الطالب</h3>
             <div className="flex flex-col items-center gap-3">
               <div
                 onClick={handleSelectPhoto}
@@ -448,24 +460,24 @@ export default function StudentForm() {
                 ) : (
                   <div className="flex flex-col items-center gap-1 p-2">
                     <Camera size={20} className="text-slate-400" />
-                    <span>Choisir photo</span>
+                    <span>اختيار صورة</span>
                   </div>
                 )}
                 <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-semibold">
-                  Modifier
+                  تغيير الصورة
                 </div>
               </div>
-              <p className="text-[11px] text-slate-400">JPG, PNG, WebP · Max 5MB</p>
+              <p className="text-[11px] text-slate-400 font-mono">JPG, PNG, WebP · بحد أقصى 5MB</p>
             </div>
           </div>
 
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-            <h3 className="text-sm font-semibold text-slate-800 mb-3 pb-3 border-b border-slate-100">Ticket QR</h3>
+            <h3 className="text-sm font-bold text-slate-800 mb-3 pb-3 border-b border-slate-100">بطاقة الطالب والباركود</h3>
             <div className="flex flex-col items-center gap-3">
               <QRPlaceholder token={token} />
-              <p className="text-xs font-mono text-slate-600 text-center">{token}</p>
-              <p className="text-[11px] text-slate-400 text-center">
-                Ce token cryptographique unique identifie l'étudiant sur les tickets thermiques.
+              <p className="text-xs font-mono text-slate-600 text-center font-bold">{token}</p>
+              <p className="text-[11px] text-slate-400 text-center leading-relaxed">
+                رمز تعريف رقمي فريد يُطبع على البطاقة لتسجيل الحضور السريع عبر الماسح الضوئي.
               </p>
               {!isEdit && (
                 <button
@@ -473,7 +485,7 @@ export default function StudentForm() {
                   onClick={() => { setToken(generateToken()); setDirty(true) }}
                   className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 transition-colors font-medium"
                 >
-                  <RefreshCw size={12} /> Regénérer le token
+                  <RefreshCw size={12} /> توليد رمز جديد
                 </button>
               )}
             </div>
@@ -483,22 +495,22 @@ export default function StudentForm() {
             <button
               onClick={() => handleSave(false)}
               disabled={loading}
-              className="flex items-center justify-center gap-2 w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold py-2.5 rounded-lg transition-colors text-sm shadow-sm"
+              className="flex items-center justify-center gap-2 w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold py-2.5 rounded-lg transition-colors text-sm shadow-sm"
             >
-              <Save size={15} /> Enregistrer
+              <Save size={15} /> حفظ بيانات الطالب
             </button>
             <button
               onClick={() => handleSave(true)}
               disabled={loading}
-              className="flex items-center justify-center gap-2 w-full bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white font-semibold py-2.5 rounded-lg transition-colors text-sm shadow-sm"
+              className="flex items-center justify-center gap-2 w-full bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white font-bold py-2.5 rounded-lg transition-colors text-sm shadow-sm"
             >
-              <Printer size={15} /> Enregistrer & Imprimer ticket
+              <Printer size={15} /> حفظ وطباعة البطاقة
             </button>
             <button
               onClick={handleBack}
-              className="w-full text-slate-500 hover:text-slate-700 py-2 text-sm transition-colors text-center"
+              className="w-full text-slate-500 hover:text-slate-700 py-2 text-sm transition-colors text-center font-medium"
             >
-              Annuler
+              إلغاء
             </button>
           </div>
         </div>
@@ -508,11 +520,12 @@ export default function StudentForm() {
         open={showLeaveConfirm}
         onClose={() => setShowLeaveConfirm(false)}
         onConfirm={() => navigate('/students')}
-        title="Modifications non enregistrées"
-        message="Vous avez des modifications non enregistrées. Voulez-vous vraiment quitter sans sauvegarder ?"
-        confirmLabel="Quitter sans sauvegarder"
+        title="تغييرات غير محفوظة"
+        message="لديك تغييرات غير محفوظة في النموذج. هل أنت متأكد من المغادرة دون حفظ؟"
+        confirmLabel="مغادرة بدون حفظ"
         danger
       />
     </div>
   )
 }
+

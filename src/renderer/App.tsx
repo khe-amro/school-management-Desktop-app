@@ -16,6 +16,7 @@ import Payments from './pages/Payments'
 import Reports from './pages/Reports'
 import Settings from './pages/Settings'
 import Backups from './pages/Backups'
+import ErrorBoundary from './components/ErrorBoundary'
 
 // Protected route wrapper — redirects to /login if not authenticated
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -106,7 +107,9 @@ export default function App() {
     <AuthProvider>
       {/* HashRouter is required for Electron file:// protocol */}
       <HashRouter>
-        <AppRoutes />
+        <ErrorBoundary>
+          <AppRoutes />
+        </ErrorBoundary>
       </HashRouter>
     </AuthProvider>
   )

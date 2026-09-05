@@ -4,15 +4,15 @@ import Sidebar from './Sidebar'
 import Header from './Header'
 
 const titles: Record<string, string> = {
-  '/dashboard': 'Tableau de bord',
-  '/students': 'Étudiants',
-  '/teachers': 'Enseignants',
-  '/courses': 'Cours & Groupes',
-  '/attendance': 'Présence – Scanner QR',
-  '/attendance/history': 'Historique des présences',
-  '/payments': 'Paiements & Revenus',
-  '/reports': 'Rapports',
-  '/settings': 'Paramètres',
+  '/dashboard': 'لوحة التحكم',
+  '/students': 'الطلاب',
+  '/teachers': 'الأساتذة',
+  '/courses': 'المواد والأفواج',
+  '/attendance': 'تسجيل الحضور',
+  '/attendance/history': 'سجل الحضور',
+  '/payments': 'المدفوعات والمداخيل',
+  '/reports': 'التقارير والإحصائيات',
+  '/settings': 'الإعدادات',
 }
 
 export default function AppLayout() {
@@ -66,12 +66,12 @@ export default function AppLayout() {
   const getTitle = () => {
     const exact = titles[location.pathname]
     if (exact) return exact
-    if (location.pathname.startsWith('/students/')) return 'Profil étudiant'
-    return 'Edupilot DZ'
+    if (location.pathname.startsWith('/students/')) return 'الملف الشخصي للطالب'
+    return 'منصة إدارة المدرسة'
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div className="flex h-screen overflow-hidden bg-background" dir="rtl">
       <Sidebar collapsed={collapsed} onToggle={() => setCollapsed(c => !c)} />
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
         <Header title={getTitle()} />

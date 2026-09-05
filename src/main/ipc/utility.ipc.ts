@@ -1,6 +1,7 @@
 import { handle } from './_handler'
 import { ipcMain, dialog, app, shell } from 'electron'
 import path from 'path'
+import log from 'electron-log'
 import { IPC_CHANNELS } from '../../shared/constants/index'
 import { UpdateSettingsSchema, RestoreBackupSchema, UploadPhotoSchema } from '../../shared/schemas/index'
 import { getSettings, updateSettings } from '../services/settings.service'
@@ -264,5 +265,15 @@ export function registerUtilityHandlers(): void {
     const buffer = await win.webContents.printToPDF(pdfOptions)
     await fs.writeFile(saveResult.filePath, buffer)
     return { path: saveResult.filePath, canceled: false }
+  })
+
+  // Safe local diagnostic error logging from renderer (Requirement 3)
+  handle(IPC_CHANNELS.APP_LOG_ERROR, async (payload) => {
+    const data = (payload ?? {}) as { category?: string; message?: string; componentStack?: string }
+    log.error(`[RENDERER_ERROR] [${data.category ?? 'uncaught'}]`, {
+      message: data.message ?? 'Unknown renderer error',
+      stack: data.componentStack,
+    })
+    return true
   })
 }

@@ -213,8 +213,40 @@ export function registerSchedulesHandlers(): void {
     const sqlite = getSqlite()
 
     try {
-      sqlite.prepare('UPDATE attendance_sessions SET schedule_slot_id = NULL WHERE schedule_slot_id = ?').run(id)
-      sqlite.prepare('DELETE FROM group_schedule_slots WHERE id = ?').run(id)
+      sqlite.transaction(() => {
+        // 1. Delete future or empty attendance sessions linked to this slot that have no records and no payments
+        sqlite.prepare(`
+          DELETE FROM attendance_sessions
+          WHERE schedule_slot_id = ?
+            AND id NOT IN (SELECT DISTINCT session_id FROM attendance_records WHERE session_id IS NOT NULL)
+            AND id NOT IN (SELECT DISTINCT session_id FROM payments WHERE session_id IS NOT NULL)
+        `).run(id)
+
+        // 2. For any remaining sessions that DO have records/payments, safely unlink or merge
+        const remaining = sqlite.prepare(`
+          SELECT id, group_id, session_date FROM attendance_sessions WHERE schedule_slot_id = ?
+        `).all(id) as any[]
+
+        for (const sess of remaining) {
+          const conflicting = sqlite.prepare(`
+            SELECT id FROM attendance_sessions
+            WHERE group_id = ? AND session_date = ? AND (schedule_slot_id IS NULL OR schedule_slot_id = 0) AND id != ?
+          `).get(sess.group_id, sess.session_date, sess.id) as any
+
+          if (conflicting) {
+            sqlite.prepare(`UPDATE OR IGNORE attendance_records SET session_id = ? WHERE session_id = ?`).run(conflicting.id, sess.id)
+            sqlite.prepare(`DELETE FROM attendance_records WHERE session_id = ?`).run(sess.id)
+            sqlite.prepare(`UPDATE payments SET session_id = ? WHERE session_id = ?`).run(conflicting.id, sess.id)
+            sqlite.prepare(`DELETE FROM attendance_sessions WHERE id = ?`).run(sess.id)
+          } else {
+            sqlite.prepare(`UPDATE attendance_sessions SET schedule_slot_id = NULL WHERE id = ?`).run(sess.id)
+          }
+        }
+
+        // 3. Delete the schedule slot itself
+        sqlite.prepare('DELETE FROM group_schedule_slots WHERE id = ?').run(id)
+      })()
+
       return true
     } catch (err) {
       log.error('Failed to delete schedule:', err)

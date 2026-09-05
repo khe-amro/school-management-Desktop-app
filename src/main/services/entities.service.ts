@@ -273,7 +273,7 @@ export async function createEnrollment(data: { studentId: number; groupId: numbe
   return { id: r.id, studentId: r.studentId, groupId: r.groupId, agreedPrice: r.agreedPrice, enrollmentDate: r.enrollmentDate, status: r.status as Enrollment['status'], createdAt: r.createdAt, updatedAt: r.updatedAt }
 }
 
-export async function listEnrollmentsByStudent(studentId: number): Promise<Enrollment[]> {
+export async function listEnrollmentsByStudent(studentId: number): Promise<any[]> {
   const db = getDb()
   const rows = await db
     .select({
@@ -283,15 +283,22 @@ export async function listEnrollmentsByStudent(studentId: number): Promise<Enrol
       agreedPrice: schema.enrollments.agreedPrice,
       enrollmentDate: schema.enrollments.enrollmentDate,
       status: schema.enrollments.status,
+      cancelledAt: schema.enrollments.cancelledAt,
+      cancelReason: schema.enrollments.cancelReason,
+      refundAmount: schema.enrollments.refundAmount,
       createdAt: schema.enrollments.createdAt,
       updatedAt: schema.enrollments.updatedAt,
       groupName: schema.groups.name,
+      teacherId: schema.groups.teacherId,
+      teacherFirstName: schema.teachers.firstName,
+      teacherLastName: schema.teachers.lastName,
       courseNameAr: schema.courses.nameAr,
       courseNameFr: schema.courses.nameFr,
     })
     .from(schema.enrollments)
     .leftJoin(schema.groups, eq(schema.enrollments.groupId, schema.groups.id))
     .leftJoin(schema.courses, eq(schema.groups.courseId, schema.courses.id))
+    .leftJoin(schema.teachers, eq(schema.groups.teacherId, schema.teachers.id))
     .where(eq(schema.enrollments.studentId, studentId))
     .orderBy(desc(schema.enrollments.createdAt))
 
@@ -302,10 +309,17 @@ export async function listEnrollmentsByStudent(studentId: number): Promise<Enrol
     agreedPrice: r.agreedPrice,
     enrollmentDate: r.enrollmentDate,
     status: r.status as Enrollment['status'],
+    cancelledAt: r.cancelledAt ?? null,
+    cancelReason: r.cancelReason ?? null,
+    refundAmount: r.refundAmount ?? null,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
     groupName: r.groupName ?? undefined,
+    teacherId: r.teacherId ?? undefined,
+    teacherName: r.teacherFirstName ? `${r.teacherLastName ?? ''} ${r.teacherFirstName}`.trim() : undefined,
     courseName: r.courseNameAr ? `${r.courseNameAr} (${r.courseNameFr})` : (r.courseNameFr ?? undefined),
+    courseNameAr: r.courseNameAr ?? undefined,
+    courseNameFr: r.courseNameFr ?? undefined,
   }))
 }
 

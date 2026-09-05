@@ -3,6 +3,7 @@ import { Outlet } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import Header from './Header'
 import AutoLock from '../AutoLock'
+import ErrorBoundary from '../ErrorBoundary'
 
 export default function AppLayout() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -18,7 +19,9 @@ export default function AppLayout() {
         <Header />
         <main className="flex-1 overflow-y-auto overflow-x-hidden p-5">
           <div className="w-full min-w-0">
-            <Outlet />
+            <ErrorBoundary>
+              <Outlet />
+            </ErrorBoundary>
           </div>
         </main>
       </div>
