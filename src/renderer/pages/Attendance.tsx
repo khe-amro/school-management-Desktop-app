@@ -613,7 +613,7 @@ function RosterView({ lang, initialSession }: { lang: string; initialSession?: {
                           <span className="font-extrabold">✓</span>
                           <span>{lang === 'ar' ? 'حاضر' : lang === 'en' ? 'Present' : 'Présent'}</span>
                         </span>
-                      ) : s.attendanceStatus === 'absent' ? (
+                      ) : (s.attendanceStatus === 'absent' || (!s.attendanceStatus && s.attendanceStatus !== 'inactive' && s.attendanceStatus !== 'not_active')) ? (
                         <span className="text-xs px-3 py-1.5 rounded-lg font-bold bg-red-100 text-red-800 border border-red-200 flex items-center gap-1.5 shadow-2xs">
                           <span className="font-extrabold">✗</span>
                           <span>{lang === 'ar' ? 'غائب' : lang === 'en' ? 'Absent' : 'Absent'}</span>

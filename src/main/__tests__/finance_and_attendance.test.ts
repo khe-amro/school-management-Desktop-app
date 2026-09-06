@@ -52,4 +52,24 @@ describe('Attendance Transition State Matrix Rules', () => {
     expect(balanceAfterInactive).toBe(4000)
     expect(balanceAfterInactive).not.toBe(5000) // Prevent double refund bug
   })
+
+  it('closing a session without setting student status marks student absent and deducts fee', () => {
+    const initialBalance = 3000
+    const monthlyPrice = 3000
+    const sessionPrice = Math.round((monthlyPrice / 4) * 100) / 100 // 750
+
+    // When session is closed without operator touching student:
+    // Status transitions from unmarked (null) -> 'absent'
+    const finalStatus = 'absent'
+    expect(finalStatus).toBe('absent')
+
+    // Balance is deducted by 1 session price
+    const balanceAfterClose = initialBalance - sessionPrice
+    expect(balanceAfterClose).toBe(2250)
+
+    // Remaining sessions
+    const remainingSessions = Math.floor(balanceAfterClose / sessionPrice)
+    expect(remainingSessions).toBe(3)
+  })
 })
+

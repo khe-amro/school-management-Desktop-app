@@ -109,19 +109,128 @@ export async function startAttendanceSession(data: {
 // ─── End session ──────────────────────────────────────────────────────────────
 
 export async function endAttendanceSession(sessionId: number): Promise<void> {
-  const session = requireSession()
   const db = getDb()
+  const sqlite = getSqlite()
+
+  let adminId = 1
+  try {
+    const authSession = requireSession()
+    adminId = authSession.adminId
+  } catch {
+    // fallback if auth session is not active
+  }
 
   const existing = await db.query.attendanceSessions.findFirst({
     where: eq(schema.attendanceSessions.id, sessionId),
   })
   if (!existing) throw new AppError(ErrorCode.SESSION_NOT_FOUND, 'Session not found')
 
+  const { deductSession } = await import('./payment.service')
+  const now = new Date().toISOString()
+
+  // 1. Auto-mark absent for active enrolled students without attendance records
+  const unmarkedStudents = sqlite.prepare(`
+    SELECT
+      e.id AS enrollment_id,
+      e.student_id,
+      COALESCE(e.agreed_price, g.monthly_price, 0) AS monthly_price
+    FROM enrollments e
+    JOIN groups g ON e.group_id = g.id
+    JOIN students st ON e.student_id = st.id
+    WHERE e.group_id = ?
+      AND e.status = 'active'
+      AND st.status = 'active'
+      AND e.student_id NOT IN (
+        SELECT student_id FROM attendance_records
+        WHERE session_id = ?
+      )
+  `).all(existing.groupId, sessionId) as Array<{
+    enrollment_id: number
+    student_id: number
+    monthly_price: number
+  }>
+
+  log.info(`Closing session ${sessionId}: auto-marking ${unmarkedStudents.length} unmarked students as absent`)
+
+  for (const s of unmarkedStudents) {
+    const sessionPrice = Math.round(((s.monthly_price || 0) / 4) * 100) / 100
+
+    sqlite.prepare(`
+      INSERT INTO attendance_records
+        (session_id, student_id, attendance_status, is_inactive, source,
+         scanned_at, was_enrolled, created_by, created_at, updated_at)
+      VALUES (?, ?, 'absent', 0, 'manual', ?, 1, ?, datetime('now'), datetime('now'))
+      ON CONFLICT(session_id, student_id) DO UPDATE SET
+        attendance_status = 'absent',
+        is_inactive = 0,
+        updated_at = datetime('now')
+    `).run(sessionId, s.student_id, now, adminId)
+
+    if (sessionPrice > 0) {
+      try {
+        await deductSession({
+          studentId: s.student_id,
+          enrollmentId: s.enrollment_id,
+          sessionId,
+          sessionDate: existing.sessionDate,
+          sessionPrice,
+        })
+      } catch (err) {
+        log.warn(`Auto-absent deduction failed for student ${s.student_id}:`, err)
+      }
+    }
+  }
+
+  // 2. Also ensure existing absent records without payment have deduction applied
+  const absentWithoutPayment = sqlite.prepare(`
+    SELECT
+      e.id AS enrollment_id,
+      e.student_id,
+      COALESCE(e.agreed_price, g.monthly_price, 0) AS monthly_price
+    FROM attendance_records ar
+    JOIN enrollments e ON e.student_id = ar.student_id AND e.group_id = ? AND e.status = 'active'
+    JOIN groups g ON e.group_id = g.id
+    WHERE ar.session_id = ?
+      AND ar.attendance_status = 'absent'
+      AND ar.is_inactive = 0
+      AND NOT EXISTS (
+        SELECT 1 FROM payments p
+        WHERE p.enrollment_id = e.id AND p.session_id = ?
+          AND p.payment_type IN ('deduction', 'session_charge')
+          AND p.status = 'paid'
+      )
+  `).all(existing.groupId, sessionId, sessionId) as Array<{
+    enrollment_id: number
+    student_id: number
+    monthly_price: number
+  }>
+
+  for (const s of absentWithoutPayment) {
+    const sessionPrice = Math.round(((s.monthly_price || 0) / 4) * 100) / 100
+    if (sessionPrice > 0) {
+      try {
+        await deductSession({
+          studentId: s.student_id,
+          enrollmentId: s.enrollment_id,
+          sessionId,
+          sessionDate: existing.sessionDate,
+          sessionPrice,
+        })
+      } catch (err) {
+        log.warn(`Absent payment deduction failed for student ${s.student_id}:`, err)
+      }
+    }
+  }
+
+  // 3. Mark session as closed
+  const nowTime = new Date().toISOString().slice(11, 16)
   await db.update(schema.attendanceSessions).set({
     status: 'closed',
-    endTime: new Date().toISOString().slice(11, 16),
+    endTime: existing.endTime || nowTime,
     updatedAt: new Date().toISOString(),
   }).where(eq(schema.attendanceSessions.id, sessionId))
+
+  log.info(`Session ${sessionId} closed successfully.`)
 }
 
 // ─── Mark session attended (Shared pipeline for QR scan & manual search) ──────
@@ -1125,7 +1234,7 @@ export async function getSessionWithRoster(sessionId: number): Promise<{
       firstNameFr: s.first_name_fr,
       lastNameFr: s.last_name_fr,
       status: s.student_status,
-      attendanceStatus: s.is_inactive === 1 ? 'inactive' : (s.attendance_status === 'late' ? 'present' : (s.attendance_status ?? null)),
+      attendanceStatus: s.is_inactive === 1 ? 'inactive' : (s.attendance_status === 'late' ? 'present' : (s.attendance_status ?? (session.status === 'closed' ? 'absent' : null))),
       recordId: s.record_id ?? null,
       source: s.source ?? null,
       scannedAt: s.scanned_at ?? null,

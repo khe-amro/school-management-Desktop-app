@@ -207,7 +207,13 @@ export async function deductSession(data: {
   sessionDate: string
   sessionPrice: number
 }): Promise<{ deducted: boolean; newBalance: number; wasInDebt: boolean }> {
-  const session = requireSession()
+  let adminId = 1
+  try {
+    const session = requireSession()
+    adminId = session.adminId
+  } catch {
+    // fallback if no active auth session
+  }
   const sqlite = getSqlite()
 
   // Idempotency: don't deduct twice for same session+enrollment
@@ -241,7 +247,7 @@ export async function deductSession(data: {
     data.sessionDate.slice(0, 7), data.sessionPrice,
     data.sessionId, data.sessionDate,
     wasInDebt ? 'DEBT: insufficient credit' : null,
-    session.adminId
+    adminId
   )
 
   const newBal = await getEnrollmentBalance(data.enrollmentId)
