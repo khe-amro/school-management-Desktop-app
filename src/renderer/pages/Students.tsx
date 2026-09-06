@@ -27,7 +27,7 @@ function FilterCombobox({
   )
 
   return (
-    <div className="relative min-w-[180px] flex-1">
+    <div className="relative min-w-45 flex-1">
       <div className="relative flex items-center">
         <input
           type="text"
@@ -332,7 +332,7 @@ export default function Students() {
     <div className="animate-fade-in space-y-4">
       {/* Search & Top Action Bar */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="relative flex-1 min-w-[240px]">
+        <div className="relative flex-1 min-w-60">
           <Search size={14} className="absolute inset-s-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
           <input
             type="search"

@@ -388,7 +388,8 @@ export default function Reports() {
           .report-print-container,
           .report-print-container * { visibility: visible !important; }
           .report-print-container {
-            position: absolute !important;
+            position: fixed !important;
+            visibility: visible !important;
             left: 0 !important;
             top: 0 !important;
             width: 100% !important;
@@ -403,14 +404,14 @@ export default function Reports() {
       `}</style>
 
       {/* Hidden print element */}
-      <div className="report-print-container" style={{ position: 'absolute', left: '-9999px', top: 0 }}>
+      <div className="report-print-container" style={{ position: 'fixed', left: '-9999px', top: 0, visibility: 'hidden' }}>
         <ReportDocument />
       </div>
 
       {/* ── Screen UI ── */}
       <div className="animate-fade-in space-y-6 no-print">
         {/* Top Header */}
-        <div className="flex justify-between items-center">
+        <div className="flex flex-wrap justify-between items-center gap-3">
           <div>
             <h2 className="text-lg font-bold text-[#0F172A]">{t('nav.reports')}</h2>
             <p className="text-xs text-slate-400">{t('reports.subtitle')}</p>

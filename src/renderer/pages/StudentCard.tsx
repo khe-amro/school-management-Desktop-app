@@ -356,6 +356,7 @@ export default function StudentCard() {
           .student-ticket-print * { visibility: visible !important; }
           .student-ticket-print {
             position: absolute !important;
+            visibility: visible !important;
             left: 50% !important;
             top: 5mm !important;
             transform: translateX(-50%) !important;
@@ -371,12 +372,12 @@ export default function StudentCard() {
       `}</style>
 
       {/* Hidden print area */}
-      <div className="student-ticket-print" style={{ position: 'absolute', left: '-9999px', top: 0 }}>
+      <div className="student-ticket-print" style={{ position: 'fixed', left: '-9999px', top: 0, visibility: 'hidden' }}>
         <TicketContent />
       </div>
 
       {/* Toolbar — hidden on print */}
-      <div className="no-print flex items-center gap-3 mb-6">
+      <div className="no-print flex flex-wrap items-center gap-3 mb-6">
         <button
           onClick={() => navigate(-1)}
           className="flex items-center gap-2 text-slate-500 hover:text-slate-800 text-sm transition-colors"

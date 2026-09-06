@@ -74,6 +74,10 @@ html, :root {
   /* Direction is set dynamically by i18n.ts applyLanguage() */
 }
 
+html, body {
+  overflow-x: hidden;
+}
+
 body {
   font-family: 'Inter', system-ui, sans-serif;
   background-color: #F8FAFC;
