@@ -195,7 +195,7 @@ export function registerSessionsHandlers(): void {
 
     try {
       if (data.startTime >= data.endTime) {
-        throw new Error('L\'heure de début doit précéder l\'heure de fin')
+        throw new Error("L'heure de début doit précéder l'heure de fin")
       }
 
       const group = sqlite.prepare('SELECT * FROM groups WHERE id = ?').get(data.groupId) as any
@@ -270,12 +270,91 @@ export function registerSessionsHandlers(): void {
     const sqlite = getSqlite()
 
     try {
+      // ── Step 1: Get session info (group + date) ──────────────────────────────
+      const session = sqlite.prepare(`
+        SELECT s.id, s.group_id, s.session_date, s.status
+        FROM attendance_sessions s
+        WHERE s.id = ?
+      `).get(sessionId) as { id: number; group_id: number; session_date: string; status: string } | undefined
+
+      if (!session) throw new Error('Session not found')
+
+      // Already closed — idempotent return
+      if (session.status !== 'open') {
+        return true
+      }
+
+      // ── Step 2: Find all active enrolled students who have NO attendance record
+      //            These are students the operator never touched — auto-mark absent
+      const unmarkedStudents = sqlite.prepare(`
+        SELECT
+          e.id        AS enrollment_id,
+          e.student_id,
+          COALESCE(e.agreed_price, g.monthly_price, 0) AS monthly_price
+        FROM enrollments e
+        JOIN groups g ON e.group_id = g.id
+        JOIN students st ON e.student_id = st.id
+        WHERE e.group_id = ?
+          AND e.status   = 'active'
+          AND st.status  = 'active'
+          AND e.student_id NOT IN (
+            SELECT student_id FROM attendance_records
+            WHERE session_id = ?
+          )
+      `).all(session.group_id, sessionId) as Array<{
+        enrollment_id: number
+        student_id: number
+        monthly_price: number
+      }>
+
+      log.info(`Session ${sessionId} closing: auto-marking ${unmarkedStudents.length} students as absent`)
+
+      // ── Step 3: For each unmarked student — insert absent record + charge fee ──
+      const { deductSession } = await import('../services/payment.service')
+
+      const now = new Date().toISOString()
+      let adminId = 1
+      try {
+        const { requireSession: requireAuth } = await import('../services/auth.service')
+        adminId = requireAuth().adminId
+      } catch { /* not authenticated — use fallback */ }
+
+      for (const s of unmarkedStudents) {
+        // session price = monthly_price / 4 sessions per month
+        const sessionPrice = Math.round(((s.monthly_price || 0) / 4) * 100) / 100
+
+        // Insert absent attendance record (INSERT OR IGNORE — idempotent)
+        sqlite.prepare(`
+          INSERT OR IGNORE INTO attendance_records
+            (session_id, student_id, attendance_status, is_inactive, source,
+             scanned_at, was_enrolled, created_by, created_at, updated_at)
+          VALUES (?, ?, 'absent', 0, 'auto', ?, 1, ?, datetime('now'), datetime('now'))
+        `).run(sessionId, s.student_id, now, adminId)
+
+        // Deduct session fee (idempotent — deductSession skips if already charged)
+        if (sessionPrice > 0) {
+          try {
+            await deductSession({
+              studentId: s.student_id,
+              enrollmentId: s.enrollment_id,
+              sessionId,
+              sessionDate: session.session_date,
+              sessionPrice,
+            })
+          } catch (err) {
+            log.warn(`Auto-absent deduction failed for student ${s.student_id}:`, err)
+          }
+        }
+      }
+
+      // ── Step 4: Close the session ────────────────────────────────────────────
       sqlite.prepare(`
         UPDATE attendance_sessions
         SET status = 'closed', updated_at = datetime('now')
         WHERE id = ?
       `).run(sessionId)
 
+      log.info(`Session ${sessionId} closed. Auto-absent applied to ${unmarkedStudents.length} students.`)
       return true
     } catch (err) {
       log.error('Failed to complete session:', err)
@@ -289,7 +368,7 @@ export function registerSessionsHandlers(): void {
 
     try {
       // Revert financial deductions for this session
-      sqlite.prepare(`DELETE FROM payments WHERE session_id = ? AND payment_type = 'deduction'`).run(sessionId)
+      sqlite.prepare(`DELETE FROM payments WHERE session_id = ? AND payment_type IN ('deduction','session_charge')`).run(sessionId)
       // Delete attendance records for this session
       sqlite.prepare(`DELETE FROM attendance_records WHERE session_id = ?`).run(sessionId)
       // Delete attendance session
