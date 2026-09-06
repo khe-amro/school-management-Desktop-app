@@ -1357,7 +1357,7 @@ export async function reconcilePastSessionsAttendance(): Promise<{ reconciledCou
         sqlite.prepare(`
           INSERT INTO attendance_records
             (session_id, student_id, attendance_status, is_inactive, source, was_enrolled, created_by, created_at, updated_at)
-          VALUES (?, ?, 'absent', 0, 'reconciliation', 1, 1, datetime('now'), datetime('now'))
+          VALUES (?, ?, 'absent', 0, 'manual', 1, 1, datetime('now'), datetime('now'))
         `).run(sess.id, en.student_id)
         reconciledCount++
 

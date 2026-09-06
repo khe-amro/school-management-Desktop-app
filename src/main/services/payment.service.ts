@@ -10,12 +10,41 @@ import log from 'electron-log'
 
 async function generateReceiptNumber(): Promise<string> {
   const db = getDb()
+  const sqlite = getSqlite()
   const settings = await db.query.schoolSettings.findFirst()
   const prefix = settings?.receiptPrefix ?? DEFAULT_RECEIPT_PREFIX
-  const result = await db.select({ count: count() }).from(schema.payments)
-  const total = (result[0]?.count ?? 0) + 1
   const ts = new Date().toISOString().slice(0, 10).replace(/-/g, '')
-  return `${prefix}-${ts}-${String(total).padStart(4, '0')}`
+
+  // Find all receipts matching today's pattern to determine true max sequence number
+  const pattern = `${prefix}-${ts}-%`
+  const rows = sqlite.prepare(`
+    SELECT receipt_number FROM payments
+    WHERE receipt_number LIKE ?
+  `).all(pattern) as { receipt_number: string }[]
+
+  let maxSeq = 0
+  for (const r of rows) {
+    const parts = r.receipt_number.split('-')
+    const lastPart = parts[parts.length - 1]
+    const num = parseInt(lastPart, 10)
+    if (!isNaN(num) && num > maxSeq) {
+      maxSeq = num
+    }
+  }
+
+  // Also consider total payments count and max id as baseline to avoid gaps/resets
+  const maxIdRow = sqlite.prepare(`SELECT MAX(id) as max_id, COUNT(*) as cnt FROM payments`).get() as { max_id: number | null; cnt: number }
+  const baseline = Math.max(maxIdRow?.max_id ?? 0, maxIdRow?.cnt ?? 0)
+  let nextSeq = Math.max(maxSeq + 1, baseline + 1)
+
+  // Guarantee uniqueness: loop until an unused receipt number is found
+  let candidate = `${prefix}-${ts}-${String(nextSeq).padStart(4, '0')}`
+  while (sqlite.prepare(`SELECT 1 FROM payments WHERE receipt_number = ? LIMIT 1`).get(candidate)) {
+    nextSeq++
+    candidate = `${prefix}-${ts}-${String(nextSeq).padStart(4, '0')}`
+  }
+
+  return candidate
 }
 
 // ─── Session price = monthlyPrice / 4 ────────────────────────────────────────
