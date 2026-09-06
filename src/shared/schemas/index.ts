@@ -202,7 +202,7 @@ export const UploadPhotoSchema = z.object({
 
 export const RestoreBackupSchema = z.object({
   backupPath: z.string().min(1).max(1000),
-  confirmPassword: z.string().min(1).max(200),
+  confirmPassword: z.string().max(200).optional(),
 })
 
 // ─── Reports ─────────────────────────────────────────────────────────────────

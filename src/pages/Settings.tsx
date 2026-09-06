@@ -234,21 +234,21 @@ export default function Settings() {
 
   // Restore backup
   const handleRestoreBackup = async () => {
-    if (!api || !restorePath || !restorePassword) {
-      alert('يرجى تحديد ملف النسخة الاحتياطية وإدخال كلمة المرور للمدير.')
+    if (!api || !restorePath) {
+      alert('يرجى تحديد ملف النسخة الاحتياطية.')
       return
     }
     setRestoring(true)
     try {
       const res = await api.backups.restore({
         backupPath: restorePath,
-        confirmPassword: restorePassword,
+        confirmPassword: restorePassword || undefined,
       })
       if (res.success) {
         alert('تمت استعادة قاعدة البيانات بنجاح! سيتم إعادة تشغيل التطبيق.')
         window.location.reload()
       } else {
-        alert(res.error?.message || 'كلمة المرور غير صحيحة أو ملف النسخة الاحتياطية غير صالح')
+        alert(res.error?.message || 'ملف النسخة الاحتياطية غير صالح')
       }
     } catch (err) {
       alert('حدث خطأ أثناء الاستعادة')

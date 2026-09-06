@@ -54,15 +54,18 @@ export default function Backups() {
   }
 
   const handleRestore = async () => {
-    if (!selectedBackup || !confirmPassword) return
+    if (!selectedBackup) return
     setRestoring(true)
     setMessage(null)
-    const res = await window.schoolApp.backups.restore(selectedBackup.path, confirmPassword)
+    const res = await window.schoolApp.backups.restore(selectedBackup.path, confirmPassword || undefined)
     setRestoring(false)
     if (res.success) {
       // Clear current session and redirect cleanly to /login
       await logout()
-      navigate('/login', { replace: true })
+      navigate('/login', {
+        replace: true,
+        state: { successMessage: t('backups.restoreComplete') },
+      })
     } else {
       setMessage({ type: 'error', text: res.error ?? t('errors.RESTORE_FAILED') })
     }
@@ -145,7 +148,7 @@ export default function Backups() {
                 <label className="block text-xs font-medium text-slate-600 mb-1">{t('backups.passwordConfirm')}</label>
                 <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:border-red-400 focus:ring-2 focus:ring-red-400/20 bg-white" dir="ltr" />
               </div>
-              <button onClick={handleRestore} disabled={restoring || !confirmPassword} className="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-red-700 disabled:opacity-60 transition-colors">
+              <button onClick={handleRestore} disabled={restoring} className="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-red-700 disabled:opacity-60 transition-colors">
                 {restoring && <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />}
                 {restoring ? t('backups.restoring') : t('backups.restore')}
               </button>

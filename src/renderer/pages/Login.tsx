@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Eye, EyeOff, Lock, User, WifiOff } from 'lucide-react'
+import { Eye, EyeOff, Lock, User, WifiOff, CheckCircle2 } from 'lucide-react'
 import { useAuth } from '../features/auth/AuthContext'
 import { LANGUAGES, switchLanguage, type SupportedLanguage } from '../i18n/i18n'
 
@@ -9,6 +9,8 @@ export default function Login() {
   const { t } = useTranslation()
   const { login } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+  const successMsg = (location.state as any)?.successMessage
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -109,6 +111,13 @@ export default function Login() {
 
           <h2 className="text-2xl font-bold text-[#0F172A] mb-1">{t('auth.login')}</h2>
           <p className="text-slate-500 text-sm mb-8">{t('auth.schoolAdmin')}</p>
+
+          {successMsg && (
+            <div className="mb-6 p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm font-medium flex items-center gap-3 animate-fade-in shadow-xs">
+              <CheckCircle2 size={20} className="text-emerald-600 shrink-0" />
+              <span className="leading-snug">{successMsg}</span>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Username */}

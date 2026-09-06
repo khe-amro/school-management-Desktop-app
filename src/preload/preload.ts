@@ -285,8 +285,8 @@ const api = {
     list: () => invoke<BackupInfo[]>(IPC_CHANNELS.BACKUPS_LIST),
     verify: (backupPath: string) =>
       invoke<{ verified: boolean }>(IPC_CHANNELS.BACKUPS_VERIFY, { backupPath }),
-    restore: (backupPath: string, confirmPassword: string) =>
-      invoke<boolean>(IPC_CHANNELS.BACKUPS_RESTORE, { backupPath, confirmPassword }),
+    restore: (backupPath: string, confirmPassword?: string) =>
+      invoke<boolean>(IPC_CHANNELS.BACKUPS_RESTORE, { backupPath, confirmPassword: confirmPassword || '' }),
   },
 
   media: {

@@ -4,7 +4,7 @@ import crypto from 'node:crypto'
 import { app } from 'electron'
 import archiver from 'archiver'
 import extract from 'extract-zip'
-import { initializeDatabase, closeDatabase, getDatabasePath_ } from '../database/connection'
+import { initializeDatabase, closeDatabase, getDatabasePath_, getSqlite } from '../database/connection'
 import { runMigrations } from '../database/migrator'
 import { requireSession, clearSession } from './auth.service'
 import { getSettings } from './settings.service'
@@ -42,6 +42,13 @@ export async function createBackup(destinationDir?: string): Promise<BackupInfo>
   const backupPath = path.join(backupDir, filename)
   const dbPath = getDatabasePath_()
   const userData = app.getPath('userData')
+
+  // Flush all SQLite WAL changes into main sqlite file so the backup is 100% up to date
+  try {
+    getSqlite().pragma('wal_checkpoint(TRUNCATE)')
+  } catch (err) {
+    log.warn('Could not run wal_checkpoint before backup:', err)
+  }
 
   await new Promise<void>((resolve, reject) => {
     const output = fs.createWriteStream(backupPath)
@@ -188,9 +195,15 @@ export async function restoreBackup(backupPath: string): Promise<void> {
 
     // 4. Replace database
     const dbPath = getDatabasePath_()
+
+    // Remove any leftover WAL/SHM files before and after replacing DB
+    try {
+      if (fs.existsSync(`${dbPath}-wal`)) fs.unlinkSync(`${dbPath}-wal`)
+      if (fs.existsSync(`${dbPath}-shm`)) fs.unlinkSync(`${dbPath}-shm`)
+    } catch { /* ignore */ }
+
     fs.copyFileSync(dbInBackup, dbPath)
 
-    // Remove any leftover WAL/SHM files to ensure clean connection
     try {
       if (fs.existsSync(`${dbPath}-wal`)) fs.unlinkSync(`${dbPath}-wal`)
       if (fs.existsSync(`${dbPath}-shm`)) fs.unlinkSync(`${dbPath}-shm`)

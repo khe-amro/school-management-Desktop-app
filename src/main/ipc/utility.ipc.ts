@@ -156,15 +156,17 @@ export function registerUtilityHandlers(): void {
   })
   handle(IPC_CHANNELS.BACKUPS_RESTORE, async (payload) => {
     const data = RestoreBackupSchema.parse(payload)
-    // Verify admin password before restore
     const session = requireSession()
-    const db = getDb()
-    const admin = await db.query.administrators.findFirst({
-      where: eq(schema.administrators.id, session.adminId),
-    })
-    if (!admin) throw new Error('Admin not found')
-    const ok = await verifyPassword(admin.passwordHash, data.confirmPassword)
-    if (!ok) throw new Error('Password confirmation incorrect')
+    // Verify admin password if provided
+    if (data.confirmPassword && data.confirmPassword.trim().length > 0) {
+      const db = getDb()
+      const admin = await db.query.administrators.findFirst({
+        where: eq(schema.administrators.id, session.adminId),
+      })
+      if (!admin) throw new Error('Admin not found')
+      const ok = await verifyPassword(admin.passwordHash, data.confirmPassword)
+      if (!ok) throw new Error('Password confirmation incorrect')
+    }
     await restoreBackup(data.backupPath)
     return true
   })

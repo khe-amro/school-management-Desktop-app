@@ -5,7 +5,7 @@ import { useAuth } from '../features/auth/AuthContext'
 import {
   Save, School, Wrench, Database, Shield,
   Eye, EyeOff, CheckCircle2, AlertCircle, FolderOpen,
-  RotateCcw, Plus, Clock, User, KeyRound
+  RotateCcw, Plus, Clock, User, KeyRound, AlertTriangle, Check
 } from 'lucide-react'
 import type { SchoolSettings } from '@shared/types/index'
 
@@ -52,6 +52,10 @@ export default function Settings() {
   const [backupStatus, setBackupStatus] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [restoring, setRestoring] = useState(false)
+  const [restoreConfirmOpen, setRestoreConfirmOpen] = useState(false)
+  const [restoreTarget, setRestoreTarget] = useState<{ path: string; name: string } | null>(null)
+  const [restoreError, setRestoreError] = useState<string | null>(null)
+  const [restoreSuccess, setRestoreSuccess] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -182,18 +186,36 @@ export default function Settings() {
   const handleRestoreBackup = async () => {
     const res = await window.schoolApp.app.openBackupDialog()
     if (!res.success || !res.data || res.data.canceled || !res.data.path) return
-    const confirmPw = window.prompt(t('backups.passwordConfirm'))
-    if (!confirmPw) return
+    const chosenPath = res.data.path
+    const fileName = chosenPath.split(/[/\\]/).pop() ?? chosenPath
+    setRestoreTarget({ path: chosenPath, name: fileName })
+    setRestoreError(null)
+    setRestoreSuccess(false)
+    setRestoreConfirmOpen(true)
+  }
+
+  const handleConfirmRestore = async () => {
+    if (!restoreTarget) return
     setRestoring(true)
+    setRestoreError(null)
     try {
-      const restoreRes = await window.schoolApp.backups.restore(res.data.path, confirmPw)
+      const restoreRes = await window.schoolApp.backups.restore(restoreTarget.path)
       if (restoreRes.success) {
-        alert(t('backups.restoreComplete'))
-        await logout()
-        navigate('/login', { replace: true })
+        setRestoreSuccess(true)
+        setTimeout(async () => {
+          try {
+            await logout()
+          } catch { /* ignore */ }
+          navigate('/login', {
+            replace: true,
+            state: { successMessage: t('backups.restoreComplete') },
+          })
+        }, 900)
       } else {
-        alert(`${t('common.error')}: ${restoreRes.error}`)
+        setRestoreError(restoreRes.error ?? t('common.error'))
       }
+    } catch (err: any) {
+      setRestoreError(err?.message ?? t('common.error'))
     } finally {
       setRestoring(false)
     }
@@ -423,17 +445,35 @@ export default function Settings() {
                   {t('backups.list')}
                 </h3>
                 <div className="space-y-2">
-                  {backups.map((b, i) => (
-                    <div key={i} className="flex items-center justify-between py-2 border-b border-[#F1F5F9] last:border-0">
-                      <div>
-                        <p className="text-sm font-medium text-[#0F172A]">{b.filename ?? b.path?.split(/[/\\]/).pop()}</p>
-                        <p className="text-xs text-slate-400 mt-0.5">{b.createdAt ?? b.created_at}</p>
+                  {backups.map((b, i) => {
+                    const fileName = b.filename ?? b.path?.split(/[/\\]/).pop() ?? 'backup.zip'
+                    return (
+                      <div key={i} className="flex items-center justify-between py-2 border-b border-[#F1F5F9] last:border-0">
+                        <div>
+                          <p className="text-sm font-medium text-[#0F172A]">{fileName}</p>
+                          <p className="text-xs text-slate-400 mt-0.5">{b.createdAt ?? b.created_at}</p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs text-slate-400">
+                            {b.sizeBytes ? `${(b.sizeBytes / 1024 / 1024).toFixed(1)} MB` : ''}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRestoreTarget({ path: b.path, name: fileName })
+                              setRestoreError(null)
+                              setRestoreSuccess(false)
+                              setRestoreConfirmOpen(true)
+                            }}
+                            className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition-colors"
+                          >
+                            <RotateCcw size={12} />
+                            {t('backups.restore')}
+                          </button>
+                        </div>
                       </div>
-                      <span className="text-xs text-slate-400">
-                        {b.sizeBytes ? `${(b.sizeBytes / 1024 / 1024).toFixed(1)} MB` : ''}
-                      </span>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             )}
@@ -590,6 +630,100 @@ export default function Settings() {
           </div>
         )}
       </div>
+      {/* Restore Backup Confirmation Modal */}
+      {restoreConfirmOpen && restoreTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-2xl border border-border shadow-2xl max-w-md w-full overflow-hidden animate-scale-in">
+            {/* Header */}
+            <div className="p-5 border-b border-slate-100 flex items-center gap-3 bg-amber-50/70">
+              <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
+                <AlertTriangle size={20} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-base font-bold text-[#0F172A]">
+                  {t('backups.confirmRestore')}
+                </h3>
+                <p className="text-xs text-slate-500 truncate mt-0.5" dir="ltr">
+                  {restoreTarget.name}
+                </p>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="p-5 space-y-4">
+              {restoreSuccess ? (
+                <div className="flex flex-col items-center justify-center py-5 text-center space-y-2">
+                  <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">
+                    <Check size={24} />
+                  </div>
+                  <p className="font-semibold text-emerald-800 text-sm">
+                    {t('backups.restoreSuccess')}
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-sm leading-relaxed">
+                    <p className="font-medium mb-1.5 flex items-center gap-1.5 text-amber-800">
+                      <AlertTriangle size={15} className="shrink-0" />
+                      {t('common.warning')}
+                    </p>
+                    <p className="text-xs text-amber-900/90 leading-normal">
+                      {t('backups.confirmRestoreMsg')}
+                    </p>
+                  </div>
+
+                  <p className="text-sm text-[#0F172A] font-medium">
+                    {t('backups.confirmRestorePrompt')}
+                  </p>
+
+                  {restoreError && (
+                    <p className="text-xs text-red-600 bg-red-50 border border-red-200 p-2.5 rounded-lg">
+                      {restoreError}
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Footer */}
+            {!restoreSuccess && (
+              <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!restoring) {
+                      setRestoreConfirmOpen(false)
+                      setRestoreTarget(null)
+                    }
+                  }}
+                  disabled={restoring}
+                  className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200/70 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {t('common.cancel')}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmRestore}
+                  disabled={restoring}
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-amber-600 hover:bg-amber-700 active:bg-amber-800 rounded-lg shadow-xs transition-colors disabled:opacity-60"
+                >
+                  {restoring ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                      <span>{t('backups.restoring')}</span>
+                    </>
+                  ) : (
+                    <>
+                      <RotateCcw size={14} />
+                      <span>{t('common.confirm')}</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
