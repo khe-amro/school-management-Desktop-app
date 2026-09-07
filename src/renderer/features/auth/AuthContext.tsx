@@ -12,6 +12,7 @@ interface AuthContextValue {
   login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>
   logout: () => Promise<void>
   completeSetup: (data: Parameters<typeof window.schoolApp.auth.completeSetup>[0]) => Promise<{ success: boolean; error?: string }>
+  refreshSession: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -146,6 +147,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { success: false, error: !result.success ? result.error : undefined }
   }, [])
 
+  const refreshSession = useCallback(async () => {
+    if (!window.schoolApp?.auth) return
+    try {
+      const sessionResult = await window.schoolApp.auth.getSession()
+      if (sessionResult.success && sessionResult.data) {
+        setSession({ ...sessionResult.data })
+      }
+    } catch { /* ignore */ }
+  }, [])
+
   return (
     <AuthContext.Provider
       value={{
@@ -158,6 +169,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         login,
         logout,
         completeSetup,
+        refreshSession,
       }}
     >
       {children}

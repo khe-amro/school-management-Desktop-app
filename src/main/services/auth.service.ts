@@ -35,6 +35,17 @@ export function requireSession(): AuthSession {
   return _currentSession
 }
 
+export function updateSessionAdmin(
+  adminId: number,
+  data: { fullName?: string; username?: string; photoPath?: string | null }
+): void {
+  if (_currentSession && _currentSession.adminId === adminId) {
+    if (data.fullName !== undefined) _currentSession.fullName = data.fullName
+    if (data.username !== undefined) _currentSession.username = data.username
+    if (data.photoPath !== undefined) _currentSession.photoPath = data.photoPath
+  }
+}
+
 // ─── Password hashing ─────────────────────────────────────────────────────────
 
 export async function hashPassword(password: string): Promise<string> {
@@ -119,6 +130,7 @@ export async function login(username: string, password: string): Promise<AuthSes
     fullName: admin.fullName,
     role: admin.role as AdminRole,
     preferredLanguage: admin.preferredLanguage as Language,
+    photoPath: admin.photoPath ?? null,
     loggedInAt: now,
   }
 

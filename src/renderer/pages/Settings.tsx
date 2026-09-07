@@ -5,7 +5,7 @@ import { useAuth } from '../features/auth/AuthContext'
 import {
   Save, School, Wrench, Database, Shield,
   Eye, EyeOff, CheckCircle2, AlertCircle, FolderOpen,
-  RotateCcw, Plus, Clock, User, KeyRound, AlertTriangle, Check
+  RotateCcw, Plus, Clock, User, KeyRound, AlertTriangle, Check, Camera
 } from 'lucide-react'
 import type { SchoolSettings } from '@shared/types/index'
 
@@ -23,7 +23,7 @@ interface AuditLog {
 export default function Settings() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { logout } = useAuth()
+  const { logout, refreshSession } = useAuth()
   const [section, setSection] = useState<SettingsSection>('school')
   const [settings, setSettings] = useState<Partial<SchoolSettings>>({})
   const [loading, setLoading] = useState(true)
@@ -33,6 +33,10 @@ export default function Settings() {
   // Admin profile
   const [admin, setAdmin] = useState<{ fullName: string; username: string; preferredLanguage: string; photoPath: string | null } | null>(null)
   const [adminPhotoUrl, setAdminPhotoUrl] = useState<string | null>(null)
+  const [adminForm, setAdminForm] = useState({ fullName: '', username: '' })
+  const [adminSaving, setAdminSaving] = useState(false)
+  const [adminSaveStatus, setAdminSaveStatus] = useState<'idle' | 'success' | 'error'>('idle')
+  const [adminError, setAdminError] = useState('')
 
   // Password change
   const [pwForm, setPwForm] = useState({ current: '', next: '', confirm: '' })
@@ -68,6 +72,10 @@ export default function Settings() {
       if (settingsRes.success && settingsRes.data) setSettings(settingsRes.data)
       if (adminRes.success && adminRes.data) {
         setAdmin(adminRes.data)
+        setAdminForm({
+          fullName: adminRes.data.fullName || '',
+          username: adminRes.data.username || '',
+        })
         if (adminRes.data.photoPath) {
           try {
             const photoRes = await window.schoolApp.media.getImageUrl(adminRes.data.photoPath)
@@ -230,13 +238,60 @@ export default function Settings() {
   }
 
   const handleAdminPhoto = async () => {
-    const res = await window.schoolApp.media.selectImage('admin', String(admin?.username ?? 'admin'))
+    const usernameForFile = adminForm.username.trim() || String(admin?.username ?? 'admin')
+    const res = await window.schoolApp.media.selectImage('admin', usernameForFile)
     if (res.success && res.data?.path) {
       const updateRes = await window.schoolApp.settings.updateAdmin({ photoPath: res.data.path })
       if (updateRes.success) {
+        setAdmin((prev) => (prev ? { ...prev, photoPath: res.data!.path } : null))
         const photoRes = await window.schoolApp.media.getImageUrl(res.data.path)
         if (photoRes.success && photoRes.data?.url) setAdminPhotoUrl(photoRes.data.url)
+        await refreshSession()
       }
+    }
+  }
+
+  const handleSaveAdminProfile = async () => {
+    const fullName = adminForm.fullName.trim()
+    const username = adminForm.username.trim()
+
+    if (!fullName) {
+      setAdminError(t('setup.errorAdminFields') || 'يرجى إدخال اسم المسؤول')
+      setAdminSaveStatus('error')
+      return
+    }
+    if (!username || username.length < 3) {
+      setAdminError('اسم المستخدم يجب أن يتكون من 3 أحرف على الأقل')
+      setAdminSaveStatus('error')
+      return
+    }
+
+    setAdminSaving(true)
+    setAdminError('')
+    setAdminSaveStatus('idle')
+
+    try {
+      const res = await window.schoolApp.settings.updateAdmin({
+        fullName,
+        username,
+      })
+      if (res.success) {
+        setAdmin((prev) =>
+          prev ? { ...prev, fullName: res.data.fullName, username: res.data.username } : null
+        )
+        setAdminForm({ fullName: res.data.fullName, username: res.data.username })
+        setAdminSaveStatus('success')
+        await refreshSession()
+        setTimeout(() => setAdminSaveStatus('idle'), 3500)
+      } else {
+        setAdminError(res.error || t('settings.adminSaveError'))
+        setAdminSaveStatus('error')
+      }
+    } catch (err: any) {
+      setAdminError(err.message || t('settings.adminSaveError'))
+      setAdminSaveStatus('error')
+    } finally {
+      setAdminSaving(false)
     }
   }
 
@@ -485,27 +540,102 @@ export default function Settings() {
           <div className="space-y-5">
             {/* Admin profile */}
             {admin && (
-              <div className="bg-white rounded-xl border border-border p-6">
-                <h3 className="font-semibold text-[#0F172A] text-sm pb-2 border-b border-[#F1F5F9] mb-4 flex items-center gap-2">
-                  <User size={14} /> {t('common.administrator')}
-                </h3>
-                <div className="flex items-center gap-4 mb-4">
-                  <div className="relative group cursor-pointer" onClick={handleAdminPhoto}>
-                    {adminPhotoUrl ? (
-                      <img src={adminPhotoUrl} alt={admin.fullName} className="w-14 h-14 rounded-full object-cover border-2 border-border" />
-                    ) : (
-                      <div className="w-14 h-14 rounded-full bg-[#2563EB] flex items-center justify-center text-white font-bold text-xl">
-                        {admin.fullName.charAt(0)}
+              <div className="bg-white rounded-xl border border-border p-6 shadow-sm">
+                <div className="flex items-center justify-between pb-3 border-b border-[#F1F5F9] mb-5">
+                  <h3 className="font-semibold text-[#0F172A] text-sm flex items-center gap-2">
+                    <User size={15} className="text-[#2563EB]" /> {t('settings.adminProfile')}
+                  </h3>
+                  {adminSaveStatus === 'success' && (
+                    <span className="flex items-center gap-1.5 text-xs text-emerald-700 font-semibold bg-emerald-50 px-3 py-1 rounded-lg border border-emerald-200">
+                      <CheckCircle2 size={13} /> {t('settings.adminProfileSaved')}
+                    </span>
+                  )}
+                </div>
+
+                {adminError && (
+                  <div className="flex items-center gap-2 text-red-600 bg-red-50 border border-red-200 px-3.5 py-2.5 rounded-lg text-xs font-medium mb-4">
+                    <AlertCircle size={15} className="shrink-0" />
+                    <span>{adminError}</span>
+                  </div>
+                )}
+
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6 mb-5">
+                  {/* Photo with hover badge */}
+                  <div className="flex flex-col items-center gap-2 shrink-0">
+                    <div
+                      className="relative group cursor-pointer"
+                      onClick={handleAdminPhoto}
+                      title={t('settings.clickToChangePhoto')}
+                    >
+                      {adminPhotoUrl ? (
+                        <img
+                          src={adminPhotoUrl}
+                          alt={adminForm.fullName || admin.fullName}
+                          className="w-20 h-20 rounded-full object-cover border-2 border-[#2563EB]/30 shadow-sm group-hover:border-[#2563EB] transition-colors"
+                        />
+                      ) : (
+                        <div className="w-20 h-20 rounded-full bg-[#2563EB] flex items-center justify-center text-white font-bold text-2xl shadow-sm">
+                          {(adminForm.fullName || admin.fullName || 'A').charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                      <div className="absolute inset-0 rounded-full bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1 text-white">
+                        <Camera size={18} />
+                        <span className="text-[10px] font-medium">{t('settings.changePhoto')}</span>
                       </div>
-                    )}
-                    <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                      <Plus size={14} className="text-white" />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleAdminPhoto}
+                      className="text-xs text-[#2563EB] hover:text-blue-700 font-medium hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <Camera size={12} />
+                      {t('settings.changePhoto')}
+                    </button>
+                  </div>
+
+                  {/* Form fields */}
+                  <div className="flex-1 w-full grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className={labelCls}>
+                        {t('settings.adminFullName')} <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={adminForm.fullName}
+                        onChange={(e) => setAdminForm((prev) => ({ ...prev, fullName: e.target.value }))}
+                        placeholder="Benammer"
+                        className={inputCls}
+                      />
+                      <p className="text-[11px] text-slate-400 mt-1">الاسم الكامل الذي يظهر في النظام والشريط الجانبي</p>
+                    </div>
+
+                    <div>
+                      <label className={labelCls}>
+                        {t('settings.adminUsername')} <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={adminForm.username}
+                        onChange={(e) => setAdminForm((prev) => ({ ...prev, username: e.target.value }))}
+                        placeholder="khemici"
+                        className={inputCls}
+                        dir="ltr"
+                      />
+                      <p className="text-[11px] text-slate-400 mt-1">اسم المستخدم المستخدم لتسجيل الدخول</p>
                     </div>
                   </div>
-                  <div>
-                    <p className="font-semibold text-[#0F172A]">{admin.fullName}</p>
-                    <p className="text-sm text-slate-400">{admin.username}</p>
-                  </div>
+                </div>
+
+                <div className="pt-3 border-t border-slate-100 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={handleSaveAdminProfile}
+                    disabled={adminSaving}
+                    className="flex items-center gap-2 px-4 py-2 bg-[#2563EB] hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors shadow-sm cursor-pointer"
+                  >
+                    <Save size={14} />
+                    {adminSaving ? t('common.saving') : t('common.save')}
+                  </button>
                 </div>
               </div>
             )}

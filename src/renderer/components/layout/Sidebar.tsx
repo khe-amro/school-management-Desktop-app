@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Users, GraduationCap, BookOpen, ScanLine,
@@ -15,9 +16,34 @@ interface SidebarProps {
 
 export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const { t, i18n } = useTranslation()
-  const { logout } = useAuth()
+  const { session, logout } = useAuth()
+  const [adminPhotoUrl, setAdminPhotoUrl] = useState<string | null>(null)
   const navigate = useNavigate()
   const isRTL = i18n.language === 'ar'
+
+  useEffect(() => {
+    let active = true
+    if (session) {
+      window.schoolApp?.settings?.getAdmin?.().then(async (res) => {
+        if (!active) return
+        if (res.success && res.data?.photoPath) {
+          try {
+            const photoRes = await window.schoolApp.media.getImageUrl(res.data.photoPath)
+            if (active && photoRes.success && photoRes.data?.url) {
+              setAdminPhotoUrl(photoRes.data.url)
+              return
+            }
+          } catch { /* ignore */ }
+        }
+        if (active) setAdminPhotoUrl(null)
+      }).catch(() => {
+        if (active) setAdminPhotoUrl(null)
+      })
+    } else {
+      setAdminPhotoUrl(null)
+    }
+    return () => { active = false }
+  }, [session])
 
   const navItems = [
     { to: '/dashboard', icon: LayoutDashboard, label: t('nav.dashboard') },
@@ -91,12 +117,25 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
       {/* Footer */}
       <div className="border-t border-white/10 p-3">
         <div className={`flex items-center gap-2 mb-3 px-1 ${collapsed ? 'justify-center' : ''}`}>
-          <div className="w-7 h-7 rounded-full bg-[#2563EB] flex items-center justify-center text-white text-xs font-bold shrink-0">
-            A
-          </div>
+          {adminPhotoUrl ? (
+            <img
+              src={adminPhotoUrl}
+              alt={session?.fullName ?? 'Admin'}
+              className="w-7 h-7 rounded-full object-cover shrink-0 border border-white/20"
+            />
+          ) : (
+            <div className="w-7 h-7 rounded-full bg-[#2563EB] flex items-center justify-center text-white text-xs font-bold shrink-0">
+              {(session?.fullName || session?.username || 'A').charAt(0).toUpperCase()}
+            </div>
+          )}
           {!collapsed && (
             <div className="overflow-hidden">
-              <p className="text-xs font-semibold text-white truncate">{t('common.administrator')}</p>
+              <p
+                className="text-xs font-semibold text-white truncate"
+                title={session?.fullName || session?.username || t('common.administrator')}
+              >
+                {session?.fullName || session?.username || t('common.administrator')}
+              </p>
               <div className="flex items-center gap-1 mt-0.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-400 shrink-0" />
                 <span className="text-[10px] text-slate-400 truncate">{t('common.localDatabase')}</span>

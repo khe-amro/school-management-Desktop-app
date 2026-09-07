@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Users, GraduationCap, BookOpen, ScanLine,
@@ -24,6 +25,39 @@ interface SidebarProps {
 
 export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const navigate = useNavigate()
+  const api = (window as any).schoolApp
+  const [adminUser, setAdminUser] = useState<{ fullName: string; photoUrl: string | null }>({
+    fullName: 'مدير النظام',
+    photoUrl: null,
+  })
+
+  useEffect(() => {
+    let active = true
+    const fetchAdmin = async () => {
+      if (!api) return
+      try {
+        const res = await (api.settings?.getAdmin ? api.settings.getAdmin() : { success: false })
+        if (!active) return
+        if (res.success && res.data) {
+          let photoUrl = null
+          if (res.data.photoPath && api.media?.getImageUrl) {
+            const pRes = await api.media.getImageUrl(res.data.photoPath)
+            if (pRes.success) photoUrl = pRes.data.url
+          }
+          if (active) {
+            setAdminUser({
+              fullName: res.data.fullName || res.data.username || 'مدير النظام',
+              photoUrl,
+            })
+          }
+        }
+      } catch (err) {
+        console.error(err)
+      }
+    }
+    fetchAdmin()
+    return () => { active = false }
+  }, [api])
 
   const handleLogout = () => {
     navigate('/login')
@@ -70,12 +104,20 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
       {/* Footer */}
       <div className="border-t border-white/10 p-3">
         <div className={`flex items-center gap-2 mb-3 px-1 ${collapsed ? 'justify-center' : ''}`}>
-          <div className="w-7 h-7 rounded-full bg-[#2563EB] flex items-center justify-center text-white text-xs font-bold shrink-0">
-            م
-          </div>
+          {adminUser.photoUrl ? (
+            <img
+              src={adminUser.photoUrl}
+              alt={adminUser.fullName}
+              className="w-7 h-7 rounded-full object-cover shrink-0 border border-white/20"
+            />
+          ) : (
+            <div className="w-7 h-7 rounded-full bg-[#2563EB] flex items-center justify-center text-white text-xs font-bold shrink-0">
+              {adminUser.fullName.charAt(0)}
+            </div>
+          )}
           {!collapsed && (
             <div className="overflow-hidden text-right">
-              <p className="text-xs font-semibold text-white truncate">مدير النظام</p>
+              <p className="text-xs font-semibold text-white truncate" title={adminUser.fullName}>{adminUser.fullName}</p>
               <div className="flex items-center gap-1 mt-0.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-400 shrink-0" />
                 <span className="text-[10px] text-slate-400 truncate">قاعدة البيانات متصلة</span>

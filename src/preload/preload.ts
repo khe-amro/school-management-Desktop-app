@@ -269,8 +269,8 @@ const api = {
     }>) => invoke<SchoolSettings>(IPC_CHANNELS.SETTINGS_UPDATE, data),
     getAdmin: () =>
       invoke<{ id: number; username: string; fullName: string; role: string; preferredLanguage: string; photoPath: string | null }>(IPC_CHANNELS.SETTINGS_GET_ADMIN),
-    updateAdmin: (data: { fullName?: string; preferredLanguage?: 'ar' | 'fr' | 'en'; photoPath?: string | null }) =>
-      invoke<{ id: number; fullName: string; preferredLanguage: string; photoPath: string | null }>(IPC_CHANNELS.SETTINGS_UPDATE_ADMIN, data),
+    updateAdmin: (data: { fullName?: string; username?: string; preferredLanguage?: 'ar' | 'fr' | 'en'; photoPath?: string | null }) =>
+      invoke<{ id: number; username: string; fullName: string; role: string; preferredLanguage: string; photoPath: string | null }>(IPC_CHANNELS.SETTINGS_UPDATE_ADMIN, data),
     listAuditLogs: (opts?: { limit?: number; offset?: number; action?: string }) =>
       invoke<any[]>(IPC_CHANNELS.SETTINGS_LIST_AUDIT_LOGS, opts),
     setAutoLock: (minutes: number) =>

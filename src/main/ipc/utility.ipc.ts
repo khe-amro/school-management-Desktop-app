@@ -7,7 +7,7 @@ import { UpdateSettingsSchema, RestoreBackupSchema, UploadPhotoSchema } from '..
 import { getSettings, updateSettings } from '../services/settings.service'
 import { createBackup, listBackups, verifyBackup, restoreBackup } from '../services/backup.service'
 import { uploadPhoto } from '../services/media.service'
-import { requireSession, verifyPassword } from '../services/auth.service'
+import { requireSession, verifyPassword, updateSessionAdmin } from '../services/auth.service'
 import { getSqlite, getDb, schema } from '../database/connection'
 import { eq } from 'drizzle-orm'
 import { z } from 'zod'
@@ -69,18 +69,40 @@ export function registerUtilityHandlers(): void {
     const session = requireSession()
     const data = z.object({
       fullName: z.string().min(1).max(200).optional(),
+      username: z.string().min(3).max(50).optional(),
       preferredLanguage: z.enum(['ar', 'fr', 'en']).optional(),
       photoPath: z.string().max(500).nullable().optional(),
     }).parse(payload)
     const sqlite = getSqlite()
+
+    if (data.username !== undefined) {
+      const cleanUsername = data.username.trim()
+      if (cleanUsername.length < 3) {
+        throw new Error('اسم المستخدم يجب أن يتكون من 3 أحرف على الأقل')
+      }
+      const existing = sqlite.prepare('SELECT id FROM administrators WHERE username = ? AND id != ? LIMIT 1').get(cleanUsername, session.adminId) as any
+      if (existing) {
+        throw new Error('اسم المستخدم مستخدم بالفعل')
+      }
+      data.username = cleanUsername
+    }
+
     const updates: string[] = ["updated_at = datetime('now')"]
     const params: any[] = []
-    if (data.fullName !== undefined) { updates.push('full_name = ?'); params.push(data.fullName) }
+    if (data.fullName !== undefined) { updates.push('full_name = ?'); params.push(data.fullName.trim()) }
+    if (data.username !== undefined) { updates.push('username = ?'); params.push(data.username) }
     if (data.preferredLanguage !== undefined) { updates.push('preferred_language = ?'); params.push(data.preferredLanguage) }
     if (data.photoPath !== undefined) { updates.push('photo_path = ?'); params.push(data.photoPath) }
     params.push(session.adminId)
     sqlite.prepare(`UPDATE administrators SET ${updates.join(', ')} WHERE id = ?`).run(...params)
     const updated = sqlite.prepare('SELECT id, username, full_name, role, preferred_language, photo_path FROM administrators WHERE id = ?').get(session.adminId) as any
+
+    updateSessionAdmin(session.adminId, {
+      fullName: updated.full_name,
+      username: updated.username,
+      photoPath: updated.photo_path,
+    })
+
     return {
       id: updated.id,
       username: updated.username,

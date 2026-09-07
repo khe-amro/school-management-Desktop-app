@@ -236,6 +236,7 @@ export interface AuthSession {
   fullName: string
   role: AdminRole
   preferredLanguage: Language
+  photoPath?: string | null
   loggedInAt: string
 }
 

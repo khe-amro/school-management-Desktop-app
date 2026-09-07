@@ -1,25 +1,27 @@
+@import 'tailwindcss';
+
 /* ─── Local fonts (no external CDN) ─────────────────────────────────────────── */
 @font-face {
   font-family: 'Inter';
-  src: url('./assets/fonts/Inter-Regular.woff2') format('woff2');
+  src: url('../assets/fonts/Inter-Regular.woff2') format('woff2');
   font-weight: 400;
   font-display: swap;
 }
 @font-face {
   font-family: 'Inter';
-  src: url('./assets/fonts/Inter-Medium.woff2') format('woff2');
+  src: url('../assets/fonts/Inter-Medium.woff2') format('woff2');
   font-weight: 500;
   font-display: swap;
 }
 @font-face {
   font-family: 'Inter';
-  src: url('./assets/fonts/Inter-SemiBold.woff2') format('woff2');
+  src: url('../assets/fonts/Inter-SemiBold.woff2') format('woff2');
   font-weight: 600;
   font-display: swap;
 }
 @font-face {
   font-family: 'Inter';
-  src: url('./assets/fonts/Inter-Bold.woff2') format('woff2');
+  src: url('../assets/fonts/Inter-Bold.woff2') format('woff2');
   font-weight: 700;
   font-display: swap;
 }
@@ -27,18 +29,16 @@
 /* Arabic font — Amiri for formal Arabic text */
 @font-face {
   font-family: 'Amiri';
-  src: url('./assets/fonts/Amiri-Regular.woff2') format('woff2');
+  src: url('../assets/fonts/Amiri-Regular.woff2') format('woff2');
   font-weight: 400;
   font-display: swap;
 }
 @font-face {
   font-family: 'Amiri';
-  src: url('./assets/fonts/Amiri-Bold.woff2') format('woff2');
+  src: url('../assets/fonts/Amiri-Bold.woff2') format('woff2');
   font-weight: 700;
   font-display: swap;
 }
-
-@import 'tailwindcss';
 
 /* ─── Design tokens ──────────────────────────────────────────────────────────── */
 @theme {
@@ -87,10 +87,12 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Arabic body gets Amiri for headings, Inter for UI */
+/* Arabic body uses Amiri as primary font, with Inter and system fallbacks */
+[lang="ar"],
+[dir="rtl"],
 [lang="ar"] body,
 [dir="rtl"] body {
-  font-family: 'Inter', 'Amiri', system-ui, sans-serif;
+  font-family: 'Amiri', 'Inter', system-ui, sans-serif;
 }
 
 /* Use Amiri for Arabic text blocks */

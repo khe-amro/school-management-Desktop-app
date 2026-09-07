@@ -132,6 +132,7 @@ export default function Settings() {
     try {
       const res = await api.settings.updateAdmin({
         fullName: adminProfile.fullName,
+        username: adminProfile.username,
         preferredLanguage: adminProfile.preferredLanguage,
         photoPath: adminProfile.photoPath,
       })
@@ -505,9 +506,14 @@ export default function Settings() {
                 />
               </InputRow>
               <InputRow label="اسم المستخدم (تسجيل الدخول)">
-                <div className="font-mono text-sm text-slate-700 py-1.5 bg-slate-50 px-3 rounded-lg border border-slate-200 max-w-xs text-left" dir="ltr">
-                  {adminProfile.username}
-                </div>
+                <input
+                  type="text"
+                  value={adminProfile.username}
+                  onChange={e => setAdminProfile(p => ({ ...p, username: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white font-mono text-left"
+                  dir="ltr"
+                  placeholder="khemici"
+                />
               </InputRow>
               <InputRow label="اللغة المفضلة">
                 <select
