@@ -4,7 +4,7 @@ import type {
   ApiResult, AuthSession, Student, Teacher, Course, Group,
   Enrollment, AttendanceSession, AttendanceRecord, Payment,
   SchoolSettings, BackupInfo, QRScanResult, PaginatedResult,
-  StudentNote
+  StudentNote, PrinterInfo, ReceiptPrintData
 } from '../shared/types/index'
 
 // ─── Safe invoke helper — wraps every call ───────────────────────────────────
@@ -266,6 +266,7 @@ const api = {
       phone: string | null; email: string | null; address: string | null
       academicYear: string; currency: string; defaultLanguage: 'ar' | 'fr' | 'en'
       backupDirectory: string | null; automaticBackupEnabled: boolean; backupsToRetain: number
+      receiptPrinterName: string | null; receiptPaperWidth: string; autoPrintReceipt: boolean; showPrintDialog: boolean
     }>) => invoke<SchoolSettings>(IPC_CHANNELS.SETTINGS_UPDATE, data),
     getAdmin: () =>
       invoke<{ id: number; username: string; fullName: string; role: string; preferredLanguage: string; photoPath: string | null }>(IPC_CHANNELS.SETTINGS_GET_ADMIN),
@@ -277,6 +278,14 @@ const api = {
       invoke<{ minutes: number }>(IPC_CHANNELS.SETTINGS_AUTO_LOCK_SET, { minutes }),
     getAutoLock: () =>
       invoke<{ minutes: number }>(IPC_CHANNELS.SETTINGS_AUTO_LOCK_GET),
+  },
+
+  printer: {
+    getList: () => invoke<PrinterInfo[]>(IPC_CHANNELS.PRINTER_GET_LIST),
+    printReceipt: (data: ReceiptPrintData) =>
+      invoke<{ success: boolean }>(IPC_CHANNELS.PRINTER_PRINT_RECEIPT, data),
+    printTest: () =>
+      invoke<{ success: boolean }>(IPC_CHANNELS.PRINTER_PRINT_TEST),
   },
 
   backups: {

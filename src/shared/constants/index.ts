@@ -155,6 +155,11 @@ export const IPC_CHANNELS = {
   // Enrollments extended
   ENROLLMENTS_CANCEL: 'enrollments:cancel',
 
+  // Printer
+  PRINTER_GET_LIST: 'printer:getList',
+  PRINTER_PRINT_RECEIPT: 'printer:printReceipt',
+  PRINTER_PRINT_TEST: 'printer:printTest',
+
   // App
   APP_GET_VERSION: 'app:getVersion',
   APP_GET_PATHS: 'app:getPaths',

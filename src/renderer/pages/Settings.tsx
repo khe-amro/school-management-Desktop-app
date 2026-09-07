@@ -5,11 +5,11 @@ import { useAuth } from '../features/auth/AuthContext'
 import {
   Save, School, Wrench, Database, Shield,
   Eye, EyeOff, CheckCircle2, AlertCircle, FolderOpen,
-  RotateCcw, Plus, Clock, User, KeyRound, AlertTriangle, Check, Camera
+  RotateCcw, Plus, Clock, User, KeyRound, AlertTriangle, Check, Camera, Printer
 } from 'lucide-react'
-import type { SchoolSettings } from '@shared/types/index'
+import type { SchoolSettings, PrinterInfo } from '@shared/types/index'
 
-type SettingsSection = 'school' | 'application' | 'backup' | 'security'
+type SettingsSection = 'school' | 'application' | 'printing' | 'backup' | 'security'
 
 interface AuditLog {
   id: number
@@ -50,6 +50,12 @@ export default function Settings() {
   // Audit logs
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
+
+  // Printing state
+  const [printers, setPrinters] = useState<PrinterInfo[]>([])
+  const [printersLoading, setPrintersLoading] = useState(false)
+  const [testPrintStatus, setTestPrintStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
+  const [testPrintError, setTestPrintError] = useState<string | null>(null)
 
   // Backups
   const [backups, setBackups] = useState<any[]>([])
@@ -96,10 +102,25 @@ export default function Settings() {
     if (res.success && res.data) setBackups(res.data)
   }, [])
 
+  const loadPrinters = useCallback(async () => {
+    setPrintersLoading(true)
+    try {
+      const res = await window.schoolApp.printer.getList()
+      if (res.success && res.data) {
+        setPrinters(res.data)
+      }
+    } catch {
+      // ignore
+    } finally {
+      setPrintersLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     if (section === 'backup') loadBackups()
     if (section === 'security') loadAuditLogs()
-  }, [section])
+    if (section === 'printing') loadPrinters()
+  }, [section, loadBackups, loadPrinters])
 
   const loadAuditLogs = async () => {
     setLogsLoading(true)
@@ -134,6 +155,10 @@ export default function Settings() {
         backupDirectory: settings.backupDirectory ?? null,
         automaticBackupEnabled: settings.automaticBackupEnabled,
         backupsToRetain: settings.backupsToRetain,
+        receiptPrinterName: settings.receiptPrinterName ?? null,
+        receiptPaperWidth: settings.receiptPaperWidth || '80mm',
+        autoPrintReceipt: Boolean(settings.autoPrintReceipt),
+        showPrintDialog: settings.showPrintDialog !== false,
       })
       if (res.success && res.data) {
         setSettings(res.data)
@@ -144,6 +169,24 @@ export default function Settings() {
       }
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleTestPrint = async () => {
+    setTestPrintStatus('loading')
+    setTestPrintError(null)
+    try {
+      const res = await window.schoolApp.printer.printTest()
+      if (res.success) {
+        setTestPrintStatus('success')
+        setTimeout(() => setTestPrintStatus('idle'), 4000)
+      } else {
+        setTestPrintStatus('error')
+        setTestPrintError(res.error || t('settings.testPrintFailed'))
+      }
+    } catch (err: any) {
+      setTestPrintStatus('error')
+      setTestPrintError(err?.message || t('settings.testPrintFailed'))
     }
   }
 
@@ -301,6 +344,7 @@ export default function Settings() {
   const navItems: { key: SettingsSection; label: string; icon: any }[] = [
     { key: 'school', label: t('settings.school'), icon: School },
     { key: 'application', label: t('settings.appearance'), icon: Wrench },
+    { key: 'printing', label: t('settings.printing'), icon: Printer },
     { key: 'backup', label: t('settings.backup'), icon: Database },
     { key: 'security', label: t('settings.security'), icon: Shield },
   ]
@@ -437,6 +481,177 @@ export default function Settings() {
                 {saving ? <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> : <Save size={14} />}
                 {saving ? t('common.saving') : t('common.save')}
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Printing & Thermal Receipts ── */}
+        {section === 'printing' && (
+          <div className="space-y-5">
+            <div className="bg-white rounded-xl border border-border p-6 space-y-4">
+              <div className="flex items-center justify-between pb-2 border-b border-[#F1F5F9]">
+                <div>
+                  <h3 className="font-semibold text-[#0F172A] text-sm">
+                    {t('settings.printingTitle')}
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {t('settings.printingSubtitle')}
+                  </p>
+                </div>
+                <button
+                  onClick={loadPrinters}
+                  disabled={printersLoading}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-600 hover:text-[#2563EB] bg-slate-50 hover:bg-blue-50 rounded-lg border border-slate-200 transition-colors"
+                >
+                  <RotateCcw size={12} className={printersLoading ? 'animate-spin' : ''} />
+                  <span>{t('settings.refreshPrinters')}</span>
+                </button>
+              </div>
+
+              {/* Missing printer warning */}
+              {settings.receiptPrinterName &&
+                !printersLoading &&
+                printers.length > 0 &&
+                !printers.some((p) => p.name.toLowerCase() === settings.receiptPrinterName?.toLowerCase()) && (
+                  <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-xs flex items-center gap-2">
+                    <AlertTriangle size={16} className="shrink-0 text-amber-600" />
+                    <span>{t('settings.printerNotFoundWarning', { name: settings.receiptPrinterName })}</span>
+                  </div>
+                )}
+
+              {/* Printer Selection Dropdown */}
+              <div>
+                <label className={labelCls}>{t('settings.selectPrinter')}</label>
+                <select
+                  className={inputCls}
+                  value={settings.receiptPrinterName ?? ''}
+                  onChange={(e) => setSettings((s) => ({ ...s, receiptPrinterName: e.target.value || null }))}
+                >
+                  <option value="">-- {t('settings.selectPrinter')} --</option>
+                  {printers.map((p) => (
+                    <option key={p.name} value={p.name}>
+                      {p.displayName || p.name} {p.isDefault ? ' (Default)' : ''}
+                    </option>
+                  ))}
+                </select>
+                {printers.length === 0 && !printersLoading && (
+                  <p className="text-xs text-amber-600 mt-1">
+                    {t('settings.noPrintersFound')}
+                  </p>
+                )}
+                {settings.receiptPrinterName && (
+                  <p className="text-[11px] text-slate-500 mt-1 font-mono">
+                    Device Name: <span className="font-semibold text-slate-700">{settings.receiptPrinterName}</span>
+                  </p>
+                )}
+              </div>
+
+              {/* Paper Width */}
+              <div>
+                <label className={labelCls}>{t('settings.paperWidth')}</label>
+                <select
+                  className={inputCls}
+                  value={settings.receiptPaperWidth ?? '80mm'}
+                  onChange={(e) => setSettings((s) => ({ ...s, receiptPaperWidth: e.target.value }))}
+                >
+                  <option value="80mm">{t('settings.paperWidth80')}</option>
+                  <option value="58mm">{t('settings.paperWidth58')}</option>
+                </select>
+              </div>
+
+              {/* Show Print Dialog Toggle */}
+              <div className="pt-2 border-t border-[#F1F5F9] space-y-3">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="mt-1 rounded border-slate-300 text-[#2563EB] focus:ring-[#2563EB]"
+                    checked={settings.showPrintDialog !== false}
+                    onChange={(e) => setSettings((s) => ({ ...s, showPrintDialog: e.target.checked }))}
+                  />
+                  <div>
+                    <span className="text-sm font-medium text-[#0F172A] block">
+                      {t('settings.showPrintDialog')}
+                    </span>
+                    <span className="text-xs text-slate-500">
+                      {t('settings.showPrintDialogDesc')}
+                    </span>
+                  </div>
+                </label>
+
+                {/* Auto Print After Payment Toggle */}
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="mt-1 rounded border-slate-300 text-[#2563EB] focus:ring-[#2563EB]"
+                    checked={Boolean(settings.autoPrintReceipt)}
+                    onChange={(e) => setSettings((s) => ({ ...s, autoPrintReceipt: e.target.checked }))}
+                  />
+                  <div>
+                    <span className="text-sm font-medium text-[#0F172A] block">
+                      {t('settings.autoPrintReceipt')}
+                    </span>
+                    <span className="text-xs text-slate-500">
+                      {t('settings.autoPrintReceiptDesc')}
+                    </span>
+                  </div>
+                </label>
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <button
+                  onClick={handleSave}
+                  disabled={saving}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-[#2563EB] text-white rounded-lg text-sm font-semibold hover:bg-[#1D4ED8] disabled:opacity-60 transition-colors"
+                >
+                  {saving ? <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> : <Save size={14} />}
+                  {saving ? t('common.saving') : t('common.save')}
+                </button>
+              </div>
+            </div>
+
+            {/* Diagnostic Test Print Card */}
+            <div className="bg-white rounded-xl border border-border p-6 space-y-4">
+              <h3 className="font-semibold text-[#0F172A] text-sm pb-2 border-b border-[#F1F5F9] flex items-center gap-2">
+                <Printer size={16} className="text-[#2563EB]" />
+                {t('settings.testPrintTitle')}
+              </h3>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                {t('settings.testPrintDesc')}
+              </p>
+
+              {testPrintStatus === 'success' && (
+                <div className="p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg text-xs flex items-center gap-2">
+                  <CheckCircle2 size={16} className="shrink-0" />
+                  <span>{t('settings.testPrintSuccess')}</span>
+                </div>
+              )}
+
+              {testPrintStatus === 'error' && (
+                <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs flex items-center gap-2">
+                  <AlertCircle size={16} className="shrink-0" />
+                  <span>{testPrintError || t('settings.testPrintFailed')}</span>
+                </div>
+              )}
+
+              <div className="flex items-center gap-3 pt-1">
+                <button
+                  onClick={handleTestPrint}
+                  disabled={testPrintStatus === 'loading' || !settings.receiptPrinterName}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-slate-900 text-white rounded-lg text-sm font-semibold hover:bg-slate-800 disabled:opacity-50 transition-colors"
+                >
+                  {testPrintStatus === 'loading' ? (
+                    <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <Printer size={14} />
+                  )}
+                  {t('settings.testPrintBtn')}
+                </button>
+                {!settings.receiptPrinterName && (
+                  <span className="text-xs text-slate-400">
+                    {t('settings.receiptPrinterNotConfigured')}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         )}

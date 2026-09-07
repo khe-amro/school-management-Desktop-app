@@ -5,7 +5,7 @@ import {
   Plus, Search, Printer, X, TrendingUp, AlertTriangle, CheckCircle2, Clock,
   BookOpen, AlertCircle, CreditCard, ChevronDown, Filter
 } from 'lucide-react'
-import type { Payment, Student, Enrollment, Group, Course } from '@shared/types/index'
+import type { Payment, Student, Enrollment, Group, Course, SchoolSettings } from '@shared/types/index'
 
 interface PaymentSummary {
   monthRevenue: number
@@ -233,7 +233,10 @@ export default function Payments() {
   const [groups, setGroups] = useState<Group[]>([])
   const [courses, setCourses] = useState<Course[]>([])
   const [enrollments, setEnrollments] = useState<Enrollment[]>([])
+  const [schoolSettings, setSchoolSettings] = useState<SchoolSettings | null>(null)
   const [receiptModal, setReceiptModal] = useState<any | null>(null)
+  const [printingReceipt, setPrintingReceipt] = useState(false)
+  const [printError, setPrintError] = useState<string | null>(null)
 
   // Transfer/Refund modals
   const [showTransfer, setShowTransfer] = useState<{ enrollmentId: number; studentId: number; balance: number } | null>(null)
@@ -255,16 +258,18 @@ export default function Payments() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [listRes, summaryRes, grpRes, crsRes] = await Promise.all([
+      const [listRes, summaryRes, grpRes, crsRes, settingsRes] = await Promise.all([
         window.schoolApp.payments.list({ pageSize: 100 }),
         window.schoolApp.payments.summary(),
         window.schoolApp.groups.list(),
         window.schoolApp.courses.list(),
+        window.schoolApp.settings.get(),
       ])
       if (listRes.success && listRes.data) setPayments(listRes.data.items)
       if (summaryRes.success && summaryRes.data) setSummary(summaryRes.data)
       if (grpRes.success && grpRes.data) setGroups(grpRes.data)
       if (crsRes.success && crsRes.data) setCourses(crsRes.data)
+      if (settingsRes.success && settingsRes.data) setSchoolSettings(settingsRes.data)
     } finally {
       setLoading(false)
     }
@@ -380,7 +385,34 @@ export default function Payments() {
         notes: form.notes.trim() || null,
       })
       if (!res.success) { setError(res.error ?? t('common.error')) }
-      else { setShowForm(false); setReceiptModal(res.data); await load() }
+      else {
+        setShowForm(false)
+        setReceiptModal(res.data)
+        setPrintError(null)
+        await load()
+
+        // Auto print receipt if configured in settings
+        if (schoolSettings?.autoPrintReceipt && schoolSettings?.receiptPrinterName) {
+          try {
+            await window.schoolApp.printer.printReceipt({
+              receiptNumber: res.data.receiptNumber || 'REC',
+              studentName: res.data.studentName || `ID:#${res.data.studentId}`,
+              studentNumber: res.data.studentNumber,
+              courseName: res.data.courseName,
+              groupName: res.data.groupName,
+              billingPeriod: res.data.billingPeriod || '',
+              amount: Number(res.data.amount || 0),
+              paymentMethod: res.data.paymentMethod || 'cash',
+              paymentDate: res.data.paymentDate || new Date().toISOString().slice(0, 10),
+              reference: res.data.reference || null,
+              receivedByName: res.data.receivedByName || undefined,
+              notes: res.data.notes || null,
+            })
+          } catch (autoErr) {
+            console.error('[AutoPrint] Failed to print receipt:', autoErr)
+          }
+        }
+      }
     } catch (err: any) { setError(err?.message ?? t('common.error')) }
     finally { setSaving(false) }
   }
@@ -412,7 +444,44 @@ export default function Payments() {
   }
 
   const handlePrintReceipt = async () => {
-    await window.schoolApp.app.print()
+    if (!receiptModal) return
+    setPrintingReceipt(true)
+    setPrintError(null)
+    try {
+      let sName = receiptModal.studentName
+      let sNumber = receiptModal.studentNumber
+      if (!sName && receiptModal.studentId) {
+        const found = students.find((s) => s.id === receiptModal.studentId)
+        if (found) {
+          sName = `${found.lastNameAr || found.lastNameFr || ''} ${found.firstNameAr || found.firstNameFr || ''}`.trim()
+          sNumber = found.studentNumber
+        }
+      }
+
+      const receiptData = {
+        receiptNumber: receiptModal.receiptNumber || 'REC',
+        studentName: sName || `ID:#${receiptModal.studentId}`,
+        studentNumber: sNumber,
+        courseName: receiptModal.courseName,
+        groupName: receiptModal.groupName,
+        billingPeriod: receiptModal.billingPeriod || '',
+        amount: Number(receiptModal.amount || 0),
+        paymentMethod: receiptModal.paymentMethod || 'cash',
+        paymentDate: receiptModal.paymentDate || new Date().toISOString().slice(0, 10),
+        reference: receiptModal.reference || null,
+        receivedByName: receiptModal.receivedByName || undefined,
+        notes: receiptModal.notes || null,
+      }
+
+      const res = await window.schoolApp.printer.printReceipt(receiptData)
+      if (!res.success) {
+        setPrintError(res.error || t('settings.testPrintFailed'))
+      }
+    } catch (err: any) {
+      setPrintError(err?.message || t('settings.testPrintFailed'))
+    } finally {
+      setPrintingReceipt(false)
+    }
   }
 
   const getCourseGroupName = (courseId: number, groupName: string) => {
@@ -793,12 +862,25 @@ export default function Payments() {
               </div>
             </div>
 
+            {printError && (
+              <div className="p-2.5 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs mt-3 flex items-center gap-1.5">
+                <AlertTriangle size={14} className="shrink-0" />
+                <span>{printError}</span>
+              </div>
+            )}
+
             <div className="flex justify-end gap-2 mt-5">
               <button
                 onClick={handlePrintReceipt}
-                className="w-full py-2.5 bg-[#2563EB] text-white rounded-lg text-xs font-bold hover:bg-[#1D4ED8] flex items-center justify-center gap-2 shadow-xs transition-colors"
+                disabled={printingReceipt}
+                className="w-full py-2.5 bg-[#2563EB] text-white rounded-lg text-xs font-bold hover:bg-[#1D4ED8] disabled:opacity-50 flex items-center justify-center gap-2 shadow-xs transition-colors"
               >
-                <Printer size={15} /> {t('payments.printReceipt')}
+                {printingReceipt ? (
+                  <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <Printer size={15} />
+                )}
+                {t('payments.printReceipt')}
               </button>
             </div>
           </div>

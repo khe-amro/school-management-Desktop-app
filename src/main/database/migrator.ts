@@ -521,6 +521,19 @@ const MIGRATIONS: { version: number; name: string; sql: string }[] = [
         VALUES('schema_version', '9', datetime('now'));
     `,
   },
+  {
+    version: 10,
+    name: 'add_printer_settings',
+    sql: `
+      ALTER TABLE school_settings ADD COLUMN receipt_printer_name TEXT;
+      ALTER TABLE school_settings ADD COLUMN receipt_paper_width TEXT NOT NULL DEFAULT '80mm';
+      ALTER TABLE school_settings ADD COLUMN auto_print_receipt INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE school_settings ADD COLUMN show_print_dialog INTEGER NOT NULL DEFAULT 1;
+
+      INSERT OR REPLACE INTO app_metadata(key, value, updated_at)
+        VALUES('schema_version', '10', datetime('now'));
+    `,
+  },
 ]
 
 // ─── Migration runner ─────────────────────────────────────────────────────────

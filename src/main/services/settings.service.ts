@@ -20,6 +20,10 @@ function mapRow(r: typeof schema.schoolSettings.$inferSelect): SchoolSettings {
     backupDirectory: r.backupDirectory ?? null,
     automaticBackupEnabled: r.automaticBackupEnabled,
     backupsToRetain: r.backupsToRetain,
+    receiptPrinterName: r.receiptPrinterName ?? null,
+    receiptPaperWidth: r.receiptPaperWidth ?? '80mm',
+    autoPrintReceipt: r.autoPrintReceipt ?? false,
+    showPrintDialog: r.showPrintDialog ?? true,
     updatedAt: r.updatedAt,
   }
 }
@@ -43,6 +47,10 @@ export async function updateSettings(data: Partial<{
   backupDirectory: string | null
   automaticBackupEnabled: boolean
   backupsToRetain: number
+  receiptPrinterName: string | null
+  receiptPaperWidth: string
+  autoPrintReceipt: boolean
+  showPrintDialog: boolean
 }>): Promise<SchoolSettings> {
   requireSession()
   const db = getDb()
@@ -70,6 +78,10 @@ export async function updateSettings(data: Partial<{
       backupDirectory: data.backupDirectory ?? null,
       automaticBackupEnabled: data.automaticBackupEnabled ?? false,
       backupsToRetain: data.backupsToRetain ?? 30,
+      receiptPrinterName: data.receiptPrinterName ?? null,
+      receiptPaperWidth: data.receiptPaperWidth ?? '80mm',
+      autoPrintReceipt: data.autoPrintReceipt ?? false,
+      showPrintDialog: data.showPrintDialog ?? true,
       updatedAt: now,
     }).returning()
     return mapRow(result[0]!)

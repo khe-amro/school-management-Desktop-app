@@ -265,6 +265,10 @@ export const schoolSettings = sqliteTable('school_settings', {
   backupDirectory: text('backup_directory'),
   automaticBackupEnabled: integer('automatic_backup_enabled', { mode: 'boolean' }).notNull().default(false),
   backupsToRetain: integer('backups_to_retain').notNull().default(30),
+  receiptPrinterName: text('receipt_printer_name'),
+  receiptPaperWidth: text('receipt_paper_width').notNull().default('80mm'),
+  autoPrintReceipt: integer('auto_print_receipt', { mode: 'boolean' }).notNull().default(false),
+  showPrintDialog: integer('show_print_dialog', { mode: 'boolean' }).notNull().default(true),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
   updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
 })

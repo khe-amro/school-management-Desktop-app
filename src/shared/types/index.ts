@@ -202,7 +202,34 @@ export interface SchoolSettings {
   backupDirectory: string | null
   automaticBackupEnabled: boolean
   backupsToRetain: number
+  receiptPrinterName?: string | null
+  receiptPaperWidth?: string
+  autoPrintReceipt?: boolean
+  showPrintDialog?: boolean
   updatedAt: string
+}
+
+export interface PrinterInfo {
+  name: string
+  displayName: string
+  description: string
+  status: number
+  isDefault: boolean
+}
+
+export interface ReceiptPrintData {
+  receiptNumber: string
+  studentName: string
+  studentNumber?: string
+  courseName?: string
+  groupName?: string
+  billingPeriod: string
+  amount: number
+  paymentMethod: string
+  paymentDate: string
+  reference?: string | null
+  receivedByName?: string
+  notes?: string | null
 }
 
 export interface BackupInfo {

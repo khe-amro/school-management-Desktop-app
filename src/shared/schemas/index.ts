@@ -188,6 +188,10 @@ export const UpdateSettingsSchema = z.object({
   backupDirectory: z.string().max(500).optional().nullable(),
   automaticBackupEnabled: z.boolean().optional(),
   backupsToRetain: z.number().int().min(1).max(365).optional(),
+  receiptPrinterName: z.string().max(255).optional().nullable(),
+  receiptPaperWidth: z.enum(['80mm', '58mm']).optional(),
+  autoPrintReceipt: z.boolean().optional(),
+  showPrintDialog: z.boolean().optional(),
 })
 
 // ─── Media ────────────────────────────────────────────────────────────────────
