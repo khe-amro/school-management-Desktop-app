@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { ArrowLeft, Printer, Download, Eye } from 'lucide-react'
 import QRCode from 'qrcode'
-import type { Student, Enrollment, Payment } from '@shared/types/index'
+import type { Student, Enrollment } from '@shared/types/index'
 
 interface SchoolInfo {
   schoolNameAr: string
@@ -21,9 +21,6 @@ export default function StudentCard() {
   const [school, setSchool] = useState<SchoolInfo>({ schoolNameAr: '', schoolNameFr: 'EDUPILOT DZ', academicYear: '2025-2026' })
   const [photoUrl, setPhotoUrl] = useState<string | null>(null)
   const [enrollments, setEnrollments] = useState<Enrollment[]>([])
-  const [lastPayment, setLastPayment] = useState<Payment | null>(null)
-  const [attendanceRate, setAttendanceRate] = useState<number | null>(null)
-  const [remainingSessions, setRemainingSessions] = useState<number>(0)
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [printing, setPrinting] = useState(false)
@@ -33,12 +30,10 @@ export default function StudentCard() {
     async function load() {
       try {
         const studentId = Number(id)
-        const [studentRes, settingsRes, enrollRes, payRes, summaryRes] = await Promise.all([
+        const [studentRes, settingsRes, enrollRes] = await Promise.all([
           window.schoolApp.students.getById(studentId),
           window.schoolApp.settings.get(),
           window.schoolApp.enrollments.byStudent(studentId),
-          window.schoolApp.payments.byStudent(studentId),
-          window.schoolApp.attendance.getStudentSummary(studentId),
         ])
 
         if (studentRes.success && studentRes.data) {
@@ -66,25 +61,6 @@ export default function StudentCard() {
 
         if (enrollRes.success && enrollRes.data) {
           setEnrollments(enrollRes.data)
-          if (enrollRes.data.length > 0) {
-            const firstEnrollment = enrollRes.data.find(e => e.status === 'active') ?? enrollRes.data[0]
-            try {
-              const remRes = await window.schoolApp.attendance.getRemainingSessionsCount(firstEnrollment.id)
-              if (remRes.success && typeof remRes.data?.count === 'number') {
-                setRemainingSessions(remRes.data.count)
-              }
-            } catch {}
-          }
-        }
-
-        if (payRes.success && payRes.data && payRes.data.length > 0) {
-          // Sort descending by paymentDate
-          const sorted = [...payRes.data].sort((a, b) => new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime())
-          setLastPayment(sorted[0])
-        }
-
-        if (summaryRes.success && summaryRes.data?.attendanceStats) {
-          setAttendanceRate(summaryRes.data.attendanceStats.attendanceRate)
         }
       } finally {
         setLoading(false)
@@ -97,29 +73,24 @@ export default function StudentCard() {
   const fullNameFr = student ? `${student.lastNameFr} ${student.firstNameFr}` : ''
   const initials = student ? (student.firstNameAr.charAt(0) + student.lastNameAr.charAt(0)) : ''
 
-  const primaryEnrollment = useMemo(() => {
-    return enrollments.find(e => e.status === 'active') ?? enrollments[0]
+  const activeEnrollments = useMemo(() => {
+    const active = enrollments.filter(e => e.status === 'active')
+    return active.length > 0 ? active : enrollments
   }, [enrollments])
 
-  // Generate QR Code with rich structured payload
+  // Generate QR Code with clean structured payload
   useEffect(() => {
     if (student?.qrToken) {
-      const courseName = primaryEnrollment?.courseName ?? primaryEnrollment?.groupName ?? 'Non assigné'
-      const paymentInfo = lastPayment ? `${lastPayment.amount.toLocaleString()} DA (${lastPayment.billingPeriod || lastPayment.paymentDate})` : 'Aucun paiement enregistré'
-      const rateInfo = attendanceRate !== null ? `${attendanceRate}%` : '100%'
-      const remainingInfo = remainingSessions > 0 ? `${remainingSessions} séances restantes` : 'À jour'
+      const classesSummary = activeEnrollments
+        .map(e => `${e.courseName || 'Cours'}${e.groupName ? ` (${e.groupName})` : ''}${e.teacherName ? ` - ${e.teacherName}` : ''}`)
 
-      // Clean structured plain text card — instantly readable by all smartphones, Google Lens, and QR scanners
       const lines = [
         school.schoolNameFr || 'EDUPILOT DZ',
         `Matricule: ${student.studentNumber}`,
         `Nom: ${fullNameAr}`,
         `Nom FR: ${fullNameFr}`,
         student.phone ? `Tél: ${student.phone}` : null,
-        `Cours: ${courseName}`,
-        `Paiement: ${paymentInfo}`,
-        `Présence: ${rateInfo}`,
-        `Séances: ${remainingInfo}`,
+        classesSummary.length > 0 ? `Classes: ${classesSummary.join(', ')}` : null,
         `ID: ${student.qrToken}`,
       ].filter(Boolean)
 
@@ -134,7 +105,8 @@ export default function StudentCard() {
         .then((url) => setQrDataUrl(url))
         .catch((err) => console.error('QR generation error:', err))
     }
-  }, [student, primaryEnrollment, lastPayment, attendanceRate, remainingSessions, school, fullNameAr, fullNameFr])
+  }, [student, activeEnrollments, school, fullNameAr, fullNameFr])
+
 
   const handlePrint = async () => {
     setPrinting(true)
@@ -256,15 +228,25 @@ export default function StudentCard() {
 
       <div style={{ borderBottom: '1px dashed #000', margin: '2.5mm 0' }} />
 
-      {/* Course & Group Enrollment Details */}
+      {/* Course & Group Enrollment Details with Teacher */}
       <div style={{ fontSize: '8pt', lineHeight: '1.6' }}>
-        <div style={{ fontWeight: 'bold', textDecoration: 'underline', marginBottom: '1mm' }}>INSCRIPTION & COURS:</div>
-        {enrollments.length > 0 ? (
-          enrollments.map((en, idx) => (
-            <div key={en.id || idx} style={{ marginBottom: '1mm' }}>
+        <div style={{ fontWeight: 'bold', textDecoration: 'underline', marginBottom: '1.5mm' }}>
+          CLASSES & ENSEIGNANTS:
+        </div>
+        {activeEnrollments.length > 0 ? (
+          activeEnrollments.map((en, idx) => (
+            <div key={en.id || idx} style={{ marginBottom: '2mm', paddingBottom: '1.5mm', borderBottom: idx < activeEnrollments.length - 1 ? '1px dotted #ccc' : 'none' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
+                <span>• Matière:</span>
+                <span style={{ direction: 'rtl' }}>{en.courseName || en.groupName || '—'}</span>
+              </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>• {en.courseName || en.groupName || `Groupe #${en.groupId}`}</span>
-                <span style={{ fontWeight: 'bold' }}>{en.agreedPrice ? `${en.agreedPrice.toLocaleString()} DA` : ''}</span>
+                <span style={{ color: '#444' }}>  Groupe:</span>
+                <span>{en.groupName || `Groupe #${en.groupId}`}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: '#444' }}>  Enseignant:</span>
+                <span style={{ fontWeight: 'bold' }}>{en.teacherName || 'Non assigné'}</span>
               </div>
             </div>
           ))
@@ -273,48 +255,6 @@ export default function StudentCard() {
         )}
       </div>
 
-      <div style={{ borderBottom: '1px dashed #000', margin: '2.5mm 0' }} />
-
-      {/* Payment Information */}
-      <div style={{ fontSize: '8pt', lineHeight: '1.6' }}>
-        <div style={{ fontWeight: 'bold', textDecoration: 'underline', marginBottom: '1mm' }}>DERNIER PAIEMENT:</div>
-        {lastPayment ? (
-          <>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span>Montant réglé:</span>
-              <span style={{ fontWeight: 'bold' }}>{lastPayment.amount.toLocaleString()} DZD</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span>Période / Mois:</span>
-              <span>{lastPayment.billingPeriod || 'Mensuel'}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span>Date de paiement:</span>
-              <span>{lastPayment.paymentDate}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span>N° Reçu:</span>
-              <span style={{ fontFamily: 'monospace' }}>{lastPayment.receiptNumber}</span>
-            </div>
-          </>
-        ) : (
-          <div style={{ color: '#b91c1c', fontWeight: 'bold' }}>Aucun règlement enregistré</div>
-        )}
-      </div>
-
-      <div style={{ borderBottom: '1px dashed #000', margin: '2.5mm 0' }} />
-
-      {/* Attendance & Remaining Lessons */}
-      <div style={{ fontSize: '8pt', lineHeight: '1.6' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <span>Taux de présence:</span>
-          <span style={{ fontWeight: 'bold' }}>{attendanceRate !== null ? `${attendanceRate}%` : '100%'}</span>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <span>Séances restantes (mois):</span>
-          <span style={{ fontWeight: 'bold' }}>{remainingSessions > 0 ? `${remainingSessions} séances` : 'À jour'}</span>
-        </div>
-      </div>
 
       <div style={{ borderBottom: '1px dashed #000', margin: '2.5mm 0' }} />
 
@@ -460,44 +400,39 @@ export default function StudentCard() {
               {student.phone && (
                 <div className="flex justify-between">
                   <span className="text-slate-500 font-medium">TÉLÉPHONE</span>
-                  <span className="text-[#0F172A]">{student.phone}</span>
+                  <span className="font-medium text-[#0F172A] dir-ltr">{student.phone}</span>
                 </div>
               )}
-              <div className="flex justify-between">
-                <span className="text-slate-500 font-medium">COURS / GROUPE</span>
-                <span className="font-semibold text-[#2563EB]">
-                  {primaryEnrollment?.courseName || primaryEnrollment?.groupName || 'Inscrit'}
-                </span>
-              </div>
             </div>
 
             <div className="border-b border-dashed border-slate-300 my-2.5" />
 
-            {/* Payment & Attendance details */}
-            <div className="space-y-1.5 text-xs bg-slate-50 p-2.5 rounded-lg">
-              <div className="flex justify-between">
-                <span className="text-slate-500 font-medium">DERNIER PAIEMENT:</span>
-                <span className="font-bold text-emerald-600">
-                  {lastPayment ? `${lastPayment.amount.toLocaleString()} DA` : 'Non réglé'}
-                </span>
-              </div>
-              {lastPayment && (
-                <div className="flex justify-between text-[11px] text-slate-500">
-                  <span>Période: {lastPayment.billingPeriod || 'Mensuel'}</span>
-                  <span>{lastPayment.paymentDate}</span>
-                </div>
-              )}
-              <div className="flex justify-between pt-1 border-t border-slate-200">
-                <span className="text-slate-500 font-medium">PRÉSENCE:</span>
-                <span className="font-semibold text-[#0F172A]">
-                  {attendanceRate !== null ? `${attendanceRate}%` : '100%'}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500 font-medium">LEÇONS RESTANTES:</span>
-                <span className="font-semibold text-blue-600">
-                  {remainingSessions > 0 ? `${remainingSessions} séances` : 'À jour'}
-                </span>
+            {/* Classes, Subject & Teacher details */}
+            <div>
+              <p className="text-[10px] font-bold tracking-wider text-slate-400 uppercase mb-2">
+                CLASSES & ENSEIGNANTS
+              </p>
+              <div className="space-y-2">
+                {activeEnrollments.length > 0 ? (
+                  activeEnrollments.map((en, idx) => (
+                    <div key={en.id || idx} className="bg-slate-50 border border-slate-200/80 rounded-lg p-2.5 text-xs space-y-1">
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-500 font-medium">المادة / Cours:</span>
+                        <span className="font-bold text-[#0F172A]">{en.courseName || en.groupName || '—'}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-500 font-medium">الفوج / Groupe:</span>
+                        <span className="font-semibold text-[#2563EB]">{en.groupName || `Groupe #${en.groupId}`}</span>
+                      </div>
+                      <div className="flex justify-between items-center pt-0.5 border-t border-slate-200/60">
+                        <span className="text-slate-500 font-medium">الأستاذ / Prof:</span>
+                        <span className="font-medium text-slate-800">{en.teacherName || 'Non assigné'}</span>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-slate-400 italic">Aucune inscription active</p>
+                )}
               </div>
             </div>
 

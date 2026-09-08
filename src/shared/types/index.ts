@@ -115,7 +115,12 @@ export interface Enrollment {
   studentName?: string
   groupName?: string
   courseName?: string
+  courseNameAr?: string
+  courseNameFr?: string
+  teacherId?: number
+  teacherName?: string
 }
+
 
 export interface AttendanceSession {
   id: number

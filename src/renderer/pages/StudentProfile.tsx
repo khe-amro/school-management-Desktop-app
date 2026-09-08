@@ -155,6 +155,35 @@ export default function StudentProfile() {
   const [photoUrl, setPhotoUrl] = useState<string | null>(null)
   const qrCanvasRef = useRef<HTMLCanvasElement>(null)
 
+  // Render student QR code to canvas whenever student or token updates
+  const renderQrCode = useCallback((canvas: HTMLCanvasElement | null) => {
+    if (!canvas || !student?.qrToken) return
+    QRCode.toCanvas(canvas, student.qrToken, {
+      width: 150,
+      margin: 1,
+      color: {
+        dark: '#0F172A',
+        light: '#FFFFFF',
+      },
+      errorCorrectionLevel: 'M',
+    }).catch((err) => {
+      console.error('Failed to generate student QR code:', err)
+    })
+  }, [student?.qrToken])
+
+  const qrCanvasCallback = useCallback((node: HTMLCanvasElement | null) => {
+    qrCanvasRef.current = node
+    if (node) {
+      renderQrCode(node)
+    }
+  }, [renderQrCode])
+
+  useEffect(() => {
+    if (qrCanvasRef.current) {
+      renderQrCode(qrCanvasRef.current)
+    }
+  }, [renderQrCode])
+
   // Tab data
   const [enrollments, setEnrollments] = useState<EnrollmentWithDetails[]>([])
   const [payments, setPayments] = useState<Payment[]>([])
@@ -807,10 +836,17 @@ export default function StudentProfile() {
 
               {/* QR Code */}
               <div className="mt-3 text-center">
-                <canvas ref={qrCanvasRef} className="mx-auto rounded-lg border border-slate-100 shadow-xs" />
+                <canvas
+                  ref={qrCanvasCallback}
+                  onClick={() => navigate(`/students/${student.id}/card`)}
+                  title={t('students.card')}
+                  className={`mx-auto rounded-lg border border-slate-100 shadow-xs cursor-pointer hover:shadow-md transition-all ${
+                    student.qrTokenActive ? '' : 'opacity-40 grayscale'
+                  }`}
+                />
                 <button
                   onClick={handleRegenQR}
-                  className="mt-2 flex items-center gap-1.5 text-xs text-slate-400 hover:text-[#2563EB] transition-colors mx-auto font-medium"
+                  className="mt-2 flex items-center gap-1.5 text-xs text-slate-400 hover:text-[#2563EB] transition-colors mx-auto font-medium cursor-pointer"
                 >
                   <RefreshCw size={11} /> {t('students.regenQR')}
                 </button>
